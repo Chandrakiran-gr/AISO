@@ -1,16 +1,14 @@
-# ─── Secrets & Keys ──────────────────────────────────────────────────────────
+# ─── Secrets & Keys (CRITICAL — never commit these) ──────────────────────────
 .env
 *.env
 !*.env.example
 *-key*.json
 *credentials*.json
 **/service*account*.json
-# Google service account (specific file currently in repo)
-**/integratedai-aio-sbaco-*.json
+**/integratedai-aio-*.json
 
-# Benchmark datasets — large generated files
-SBACO/aio_benchmark/benchmark_data_*.csv
-SBACO/aio_benchmark/benchmark_retest_*.csv
+# ─── Client Data (sensitive — stays local only) ──────────────────────────────
+clients/
 
 # ─── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
@@ -27,12 +25,11 @@ venv/
 # ─── Webish session & results ────────────────────────────────────────────────
 webish/.session/
 webish/results/
-SBACO/webish/.session/
-SBACO/webish/results/
 
 # ─── IDE & Editor ────────────────────────────────────────────────────────────
 .cursor/
 .claude/
+.gemini/
 .DS_Store
 Thumbs.db
 *.code-workspace
@@ -43,7 +40,12 @@ Thumbs.db
 *.log
 logs/
 
-# ─── Node (for Firebase / web projects) ──────────────────────────────────────
+# ─── Node ────────────────────────────────────────────────────────────────────
 node_modules/
 .firebase/
 .firebaserc
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
+*.swp
+*.swo
+*~
