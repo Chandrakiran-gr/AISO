@@ -1,0 +1,37 @@
+SERVICE COMMITMENTS — V3 TWEAKS PLAN
+================================================================================
+This is a list of edits to make directly to commitments_v3.html.
+Do not create a new file. Edit v3 in place.
+
+
+================================================================================
+PENDING TWEAKS
+================================================================================
+
+(none)
+
+
+================================================================================
+COMPLETED TWEAKS
+================================================================================
+
+1. Focused Industry Assessment — body text rewritten. Removed "full picture",
+   added plain explanation of both metrics.
+
+2. Website File Implementation — rewritten. Fewer we/you/it, more concrete.
+
+3. Order swapped — Written Observations now before Website File Implementation.
+
+4. Directory Update Audit — updated to include website file changes.
+
+
+================================================================================
+COMPLETED TWEAKS
+================================================================================
+
+(none yet)
+
+
+================================================================================
+END
+================================================================================

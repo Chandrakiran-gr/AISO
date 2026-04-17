@@ -1,0 +1,70 @@
+# Claude Code + Cursor Setup You are a setup agent. Follow these steps in order to configure this machine to run Claude Code alongside Cursor. After each step, confirm success before moving on. If a step fails, diagnose and fix it before continuing. ----- ## Step 1 — Check Prerequisites Run the following checks and report the results:
+bash
+node --version       # Must be >= 18
+npm --version
+git --version
+code --version       # Confirms VS Code / Cursor CLI is available
+If Node is missing or below v18, install it via nvm:
+bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+source ~/.bashrc     # or ~/.zshrc
+nvm install --lts
+nvm use --lts
+----- ## Step 2 — Install Claude Code CLI
+bash
+npm install -g @anthropic-ai/claude-code
+Verify the install:
+bash
+claude --version
+If the command is not found after install, add npm global bin to PATH:
+bash
+export PATH="$(npm root -g)/../bin:$PATH"
+Add that line to ~/.bashrc or ~/.zshrc to make it permanent. ----- ## Step 3 — Authenticate Claude Code
+bash
+claude
+This will open a browser window to authenticate with your Anthropic account. Complete the login flow, then close the browser and return to the terminal. Claude Code will confirm authentication in the terminal. > Requires a Claude Pro ($20/mo) or Max ($100–200/mo) subscription at claude.ai. ----- ## Step 4 — Install the Claude Code Extension in Cursor Run this from the terminal inside Cursor:
+bash
+code --install-extension anthropic.claude-code
+If code CLI isn’t available in Cursor, install the extension manually: 1. Open Cursor 1. Press Cmd+Shift+X (Mac) or Ctrl+Shift+X (Windows/Linux) 1. Search for **Claude Code** by Anthropic 1. Click Install ----- ## Step 5 — Create a CLAUDE.md Project Instructions File In the root of this project, create a file called CLAUDE.md with the following content:
+markdown
+# Project Instructions for Claude Code
+
+## Role
+You are an autonomous coding agent working in parallel with a human developer using Cursor IDE.
+
+## Workflow
+- The human handles: quick edits, inline completions, UI tweaks, small fixes via Cursor
+- You handle: multi-file refactors, complex features, migrations, tests, CI/CD tasks
+
+## Rules
+- Always read existing code before making changes
+- Run tests after any significant change
+- Use git to commit logical units of work with clear messages
+- Ask for clarification before making irreversible changes (e.g. deleting files, dropping DB tables)
+- Never overwrite files the human is actively editing — check git status first
+
+## Stack
+<!-- TODO: Fill in your project's stack, e.g.: -->
+<!-- - Frontend: React + TypeScript -->
+<!-- - Backend: Node.js / Python / etc. -->
+<!-- - Database: PostgreSQL / MongoDB / etc. -->
+<!-- - Testing: Jest / Pytest / etc. -->
+----- ## Step 6 — Configure Cursor to Use Claude Models 1. Open Cursor Settings: Cmd+, (Mac) or Ctrl+, (Windows/Linux) 1. Go to **Models** 1. Enable **claude-sonnet-4-6** for everyday tasks (fast, cost-efficient) 1. Enable **claude-opus-4-6** for complex reasoning tasks 1. Set your preferred default model Cursor will use these models for its own Agent and Composer features, separate from Claude Code CLI. ----- ## Step 7 — Set Up Parallel Workflow in Cursor Split your Cursor workspace for the parallel workflow: 1. Open the terminal panel: Ctrl+ 1. Split the terminal into two panes: click the **Split Terminal** icon (or Cmd+Shift+5 on Mac) 1. In **Pane 1**: run claude to start an interactive Claude Code session 1. In **Pane 2**: keep your normal shell for git, running servers, etc. 1. Keep the **editor** open as usual — Cursor’s tab completions stay active at all times To run Claude Code on a specific task without entering interactive mode:
+bash
+claude -p "Describe your task here"
+To run multiple Claude Code agents in parallel on different parts of the codebase, open additional terminal panes and start a new claude session in each. ----- ## Step 8 — Verify Everything Works Run this checklist and confirm each item:
+bash
+# 1. Claude Code CLI is installed and authenticated
+claude --version
+
+# 2. CLAUDE.md exists in project root
+ls CLAUDE.md
+
+# 3. Git is initialized (Claude Code uses git heavily)
+git status
+If git is not initialized:
+bash
+git init
+git add .
+git commit -m "Initial commit"
+----- ## Done ✓ Report back with: - ✅ or ❌ for each step - Any errors encountered and how they were resolved - The installed versions of Node, Claude Code CLI, and the Cursor extension The workspace is now configured to run Claude Code (agentic, multi-file, terminal-driven) in parallel with Cursor (inline completions, visual diffs, quick edits).

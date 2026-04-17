@@ -1,0 +1,180 @@
+# AI Spellcasting: Level 0.5 to 10/10
+
+A curriculum to get you fully fluent at using AI for coding. Each level adds new "spells" (prompt patterns and habits). Practice on your real projects: sim_6, paper_trader3, PAC site.
+
+---
+
+## Level 1-2: Basics (you're roughly here)
+
+**Skills**
+
+- Ask clear, specific questions
+- Paste code + error messages when stuck
+- Say "explain this" on confusing code
+
+**Practice**
+
+- Pick one function in sim_6. Ask: "Explain this function and what could go wrong."
+- When you hit an error, paste the error + 5-10 lines of code and ask: "Why is this failing?"
+- Learn: vague question -> vague answer. Specific question + context -> useful answer.
+
+**Exit check:** You can get a correct fix or explanation within 1-2 back-and-forths.
+
+---
+
+## Level 3: Context control
+
+**Skills**
+
+- Use @ to attach files, folders, or docs so the AI has your code
+- Mention what you're working on (e.g. "I'm in paper_trader3, fixing the rebalance logic")
+- One message = one clear task
+
+**Practice**
+
+- @sim_6.py explain the brain() function
+- @trader I want to add a stop-loss - show me where and how
+- Start every session with 1-2 sentences of context if the project is big.
+
+**Exit check:** The AI rarely asks "which file?" or "what project?" - you frontload context.
+
+---
+
+## Level 4: Prompt structure
+
+**Skills**
+
+- Use structure: Goal -> Context -> Constraints -> Example (when helpful)
+- Separate "explain" vs "change" vs "review" requests
+- Specify format: "list steps", "one function", "inline comments", etc.
+
+**Examples**
+
+- Bad: "fix my code"
+- Good: "In paper_trader3, the papertrade function allows fractional shares. Change it so we only trade whole shares. Keep the same logic otherwise."
+
+**Practice**
+
+- Rewrite 3 of your past vague prompts in the Goal -> Context -> Constraints form.
+- Ask for "a bullet list of steps first, then implement" for a medium task.
+
+**Exit check:** You can reliably get the kind of output you want (explanation vs code vs checklist).
+
+---
+
+## Level 5: Debugging with AI
+
+**Skills**
+
+- Share minimal repro: smallest snippet that still breaks
+- Include error traceback + environment (Python version, OS)
+- Ask "what could cause X?" before "fix it" when the cause is unclear
+
+**Practice**
+
+- Intentionally break something in sim_6 (e.g. typo, wrong type). Paste error + snippet. Get the fix.
+- For a real bug: describe symptom -> hypothesis -> ask AI to verify or debunk.
+
+**Exit check:** You can turn "it's broken" into "here's the minimal bug case" and get a fix in under 3 exchanges.
+
+---
+
+## Level 6: Workflow, not one-offs
+
+**Skills**
+
+- Break big tasks into 3-5 concrete steps; tackle one per message
+- Use the AI to plan first ("what are the steps?") then implement
+- Know when to say "just do X" vs "walk me through X"
+
+**Practice**
+
+- For "add a PAC website": Ask for a step-by-step plan. Then: "Do step 1." Then: "Do step 2."
+- Use "don't change Y, only Z" to limit scope and avoid unwanted edits.
+
+**Exit check:** You can run a 5-step feature without the AI breaking unrelated code.
+
+---
+
+## Level 7: Rules and preferences
+
+**Skills**
+
+- Use Cursor rules or a project README so the AI knows your style (e.g. "no emojis", "prefer type hints", "this project uses X")
+- Create small rule files for recurring patterns (e.g. "how we structure API calls")
+
+**Practice**
+
+- Add a .cursorrules or project note: "Python, no emojis in code, prefer explicit over clever."
+- When the AI does something you dislike, add a rule for next time.
+
+**Exit check:** The AI respects your style and conventions without you restating them.
+
+---
+
+## Level 8: Planning and architecture
+
+**Skills**
+
+- Ask for plans before implementation: "Here's what I want. Give me a plan first. Don't code yet."
+- Use the AI to compare options: "Approach A vs B for this feature - pros and cons"
+- Treat the AI as a design partner, not just a coder
+
+**Practice**
+
+- For a new feature: "I want X. What's the simplest architecture? List tradeoffs."
+- For a refactor: "I'm thinking of splitting this file. Critique this and suggest a better structure."
+
+**Exit check:** You routinely get useful design feedback before writing code.
+
+---
+
+## Level 9: Anti-patterns and failure modes
+
+**Skills**
+
+- Know when the AI is wrong: wrong APIs, bad logic, hallucinations
+- Verify critical logic yourself; don't trust AI blindly on money, auth, or safety
+- Spot "confident but wrong" and correct it: "That's not right because X"
+
+**Practice**
+
+- Ask the AI to do something subtly wrong (e.g. off-by-one). Practice spotting and correcting.
+- For trading code: always sanity-check order logic, position sizing, and edge cases.
+
+**Exit check:** You catch and fix AI mistakes instead of letting them ship.
+
+---
+
+## Level 10: Wizard
+
+**Skills**
+
+- Combine all of the above
+- Minimal back-and-forth: one good prompt -> 80% of what you need
+- Use AI for: coding, planning, explaining, reviewing, debugging, refactoring
+- You direct; the AI executes. You stay in control.
+
+**Practice**
+
+- Pick a real project. In one session: plan a feature -> implement -> add tests -> fix bugs. Use the AI for each step.
+- Teach someone else one prompt pattern. Teaching locks it in.
+
+**Exit check:** You can go from "I want X" to working code in a single focused session, with you steering and the AI doing the heavy lifting.
+
+---
+
+## Suggested timeline
+
+- Levels 1-3: 1-2 weeks of regular use
+- Levels 4-6: 2-4 weeks
+- Levels 7-8: 1-2 weeks
+- Levels 9-10: Ongoing; depends on how much you push the edges
+
+Use your projects as labs: sim_6 for algorithms, paper_trader3 for finance, PAC site for full-stack.
+
+---
+
+## First action
+
+Pick one small task from your current work. Use the Level 3-4 pattern: attach the file, state the goal, add one constraint. See how the AI responds. Then iterate on the prompt until the output is exactly what you need.

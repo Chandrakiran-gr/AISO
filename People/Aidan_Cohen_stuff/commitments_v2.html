@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Service Commitments — Integrated_ai</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 12.5px;
+      color: #000;
+      background: #fff;
+      padding: 64px 76px;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    .brand {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      margin-bottom: 34px;
+    }
+
+    .doc-title {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 22px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .doc-subtitle {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 28px;
+    }
+
+    .meta {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 34px;
+    }
+
+    .meta-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 14px;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .meta-label {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #777;
+      width: 85px;
+      flex-shrink: 0;
+    }
+
+    .meta-line {
+      border-bottom: 1px solid #000;
+      height: 18px;
+      width: 240px;
+    }
+
+    hr {
+      border: none;
+      border-top: 1px solid #000;
+      margin: 26px 0;
+    }
+
+    .section-label {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: #999;
+      margin-bottom: 8px;
+    }
+
+    .section-title {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 15px;
+      font-weight: bold;
+      margin-bottom: 3px;
+    }
+
+    .section-timing {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10.5px;
+      color: #666;
+      font-style: italic;
+      margin-bottom: 18px;
+    }
+
+    .deliverable {
+      margin-bottom: 18px;
+    }
+
+    .deliverable-name {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .deliverable-desc {
+      line-height: 1.7;
+      color: #111;
+    }
+
+    .chart-wrap {
+      margin: 14px 0 6px 0;
+      border: 1px solid #ccc;
+      padding: 16px 14px 14px 14px;
+    }
+
+    .chart-title-text {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 9.5px;
+      font-weight: bold;
+      text-align: center;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      overflow: visible;
+    }
+
+    .chart-note {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 9.5px;
+      color: #888;
+      font-style: italic;
+      margin-top: 7px;
+    }
+
+    .benchmark-note {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10.5px;
+      color: #444;
+      margin-top: 10px;
+    }
+
+    .pricing-section { margin-bottom: 4px; }
+
+    .pricing-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+      padding: 9px 0;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .pricing-row:last-child { border-bottom: none; }
+
+    .pricing-line {
+      border-bottom: 1px solid #000;
+      width: 140px;
+      height: 18px;
+    }
+
+    .sig-block {
+      display: flex;
+      gap: 48px;
+      margin-top: 10px;
+    }
+
+    .sig-field { flex: 1; }
+
+    .sig-line {
+      border-bottom: 1px solid #000;
+      height: 42px;
+      margin-bottom: 7px;
+    }
+
+    .sig-label {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #777;
+    }
+
+    @media print {
+      body { padding: 52px 64px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="brand">Integrated_ai</div>
+  <div class="doc-title">Service Commitments</div>
+  <div class="doc-subtitle">What we deliver and when.</div>
+
+  <div class="meta">
+    <div class="meta-row">
+      <div class="meta-label">Client</div>
+      <div class="meta-line"></div>
+    </div>
+    <div class="meta-row">
+      <div class="meta-label">Start Date</div>
+      <div class="meta-line"></div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 1: SETUP -->
+  <div class="section-label">Section 1</div>
+  <div class="section-title">Setup</div>
+  <div class="section-timing">Delivered within one week of signing.</div>
+
+  <div class="deliverable">
+    <div class="deliverable-name">Profiling</div>
+    <div class="deliverable-desc">
+      We conduct a session with you to understand your business — what you offer, who you serve,
+      where you operate, and what you want to be known for. This becomes the foundation of your
+      presence in AI search.
+    </div>
+  </div>
+
+  <div class="deliverable">
+    <div class="deliverable-name">Focused Industry Assessment</div>
+    <div class="deliverable-desc">
+      A full picture of where your business stands in AI search relative to your competitors.
+      Delivered as two charts:
+    </div>
+
+    <!-- BAR CHART 1: Share of Mentions -->
+    <div class="chart-wrap">
+      <div class="chart-title-text">AI Search Mentions by Company</div>
+      <!--
+        viewBox: 0 0 500 215
+        Chart area: x=60 to x=395 (width=335), y=20 to y=180 (height=160)
+        Y-axis: 0% to 35%
+        5 bars, width=40, evenly spaced
+        Bar left edges: ~78, 141, 204, 267, 330
+        y = 180 - (val/35)*160
+        0%=180, 10%=134, 20%=89, 30%=43
+        Values: YB=21%(y=84,h=96), C1=31%(y=38,h=142), C2=26%(y=61,h=119), C3=22%(y=79,h=101), C4=18%(y=98,h=82)
+      -->
+      <svg viewBox="0 0 500 215" xmlns="http://www.w3.org/2000/svg">
+
+        <!-- Y-axis rotated label -->
+        <text transform="rotate(-90,12,105)" x="12" y="105"
+              font-family="Arial,Helvetica,sans-serif" font-size="9" fill="#666" text-anchor="middle">
+          % of AI Search Mentions
+        </text>
+
+        <!-- Gridlines -->
+        <line x1="60" y1="180" x2="395" y2="180" stroke="#ddd" stroke-width="0.8"/>
+        <line x1="60" y1="134" x2="395" y2="134" stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="89"  x2="395" y2="89"  stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="43"  x2="395" y2="43"  stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+
+        <!-- Y-axis tick labels -->
+        <text x="55" y="184" font-family="Arial" font-size="9" fill="#666" text-anchor="end">0%</text>
+        <text x="55" y="138" font-family="Arial" font-size="9" fill="#666" text-anchor="end">10%</text>
+        <text x="55" y="93"  font-family="Arial" font-size="9" fill="#666" text-anchor="end">20%</text>
+        <text x="55" y="47"  font-family="Arial" font-size="9" fill="#666" text-anchor="end">30%</text>
+
+        <!-- Axes -->
+        <line x1="60" y1="20"  x2="60"  y2="180" stroke="#000" stroke-width="1.2"/>
+        <line x1="60" y1="180" x2="395" y2="180" stroke="#000" stroke-width="1.2"/>
+
+        <!-- Your Business: 21% → h=96, y=84 -->
+        <rect x="78"  y="84" width="40" height="96" fill="#000"/>
+        <text x="98"  y="80" font-family="Arial" font-size="9" fill="#000" text-anchor="middle" font-weight="bold">21%</text>
+        <text x="98"  y="195" font-family="Arial" font-size="9" fill="#222" text-anchor="middle">Your</text>
+        <text x="98"  y="207" font-family="Arial" font-size="9" fill="#222" text-anchor="middle">Business</text>
+
+        <!-- Comp 1: 31% → h=142, y=38 -->
+        <rect x="141" y="38" width="40" height="142" fill="#888"/>
+        <text x="161" y="34" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">31%</text>
+        <text x="161" y="195" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Comp. 1</text>
+
+        <!-- Comp 2: 26% → h=119, y=61 -->
+        <rect x="204" y="61" width="40" height="119" fill="#888"/>
+        <text x="224" y="57" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">26%</text>
+        <text x="224" y="195" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Comp. 2</text>
+
+        <!-- Comp 3: 22% → h=101, y=79 -->
+        <rect x="267" y="79" width="40" height="101" fill="#888"/>
+        <text x="287" y="75" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">22%</text>
+        <text x="287" y="195" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Comp. 3</text>
+
+        <!-- Comp 4: 18% → h=82, y=98 -->
+        <rect x="330" y="98" width="40" height="82" fill="#888"/>
+        <text x="350" y="94" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">18%</text>
+        <text x="350" y="195" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Comp. 4</text>
+
+        <!-- Legend -->
+        <rect x="410" y="60" width="11" height="11" fill="#000"/>
+        <text x="425" y="70" font-family="Arial" font-size="9" fill="#222">Your Business</text>
+        <rect x="410" y="78" width="11" height="11" fill="#888"/>
+        <text x="425" y="88" font-family="Arial" font-size="9" fill="#555">Competitors</text>
+
+      </svg>
+    </div>
+
+    <!-- BAR CHART 2: Sentiment Score -->
+    <div class="chart-wrap">
+      <div class="chart-title-text">AI Search Sentiment Score by Company</div>
+      <!--
+        Y-axis: 0 to 10 (sentiment score)
+        y = 180 - (val/10)*160
+        0=180, 2=148, 4=116, 6=84, 8=52, 10=20
+        Values: YB=6.2(y=81,h=99), C1=7.8(y=55,h=125), C2=5.4(y=94,h=86), C3=6.9(y=70,h=110), C4=4.1(y=114,h=66)
+      -->
+      <svg viewBox="0 0 500 215" xmlns="http://www.w3.org/2000/svg">
+
+        <!-- Y-axis rotated label -->
+        <text transform="rotate(-90,12,105)" x="12" y="105"
+              font-family="Arial,Helvetica,sans-serif" font-size="9" fill="#666" text-anchor="middle">
+          Sentiment Score (0–10)
+        </text>
+
+        <!-- Gridlines -->
+        <line x1="60" y1="180" x2="395" y2="180" stroke="#ddd" stroke-width="0.8"/>
+        <line x1="60" y1="148" x2="395" y2="148" stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="116" x2="395" y2="116" stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="84"  x2="395" y2="84"  stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="52"  x2="395" y2="52"  stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="20"  x2="395" y2="20"  stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+
+        <!-- Y-axis tick labels -->
+        <text x="55" y="184" font-family="Arial" font-size="9" fill="#666" text-anchor="end">0</text>
+        <text x="55" y="152" font-family="Arial" font-size="9" fill="#666" text-anchor="end">2</text>
+        <text x="55" y="120" font-family="Arial" font-size="9" fill="#666" text-anchor="end">4</text>
+        <text x="55" y="88"  font-family="Arial" font-size="9" fill="#666" text-anchor="end">6</text>
+        <text x="55" y="56"  font-family="Arial" font-size="9" fill="#666" text-anchor="end">8</text>
+        <text x="55" y="24"  font-family="Arial" font-size="9" fill="#666" text-anchor="end">10</text>
+
+        <!-- Axes -->
+        <line x1="60" y1="20"  x2="60"  y2="180" stroke="#000" stroke-width="1.2"/>
+        <line x1="60" y1="180" x2="395" y2="180" stroke="#000" stroke-width="1.2"/>
+
+        <!-- Your Business: 6.2 → h=99, y=81 -->
+        <rect x="78"  y="81" width="40" height="99" fill="#000"/>
+        <text x="98"  y="77" font-family="Arial" font-size="9" fill="#000" text-anchor="middle" font-weight="bold">6.2</text>
+        <text x="98"  y="195" font-family="Arial" font-size="9" fill="#222" text-anchor="middle">Your</text>
+        <text x="98"  y="207" font-family="Arial" font-size="9" fill="#222" text-anchor="middle">Business</text>
+
+        <!-- Comp 1: 7.8 → h=125, y=55 -->
+        <rect x="141" y="55" width="40" height="125" fill="#888"/>
+        <text x="161" y="51" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">7.8</text>
+        <text x="161" y="195" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Comp. 1</text>
+
+        <!-- Comp 2: 5.4 → h=86, y=94 -->
+        <rect x="204" y="94" width="40" height="86" fill="#888"/>
+        <text x="224" y="90" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">5.4</text>
+        <text x="224" y="195" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Comp. 2</text>
+
+        <!-- Comp 3: 6.9 → h=110, y=70 -->
+        <rect x="267" y="70" width="40" height="110" fill="#888"/>
+        <text x="287" y="66" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">6.9</text>
+        <text x="287" y="195" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Comp. 3</text>
+
+        <!-- Comp 4: 4.1 → h=66, y=114 -->
+        <rect x="330" y="114" width="40" height="66" fill="#888"/>
+        <text x="350" y="110" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">4.1</text>
+        <text x="350" y="195" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Comp. 4</text>
+
+        <!-- Legend -->
+        <rect x="410" y="60" width="11" height="11" fill="#000"/>
+        <text x="425" y="70" font-family="Arial" font-size="9" fill="#222">Your Business</text>
+        <rect x="410" y="78" width="11" height="11" fill="#888"/>
+        <text x="425" y="88" font-family="Arial" font-size="9" fill="#555">Competitors</text>
+
+      </svg>
+    </div>
+
+    <div class="chart-note">Example data shown. Your actual assessment reflects your industry and competitors.</div>
+  </div>
+
+  <div class="deliverable">
+    <div class="deliverable-name">Website File Implementation</div>
+    <div class="deliverable-desc">
+      To establish your presence in AI search at the technical level, we'll implement the necessary
+      files directly on your website. We'll request backend access to handle this — and keep it
+      updated — ourselves. If you'd prefer not to share access, we'll deliver the files to you
+      directly and walk you through getting them live.
+    </div>
+  </div>
+
+  <div class="deliverable">
+    <div class="deliverable-name">Written Observations</div>
+    <div class="deliverable-desc">
+      Alongside your charts, we'll share our written take — what we're seeing in your space,
+      what stands out, and anything we think is worth your attention as we get started.
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 2: MONTHLY -->
+  <div class="section-label">Section 2</div>
+  <div class="section-title">Monthly Deliverables</div>
+  <div class="section-timing">Delivered every month following setup.</div>
+
+  <div class="deliverable">
+    <div class="deliverable-name">Evolving Industry Assessment</div>
+    <div class="deliverable-desc">
+      Your AI search mention rate tracked over time, alongside your competitors. Each monthly
+      delivery adds a new data point — the report grows with every cycle.
+    </div>
+
+    <!-- LINE CHART: Evolving Industry Assessment -->
+    <div class="chart-wrap">
+      <div class="chart-title-text">AI Search Mentions Over Time</div>
+      <!--
+        viewBox: 0 0 520 215
+        Chart area: x=60 to x=370 (width=310), y=20 to y=180 (height=160)
+        Y-axis: 0% to 40%
+        y = 180 - (val/40)*160
+        Gridlines: 0%=180, 10%=140, 20%=100, 30%=60, 40%=20
+        X positions: 3 points at x=130, 220, 310 (evenly spaced)
+        X-axis label: "Date"
+
+        Data (val → y):
+          Your Business: 18%(113) → 22%(92) → 25%(80)     ← rising (drawn last = on top)
+          Comp. 1:       33%(48)  → 30%(60) → 27%(72)     ← falling
+          Comp. 2:       27%(72)  → 25%(80) → 24%(84)     ← slight decline
+          Comp. 3:       22%(92)  → 21%(96) → 21%(96)     ← flat
+
+        End labels at x=320:
+          Comp.1 ends at y=72  → label y=72
+          Your Business at y=80 → label y=84
+          Comp.2 at y=84       → label y=96
+          Comp.3 at y=96       → label y=108
+      -->
+      <svg viewBox="0 0 520 215" xmlns="http://www.w3.org/2000/svg">
+
+        <!-- Y-axis rotated label -->
+        <text transform="rotate(-90,12,105)" x="12" y="105"
+              font-family="Arial,Helvetica,sans-serif" font-size="9" fill="#666" text-anchor="middle">
+          % of AI Search Mentions
+        </text>
+
+        <!-- Gridlines -->
+        <line x1="60" y1="180" x2="370" y2="180" stroke="#ddd" stroke-width="0.8"/>
+        <line x1="60" y1="140" x2="370" y2="140" stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="100" x2="370" y2="100" stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="60"  x2="370" y2="60"  stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="60" y1="20"  x2="370" y2="20"  stroke="#ddd" stroke-width="0.8" stroke-dasharray="4,3"/>
+
+        <!-- Y-axis tick labels -->
+        <text x="55" y="184" font-family="Arial" font-size="9" fill="#666" text-anchor="end">0%</text>
+        <text x="55" y="144" font-family="Arial" font-size="9" fill="#666" text-anchor="end">10%</text>
+        <text x="55" y="104" font-family="Arial" font-size="9" fill="#666" text-anchor="end">20%</text>
+        <text x="55" y="64"  font-family="Arial" font-size="9" fill="#666" text-anchor="end">30%</text>
+        <text x="55" y="24"  font-family="Arial" font-size="9" fill="#666" text-anchor="end">40%</text>
+
+        <!-- Axes -->
+        <line x1="60" y1="20"  x2="60"  y2="180" stroke="#000" stroke-width="1.2"/>
+        <line x1="60" y1="180" x2="370" y2="180" stroke="#000" stroke-width="1.2"/>
+
+        <!-- X-axis tick marks and date labels -->
+        <line x1="130" y1="180" x2="130" y2="185" stroke="#000" stroke-width="1"/>
+        <line x1="220" y1="180" x2="220" y2="185" stroke="#000" stroke-width="1"/>
+        <line x1="310" y1="180" x2="310" y2="185" stroke="#000" stroke-width="1"/>
+        <text x="130" y="197" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">Jan 2026</text>
+        <text x="220" y="197" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">Feb 2026</text>
+        <text x="310" y="197" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">Mar 2026</text>
+        <text x="220" y="210" font-family="Arial" font-size="9" fill="#999" text-anchor="middle">Date</text>
+
+        <!-- Comp. 3: 22→21→21, y=92→96→96 -->
+        <polyline points="130,92 220,96 310,96" fill="none" stroke="#c0c0c0" stroke-width="1.5"/>
+        <circle cx="130" cy="92" r="3" fill="#c0c0c0"/>
+        <circle cx="220" cy="96" r="3" fill="#c0c0c0"/>
+        <circle cx="310" cy="96" r="3" fill="#c0c0c0"/>
+
+        <!-- Comp. 2: 27→25→24, y=72→80→84 -->
+        <polyline points="130,72 220,80 310,84" fill="none" stroke="#aaa" stroke-width="1.5"/>
+        <circle cx="130" cy="72" r="3" fill="#aaa"/>
+        <circle cx="220" cy="80" r="3" fill="#aaa"/>
+        <circle cx="310" cy="84" r="3" fill="#aaa"/>
+
+        <!-- Comp. 1: 33→30→27, y=48→60→72 -->
+        <polyline points="130,48 220,60 310,72" fill="none" stroke="#999" stroke-width="1.5"/>
+        <circle cx="130" cy="48" r="3" fill="#999"/>
+        <circle cx="220" cy="60" r="3" fill="#999"/>
+        <circle cx="310" cy="72" r="3" fill="#999"/>
+
+        <!-- Your Business: 18→22→25, y=113→92→80 (drawn last = on top) -->
+        <polyline points="130,113 220,92 310,80" fill="none" stroke="#000" stroke-width="2.5"/>
+        <circle cx="130" cy="113" r="4" fill="#000"/>
+        <circle cx="220" cy="92"  r="4" fill="#000"/>
+        <circle cx="310" cy="80"  r="4" fill="#000"/>
+
+        <!-- Legend box (right side) -->
+        <line x1="390" y1="55" x2="403" y2="55" stroke="#000" stroke-width="2.5"/>
+        <circle cx="396" cy="55" r="3.5" fill="#000"/>
+        <text x="408" y="59" font-family="Arial" font-size="9" fill="#000" font-weight="bold">Your Business</text>
+
+        <line x1="390" y1="72" x2="403" y2="72" stroke="#999" stroke-width="1.5"/>
+        <circle cx="396" cy="72" r="2.5" fill="#999"/>
+        <text x="408" y="76" font-family="Arial" font-size="9" fill="#777">Comp. 1</text>
+
+        <line x1="390" y1="88" x2="403" y2="88" stroke="#aaa" stroke-width="1.5"/>
+        <circle cx="396" cy="88" r="2.5" fill="#aaa"/>
+        <text x="408" y="92" font-family="Arial" font-size="9" fill="#777">Comp. 2</text>
+
+        <line x1="390" y1="104" x2="403" y2="104" stroke="#c0c0c0" stroke-width="1.5"/>
+        <circle cx="396" cy="104" r="2.5" fill="#c0c0c0"/>
+        <text x="408" y="108" font-family="Arial" font-size="9" fill="#777">Comp. 3</text>
+
+      </svg>
+    </div>
+
+    <div class="benchmark-note">
+      Delivery 1: 2 snapshots &nbsp;&middot;&nbsp; Delivery 2: 3 snapshots &nbsp;&middot;&nbsp; Delivery 3: 4 snapshots &nbsp;&middot;&nbsp; and so on.
+    </div>
+    <div class="chart-note" style="margin-top:6px;">Example data shown. Your actual report reflects your industry and competitors.</div>
+  </div>
+
+  <div class="deliverable">
+    <div class="deliverable-name">Directory Update Audit</div>
+    <div class="deliverable-desc">
+      A complete record of every web path and registry your business was added to that month,
+      and the specific information submitted to each location. Full transparency into exactly
+      what was done and where.
+    </div>
+  </div>
+
+  <div class="deliverable">
+    <div class="deliverable-name">Monthly Notes</div>
+    <div class="deliverable-desc">
+      Each month, alongside your report, we'll include a brief written note — what we noticed,
+      what changed, and anything we think is worth your attention.
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- PRICING -->
+  <div class="section-label">Pricing</div>
+  <div class="pricing-section">
+    <div class="pricing-row">
+      <span>One-time setup fee</span>
+      <div class="pricing-line"></div>
+    </div>
+    <div class="pricing-row">
+      <span>Monthly retainer</span>
+      <div class="pricing-line"></div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SIGNATURES -->
+  <div class="section-label">Agreement</div>
+  <div class="sig-block">
+    <div class="sig-field">
+      <div class="sig-line"></div>
+      <div class="sig-label">Client Signature &amp; Date</div>
+    </div>
+    <div class="sig-field">
+      <div class="sig-line"></div>
+      <div class="sig-label">Integrated_ai &amp; Date</div>
+    </div>
+  </div>
+
+</body>
+</html>

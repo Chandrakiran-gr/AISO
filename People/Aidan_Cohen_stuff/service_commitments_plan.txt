@@ -1,0 +1,186 @@
+SERVICE COMMITMENTS DOC — BUILD PLAN
+================================================================================
+This is the plan. Build the HTML from this, not from the old file.
+
+
+================================================================================
+DOCUMENT STRUCTURE (top to bottom)
+================================================================================
+
+1. Brand name          — "Integrated_ai", small, once, top left
+2. Doc title           — "Service Commitments"
+3. Subtitle            — something minimal, e.g. "What we deliver and when."
+4. Meta fields         — Client (blank line), Start Date (blank line)
+5. Divider
+6. Section 1: Setup
+7. Divider
+8. Section 2: Monthly
+9. Divider
+10. Pricing            — two blank fill-in lines
+11. Divider
+12. Signatures         — two sig lines side by side
+
+
+================================================================================
+SECTION 1: SETUP
+================================================================================
+
+Timing line: "Delivered within one week of signing."
+
+--- Deliverable 1: Profiling ---
+One short paragraph only. Something like:
+  "We conduct a profiling session with you to understand your business — what you
+  offer, who you serve, where you operate, and what you want to be known for.
+  This information forms the foundation of everything we build for you."
+NO questions listed. NO mention of voice recorder. Just: we learn about your business.
+
+--- Deliverable 2: Focused Industry Assessment ---
+Description: We deliver a full picture of where your business stands in AI search
+right now. Three components:
+
+  [Component 1] Share of Mentions Chart
+  - Bar chart: client vs competitors
+  - X-axis label: "Company"  (no units, just names)
+  - Y-axis label: "% of AI Search Mentions"
+  - Client bar = dark/black. Competitor bars = gray.
+  - Legend: "Your Business" / "Competitors"
+  - Chart title: "AI Search Mentions by Company"
+  - Example data (made up, plausible):
+      Your Business: 21%
+      Comp. 1: 31%
+      Comp. 2: 26%
+      Comp. 3: 22%
+      Comp. 4: 18%
+
+  [Component 2] Sentiment Score Chart
+  - NEW — scores how positively the business is perceived in AI responses
+  - Format TBD but should be a simple visual — bar chart or score display
+  - X-axis or labels: companies (same as above)
+  - Y-axis label: "Sentiment Score" (scale: 0–10 or 0–100, decide)
+  - Suggestion: use 0–10 scale for simplicity
+  - Client bar = dark. Competitors = gray. Same visual language as mentions chart.
+  - Chart title: "AI Search Sentiment Score by Company"
+  - Example data (made up):
+      Your Business: 6.2
+      Comp. 1: 7.8
+      Comp. 2: 5.4
+      Comp. 3: 6.9
+      Comp. 4: 4.1
+
+  [Component 3] Written Analysis
+  - DROPPED. Not a committed deliverable. Two charts stand alone.
+
+QUESTION ANSWERED: Yes, profiling + focused industry assessment (3 components) is
+enough for setup. It's a full week of work and gives the client a concrete baseline.
+
+
+================================================================================
+SECTION 2: MONTHLY DELIVERABLES
+================================================================================
+
+Timing line: "Delivered every month following setup."
+
+--- Deliverable 1: Evolving Industry Assessment ---
+Description: This is a LINE CHART, not a bar chart.
+  - Shows AI search mention % over time for client + competitors
+  - Each monthly delivery adds one new time-point to the chart — it grows
+  - X-axis label: "Date"
+  - Y-axis label: "% of AI Search Mentions"
+  - Client line = bold black. Competitor lines = lighter gray.
+  - Legend: "Your Business" + each competitor name
+  - Chart title: "AI Search Mentions Over Time"
+
+Example chart in the doc: 3 data points (3 monthly snapshots)
+  Time points: Month 1, Month 2, Month 3  (or use real-looking dates)
+  Example data:
+    Your Business:  21% → 23% → 25%  (trending up)
+    Comp. 1:        31% → 29% → 27%  (trending down)
+    Comp. 2:        26% → 25% → 24%  (slight decline)
+    Comp. 3:        22% → 22% → 21%  (flat/slight decline)
+
+  NOTE: Model this chart on the SBACO chart from the PDF. Same structure.
+  The SBACO chart is a real example with 2 data points.
+  The example in this doc should have 3 data points.
+
+Benchmark growth note (below chart):
+  "Delivery 1: 2 snapshots  ·  Delivery 2: 3 snapshots  ·  Delivery 3: 4  ·  etc."
+
+--- Deliverable 2: Directory Update Audit ---
+Description: One short paragraph.
+  "A complete record of every web path and registry your business was added to
+  that month, and the information submitted to each location. Full transparency
+  into exactly what was done and where."
+
+
+================================================================================
+CHART IMPLEMENTATION NOTES (for building in HTML/CSS)
+================================================================================
+
+All charts: built in pure HTML/CSS (no JS, no external libs — must print cleanly)
+
+Bar charts:
+  - Flexbox column bars, aligned to a baseline
+  - Bars are rectangles, fixed width, height proportional to value
+  - Value label above each bar (e.g. "21%")
+  - Company name label below each bar
+  - Y-axis: drawn as a left border on the bar container
+  - Y-axis label: rotated 90deg, positioned left of the chart
+  - X-axis: drawn as a bottom border
+  - Grid lines: optional light gray horizontals at 10% intervals
+
+Line chart:
+  - Use SVG — this is the right tool for a line chart in HTML
+  - SVG viewBox, draw polyline for each company
+  - Client line: stroke-width 2.5, black
+  - Competitor lines: stroke-width 1.5, gray (#999 or similar)
+  - Data point dots: small filled circles at each data point
+  - Value labels at end of each line (right side)
+  - X-axis: dates, evenly spaced
+  - Y-axis: 0% to 35%, labeled at 5% or 10% intervals
+  - Grid lines: light horizontal rules
+  - Legend: below or beside the chart
+
+Design rules (apply to everything):
+  - Black and white only. No color.
+  - Font: Arial/Helvetica for all labels and UI text. Georgia for body copy.
+  - No shadows, no rounded corners, no gradients
+  - Do not look like AI output — clean, minimal, like a real business document
+  - All charts must be labeled: title, both axis labels, legend, units
+
+
+================================================================================
+PRICING SECTION
+================================================================================
+
+Two rows with fill-in blank lines:
+  - One-time setup fee:   __________
+  - Monthly retainer:     __________
+
+Keep minimal. No explanation needed here.
+
+
+================================================================================
+SIGNATURE SECTION
+================================================================================
+
+Two sig blocks side by side:
+  - Left:  "Client Signature & Date"
+  - Right: "Integrated_ai & Date"
+
+Simple horizontal lines above each label.
+
+
+================================================================================
+OPEN QUESTIONS (resolve before building)
+================================================================================
+
+1. Sentiment score scale: 0–10 or 0–100? (Plan assumes 0–10)
+2. Should the written analysis in setup be a template with [brackets] or a fully
+   written example using the fake data? (Plan assumes fully written example)
+3. Page count target: 1 page or however long it needs to be?
+   (Recommendation: don't force it to 1 page — let it breathe, probably 1.5–2 pages)
+
+
+================================================================================
+END OF PLAN
+================================================================================

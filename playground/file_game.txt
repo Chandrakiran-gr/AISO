@@ -1,0 +1,23 @@
+FILE GAME — Idea Summary
+========================
+
+A Factorio-style 2D map app for visualizing files and workflows on your PC.
+
+You place objects on a canvas. Each object is just a pointer to a file or folder
+that already exists on your machine. Draw connections between them to show data flow.
+That's it — it doesn't move, rename, or touch any files.
+
+The point is to give your scripts, agents, storage folders, and config files
+a visual layout you can actually think in, instead of just a file tree.
+
+Click a node → opens the file. Move nodes around → updates the layout JSON.
+Everything else stays exactly as it is on disk.
+
+STACK (simplest path to working):
+- Electron (desktop, file system access)
+- React + ReactFlow (canvas, nodes, edges — mostly free)
+- One JSON file stores the layout (node positions + file paths + connections)
+
+SCOPE:
+- No new functionality. No file operations. Purely visual.
+- The map is a layer on top of what already exists.

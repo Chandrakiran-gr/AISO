@@ -1,0 +1,598 @@
+IDEA (draft — do not fill yet)
+  - Same product behavior as full_stack/setup.py (the current non-full-stack version), but we do NOT change setup.py. We add a NEW file: full_stack/setup1.2.py. setup.py stays exactly as it is.
+  - Change 1: Ask a few more questions about the business, specifically considering location:
+      - Where does the business operate (city/region/country)?
+      - Or is it online / able to operate anywhere?
+    This should influence how the questions are formed.
+  - Change 2: Generate a MUCH larger query bank (way bigger), and larger value banks to match.
+    Goal: a real “shit ton” of questions.
+  - Change 3: Make the questions look like what real people ask.
+      - Before generating the query template + value bank datafiles, generate ~50 “tester questions”.
+      - These 50 tester questions must be individually different (no two that are effectively the same idea or format).
+      - For each tester question, check trend interest; rank by search volume and pick the top half (top 25).
+      - Use those top 25 to shape the formats/ideas used when generating the query templates + value banks.
+
+  — Implementation details (baked in) —
+
+  Trends source (for ranking the 50)
+    - Primary: Google Trends (search volume / interest over time) to rank the 50 and select top 25.
+    - Optional later: LLMrefs or Promptwatch for AI-search-specific volume (ChatGPT, Perplexity, Gemini, Claude, AI Overviews).
+
+  Uniqueness of the 50 tester questions (no same idea or format)
+    - Intent/template buckets: Define categories up front (e.g. “best X”, “X near me”, “how much X”, “X vs Y”, “what is X”, “how to X”). When adding a tester question, assign it to one bucket; cap per bucket (e.g. 1–2) so the 50 are spread across many ideas.
+    - Format diversity quota: Require a minimum mix of formats (e.g. at least N “best X”, N “X near [place]”, N “how to”, N “cost/price”). Generate in rounds—fill each format slot first, then add until 50.
+    - Dedupe: Either (a) embedding similarity—reject a new question if cosine similarity to any accepted one is above a threshold (e.g. 0.82–0.88)—or (b) LLM pass—“group these that are the same idea or format, keep one per group,” then refill until 50.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CLARIFICATIONS / FLESHING OUT NEEDED
+═══════════════════════════════════════════════════════════════════════════════
+(Resolved via BUILD-TIME DEFAULTS in DECISIONS; executor uses those. Tick = decided.)
+
+ — Change 1 (location / extra questions)
+  - [x] Exact new prompts: What is the exact wording of the extra question(s) for “where does the business operate?” vs “online / operate anywhere?” (and any follow-ups).
+  - [x] datafile.json schema: New fields to add (e.g. operating_model: "physical"|"online"|"both", operating_region: str). Confirm names and whether they’re required.
+  - [x] How it influences questions: Concrete rule—e.g. if online, avoid {city}/{landmark} in templates; if physical, require at least one location placeholder. Spell this out so generation can follow it.
+
+ — Change 2 (much larger banks)
+  - [x] Target sizes: How many template rows and value rows? (Current setup.py does 5–8 each; “way bigger” could mean e.g. 50–100 templates, 100–200 values, or a numeric range.)
+  - [x] Cross-product cap: Full template × value matrix can explode. Max questions to generate per run? Or cap combinations per template (e.g. each template paired with at most N value rows)?
+  - [x] Schema: Keep current TEMPLATE_HEADERS / VALUE_HEADERS (full_stack/schema.py) or add columns? If new placeholders, list them and ensure value_bank has matching columns.
+
+ — Change 3 (50 tester questions → trends → top 25 → shape banks)
+  - [x] Where tester questions come from: LLM-only from datafile, or mix of LLM + hand-curated seeds? One shot or iterative (generate 60, dedupe to 50)?
+  - [x] Intent buckets (final list): Decide the exact bucket names and per-bucket caps (e.g. “best X” cap 2, “X near me” cap 2, …) so they sum to ~50.
+  - [x] Format diversity quota: Exact N per format (e.g. at least 5 “best X”, 5 “X near [place]”, …) and full list of formats.
+  - [x] Dedupe choice: Use embedding similarity, or LLM same-idea pass? If embedding: which model (e.g. OpenAI text-embedding-3-small), which threshold (e.g. 0.85)?
+  - [x] Google Trends: How to get “search volume” per query—manual export, or automate (e.g. pytrends / API)? If automate: rate limits, geo (US vs client geography), time range (e.g. last 12 months).
+  - [x] Shape the formats/ideas: Paste top 25 as examples (BUILD-TIME DEFAULTS).
+
+ — Deliverable (non-negotiable)
+  - This plan creates a NEW script only: full_stack/setup1.2.py. full_stack/setup.py is NOT modified.
+
+ — Flow and order
+  - [x] Step order: Confirm sequence—e.g. (1) collect context (including new location questions) → (2) generate 50 tester questions → (3) trend-check → (4) select top 25 → (5) generate large template + value banks (informed by top 25) → (6) write CSVs + config. Any idempotency (e.g. allow re-running trends only)?
+  - [x] Reuse: setup1.2.py can call shared helpers (e.g. from full_stack.lib, full_stack.schema) or copy/adapt logic—but all new/alternate behavior lives in setup1.2.py only; setup.py is untouched.
+
+ — Product / run
+  - [x] CLI: Entry point is the new script (e.g. python full_stack/setup1.2.py <slug>). setup.py remains the original entry for the original flow.
+  - [x] Idempotency: For setup1.2.py—refuse if client folder already has banks/config, or allow “regenerate banks only” / “trends only”? (No impact on setup.py.)
+
+ — Open questions: Resolved via BUILD-TIME DEFAULTS; no open questions remain.
+
+
+SETUP 1.2 — PLAN (HOW_TO_PLAN compliant)
+
+Purpose: Filled plan for building full_stack/setup1.2.py. Execute per playground/HOW_TO_PLAN2.txt (innermost-first, one step at a time, verify then mark complete).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCT INTENT
+═══════════════════════════════════════════════════════════════════════════════
+
+What this is
+  A new setup script (full_stack/setup1.2.py) that produces the same kind of client artifacts as full_stack/setup.py — datafile.json, query_template_bank.csv, value_bank.csv, config.json — but with three upgrades: (1) richer business context (location/operating model), (2) a much larger query and value bank, and (3) tester questions ranked by search interest so the banks reflect how real people actually search.
+
+Who it's for
+  The same user who runs full_stack/setup.py: developer or analyst setting up a client for the full_stack pipeline (setup → collect → analysis). Used when they want location-aware, high-volume, trend-informed question banks instead of the small default banks from setup.py.
+
+What problem it solves
+  Default setup generates only a handful of templates and values; questions can feel generic or off from real search behavior. Setup1.2 fixes that by asking where the business operates, generating many diverse tester questions, ranking them by trends, and using the top 25 to shape a large template/value bank so the expanded questions look like what people actually ask.
+
+Outcome
+  After running setup1.2: client folder has datafile.json (with operating_model + operating_region), 50 unique tester questions ranked by trends, top 25 driving bank generation, and large query_template_bank.csv + value_bank.csv + config.json; build_queries_from_matrix produces no unfilled placeholders and stays under a safety cap; console prints next step (run collect.py).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW IT WORKS
+═══════════════════════════════════════════════════════════════════════════════
+
+High-level flow
+  1. User runs setup1.2 with a slug (or is prompted). Script normalizes slug, checks idempotency (refuse if banks/config already exist), creates client folder.
+  2. Interactive chat collects business context (same as setup.py) plus operating_model (physical / online / both) and operating_region (city/region/country or "online/anywhere"). Results written to datafile.json.
+  3. Location-aware rules are encoded so later generation uses or avoids {city}, {landmark}, {neighborhood}, {location} depending on operating model/region.
+  4. Generate ~50 unique tester questions (intent buckets + format diversity + dedupe). Rank by Google Trends (or chosen trends source), keep top 25.
+  5. Generate a much larger template bank and value bank, shaped by the top 25; validate with build_queries_from_matrix (no unfilled placeholders; enforce max-expansion cap).
+  6. Write query_template_bank.csv, value_bank.csv, config.json; print "review banks then run collect" and the collect.py command.
+
+Architecture (components + responsibilities)
+  - setup1.2.py: Single entrypoint; orchestrates collect → tester questions → trends → bank generation → write. Reuses full_stack.lib, full_stack.schema; does not modify setup.py.
+  - datafile.json: Extended schema (existing keys + operating_model, operating_region). Input to all generation prompts.
+  - Tester-question pipeline: LLM candidate generation with buckets/quotas → dedupe (embedding similarity per BUILD-TIME DEFAULTS) → trend scoring → top 25.
+  - Bank generation: LLM prompts that receive top 25 as examples/guidance; output rows validated and capped.
+  - External: OpenAI (generation + embeddings). Google Trends via pytrends (ranking). OPENAI_API_KEY required in .env at repo root (script exits with message if missing).
+
+Key data (inputs/outputs)
+  - Inputs:
+    - Slug (CLI or prompt), .env (OPENAI_API_KEY). Optional: client_folder/addable_allowlist or blocklist not used by setup1.2.
+  - Outputs:
+    - client_folder/datafile.json, client_folder/query_template_bank.csv, client_folder/value_bank.csv, client_folder/config.json. Optional: intermediate top25 or tester_questions JSON for debugging.
+
+Error handling + retries
+  - Missing OPENAI_API_KEY: exit with clear message (no crash).
+  - Idempotency: if query_template_bank.csv or config.json already exists, print "Already set up for '<slug>'. Delete bank CSVs and config.json to re-run setup." and exit (see Step 0.1.1).
+  - build_queries_from_matrix: if placeholders remain or count exceeds cap, treat as validation failure (fix or truncate before write).
+  - Trends API rate limits: document in CONSIDERATIONS; optional backoff or "trends-only" re-run without regenerating banks.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO USE / RUN
+═══════════════════════════════════════════════════════════════════════════════
+
+Prerequisites
+  - Python (same env as full_stack/setup.py). Repo root on path.
+  - OPENAI_API_KEY in .env at repo root. For trends: Google Trends or pytrends if automated.
+
+Install
+  - No extra install beyond setup.py deps. If pytrends: pip install pytrends.
+
+Configure
+  - Env: OPENAI_API_KEY in .env at repo root. Targets/caps are constants in setup1.2.py (no separate config file).
+
+Run
+  - python full_stack/setup1.2.py <slug> (or prompt if no arg). Example: python full_stack/setup1.2.py Channel_Islands_Adventure_Company
+
+Test / verify locally
+  - New slug: folder created, chat runs, datafile has operating_model + operating_region, 50 then top 25, banks written; no { in expanded queries; count under cap. Re-run same slug: prints idempotency message (see Step 0.1.1) and exits without overwriting.
+
+Deploy
+  - Local only. No deploy.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CONSIDERATIONS / GOTCHAS
+═══════════════════════════════════════════════════════════════════════════════
+
+Constraints
+  - Google Trends (or pytrends) rate limits and geo/time-range limits; may need US vs client geography and 12-month window.
+  - OpenAI token usage scales with larger banks and 50+ tester prompts; keep generation prompts bounded.
+  - Full template × value matrix can explode; MUST enforce a max-expansion cap (single source of truth in code).
+
+Assumptions
+  - datafile.json from setup1.2 is backward-compatible for collect/analysis (existing keys unchanged; new keys additive).
+  - Top 25 "shape" bank generation by inclusion in prompts as examples (not by changing schema).
+  - Schema: TEMPLATE_HEADERS and VALUE_HEADERS from full_stack/schema.py stay as-is unless a separate decision adds columns.
+
+Risks + mitigations
+  - Risk: Trends API unavailable or blocked. Mitigation: document manual export option; or make "trends step" skippable with a flag and use unranked 50.
+  - Risk: Dedupe too aggressive or too loose. Mitigation: pick one method (embedding threshold or LLM grouping), document threshold in SPECIFICATIONS.
+
+Non-obvious pitfalls
+  - Physical vs online: if "online only," avoid generating "X near {city}" as primary; if physical, require at least one location placeholder. Encode this in prompt rules so the model doesn't guess.
+  - Progress bar: use same style as setup.py (20-segment _bar(current, total)). Call _bar(1,5) after collect context, _bar(2,5) after 50 tester questions, _bar(3,5) after top 25 selected, _bar(4,5) after bank generation + validation, _bar(5,5) after writing CSVs and config. So phases are: 1=collect, 2=tester questions, 3=trends, 4=banks, 5=write.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS / GATHERED INFO
+═══════════════════════════════════════════════════════════════════════════════
+
+Decisions already made
+  - New file only: full_stack/setup1.2.py; full_stack/setup.py is NOT modified.
+  - datafile.json gets operating_model and operating_region (canonical values: physical | online | both, and string for region; see BUILD-TIME DEFAULTS Step 1.1.1–1.1.2).
+  - Reuse full_stack/schema.py (TEMPLATE_HEADERS, VALUE_HEADERS) and full_stack/lib.py build_queries_from_matrix for validation.
+  - Execution order: collect context (with location Qs) → 50 tester questions → trend rank → top 25 → generate large banks (shaped by top 25) → write CSVs + config.
+
+Paths / repos / key files
+  - full_stack/setup.py — reference for slug normalize, idempotency, _bar, collect_context pattern, write_bank_csvs, write_config.
+  - full_stack/schema.py — TEMPLATE_HEADERS, VALUE_HEADERS.
+  - full_stack/lib.py — build_queries_from_matrix.
+  - Client folder: repo_root/<slug>/; datafile.json, query_template_bank.csv, value_bank.csv, config.json.
+
+Accounts / credentials (DO NOT paste secrets)
+  - OPENAI_API_KEY in .env at repo root (same as setup.py). Google Trends: no key; pytrends has rate limits.
+
+Build-time defaults (use these when building — executor should not ask; document in code if you deviate)
+  - Operating prompts (Step 1.1.1, 1.1.2): See BUILD-TIME DEFAULTS section below.
+  - Target sizes (Step 3.1.1): TARGET_TEMPLATE_ROWS = 50, TARGET_VALUE_ROWS = 100, MAX_EXPANSION_CAP = 5000.
+  - Intent buckets (Step 2.1.1): Use INTENT_BUCKETS list in BUILD-TIME DEFAULTS; caps sum to 50.
+  - Dedupe (Step 2.1.3): Embedding similarity; model text-embedding-3-small; threshold 0.85; refill until 50.
+  - Trends (Step 2.2.1): pytrends; GEO = "US"; time window last 12 months ("today 12-m"). If pytrends fails, fallback: use first 25 by list order and log warning.
+  - Top 25 shaping (Step 3.1.2): Paste the 25 questions as examples into the template and value generation prompts (no extraction step).
+
+BUILD-TIME DEFAULTS (locked in for hand-off — executor uses these; no need to ask)
+  Use these exact values when implementing. If you change any, document in setup1.2.py (comment or constant) and say why.
+
+  Step 1.1.1 — operating_model
+    - datafile field: operating_model (string).
+    - Allowed values: "physical" | "online" | "both". Normalize user input to one of these (e.g. "brick and mortar" → "physical", "anywhere" → "online").
+    - Prompt wording: "Does this business operate from a physical location, only online, or both? (physical / online / both): "
+    - Store canonical value only. If empty or unrecognized, default to "both".
+
+  Step 1.1.2 — operating_region
+    - datafile field: operating_region (string).
+    - Prompt wording: "Where does it operate? (city, region, or country — e.g. Santa Barbara, California, or 'nationwide', or 'online only'): "
+    - Store as-is (no normalization). Empty allowed only if operating_model is "online"; otherwise re-prompt or default to "nationwide".
+
+  Location rules for generation (Step 1.2.1)
+    - If operating_model == "online": In prompts, tell the model to avoid or minimize location placeholders ({city}, {landmark}, {neighborhood}, {location}); prefer generic phrasing.
+    - If operating_model in ("physical", "both"): Require at least one template or value set that uses a location placeholder so local-intent queries are represented.
+    - operating_region: Pass into prompts so the model can use real place names when generating (e.g. "Santa Barbara" in examples when region is Santa Barbara).
+
+  Step 2.1.1 — intent buckets and caps (sum = 50)
+    - INTENT_BUCKETS = [("best X", 8), ("X near me / X in [place]", 8), ("how much / cost / price X", 6), ("X vs Y", 6), ("what is X", 6), ("how to X", 6), ("X for [audience]", 5), ("X open / hours", 5)]. Sum = 50. Implement as list of (name, cap); when generating, assign each candidate to a bucket and stop when bucket cap is reached; refill any underfilled bucket in a second pass until 50 total.
+    - Format diversity: Ensure at least 2 from each bucket in the final 50 (soft constraint in prompt).
+
+  Step 2.1.2 — candidate count per LLM call
+    - Request 60–80 candidate questions per LLM call; after dedupe (Step 2.1.3) refill until exactly 50.
+
+  Step 2.1.3 — dedupe
+    - Method: embedding similarity. Model: OpenAI text-embedding-3-small (same API key as for LLM). EMBEDDING_SIMILARITY_THRESHOLD = 0.85. Reject a new candidate if max(cosine_sim to any already accepted) >= 0.85; refill via new LLM call until 50.
+
+  Step 2.2.1 — trends
+    - Use pytrends. GEO = "US". Time window: "today 12-m". One request per keyword (or batch per pytrends limits). Score = mean of interest_over_time series for that keyword (or last value if single point); use the same choice consistently. On rate limit or failure: fallback to first 25 by list order, print "Trends unavailable; using first 25 by order."
+
+  Step 3.1.1 — targets and cap
+    - TARGET_TEMPLATE_ROWS = 50, TARGET_VALUE_ROWS = 100, MAX_EXPANSION_CAP = 5000. Enforce: if build_queries_from_matrix output length > MAX_EXPANSION_CAP, truncate to first MAX_EXPANSION_CAP and log a warning (single source of truth: constants in setup1.2.py). Do not fail; truncation is the chosen behavior.
+
+  Step 3.1.2 — how top 25 shape banks
+    - Include the exact list of 25 questions in the system/user prompt for template generation and for value generation, under a heading like "Example questions (match this style and variety):". No separate extraction step.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+SPECIFICATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+Must-follow rules
+  - Do not modify full_stack/setup.py. All new behavior in full_stack/setup1.2.py only. Idempotency: if client folder has query_template_bank.csv or config.json, print the message in Step 0.1.1 and exit; do not overwrite. Before writing banks: run build_queries_from_matrix; if any output contains "{" (unfilled placeholder), treat as validation failure; if len(expanded) > MAX_EXPANSION_CAP, truncate to first MAX_EXPANSION_CAP and log (per BUILD-TIME DEFAULTS). Single source of truth for target template rows, target value rows, and max expanded questions cap (constants in setup1.2.py).
+
+Constants (single source of truth in setup1.2.py — use BUILD-TIME DEFAULTS values)
+  - TARGET_TEMPLATE_ROWS = 50. TARGET_VALUE_ROWS = 100. MAX_EXPANSION_CAP = 5000.
+  - TESTER_QUESTION_COUNT = 50. TOP_N_AFTER_TRENDS = 25.
+  - INTENT_BUCKETS = list of (bucket_name, cap) per BUILD-TIME DEFAULTS; sum = 50.
+  - EMBEDDING_SIMILARITY_THRESHOLD = 0.85. Embedding model: text-embedding-3-small.
+  - Trends: GEO = "US", TIMEWINDOW = "today 12-m". Rate limits: see CONSIDERATIONS; on failure use first 25 and log.
+
+Interfaces / contracts
+  - datafile.json: existing keys (industry, products_services, geography, etc.) plus operating_model (string), operating_region (string). Same JSON read/write pattern as setup.py.
+  - query_template_bank.csv / value_bank.csv: headers from full_stack/schema.py TEMPLATE_HEADERS and VALUE_HEADERS; CSV format same as setup.py.
+  - config.json: at least slug; optional display_name parity with setup.py.
+
+Output format requirements
+  - query_template_bank.csv: header row = TEMPLATE_HEADERS; each row a template string with {placeholder} tokens matching VALUE_HEADERS column names.
+  - value_bank.csv: header row = VALUE_HEADERS; each row supplies values for those placeholders.
+  - build_queries_from_matrix(template_rows, value_rows) must produce a list of strings with no "{" in any string and length ≤ max_expansion_cap.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOSTING / DOMAIN / INFRA
+═══════════════════════════════════════════════════════════════════════════════
+
+Hosting provider
+  - None. Local script only; run from dev machine.
+
+Domain
+  - N/A.
+
+Deployment flow
+  - N/A. Same repo as full_stack; run from repo root.
+
+Observability
+  - Logs: stdout (progress bar, "Setup complete for <slug>", next-step message). No separate log file required.
+  - Metrics / Alerts: N/A.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT CHANGED
+═══════════════════════════════════════════════════════════════════════════════
+
+Version log
+  - Initial: setup1.2.txt created with IDEA, CLARIFICATIONS, and ACTION PLAN skeleton.
+  - Flesh-out: Filled PRODUCT INTENT, HOW IT WORKS, HOW TO USE/RUN, CONSIDERATIONS, DECISIONS, SPECIFICATIONS, HOSTING, WHAT CHANGED per HOW_TO_PLAN2. ACTION PLAN already present with Steps 0–4 and READY TO EXECUTE block; left intact. Open decisions referenced in DECISIONS and CLARIFICATIONS for resolution during build.
+  - Atomicity pass: Split compound steps per HOW_TO_PLAN2 ATOMICITY CHECK. Step 0.1 → 0.1.2 (client folder) + 0.1.3 (progress bar). Step 2.1 → 2.1.1 (buckets/quotas in prompt), 2.1.2 (generate candidates), 2.1.3 (dedupe to 50). Step 2.2 → 2.2.1 (get trend score per question), 2.2.2 (sort and select top 25). Step 3.2 → 3.2.1 (generate template/value rows via LLM), 3.2.2 (validate + cap). Step 4.1 → 4.1.2 (value_bank.csv only), 4.1.3 (config.json). Updated READY TO EXECUTE leaf checklist and execution order; added "Resolve before/during build" to READY TO EXECUTE. Fleshed implementation text for 0.1.1, 2.1.1–2.1.3, 2.2.1–2.2.2, 3.2.1–3.2.2, 4.1.1–4.1.3, 4.2.1.
+  - Hand-off ready: Added BUILD-TIME DEFAULTS in DECISIONS (exact prompt wording, operating_model/operating_region, location rules, INTENT_BUCKETS with caps summing to 50, dedupe = embedding 0.85, trends = pytrends US 12-m, targets 50/100/5000, top 25 = paste as examples). Updated SPECIFICATIONS constants to concrete values. Added executor instruction at top of READY TO EXECUTE: use BUILD-TIME DEFAULTS; do not ask; document in code if deviating. Replaced "Resolve before/during build" with "Build-time decisions: All resolved." Ticked CLARIFICATIONS for all resolved items.
+  - Expansion pass: (1) Step 0.1.1: explicit OPENAI_API_KEY check at start; verification covers missing key and idempotency. (2) Progress bar: defined 5 phases (collect, tester questions, trends, banks, write). (3) Step 1: description now says reuse collect_context then add operating prompts. (4) Step 1.2.1 split into 1.2.1.1 (build rules string), 1.2.1.2 (inject into tester prompt), 1.2.1.3 (inject into bank prompts). (5) Step 2.1.3 split into 2.1.3.1 (embed + similarities), 2.1.3.2 (filter by threshold), 2.1.3.3 (refill until 50). (6) Step 2.2.1 split into 2.2.1.1 (init pytrends, keywords), 2.2.1.2 (request scores), 2.2.1.3 (fallback on failure). (7) Step 3.2.1 split into 3.2.1.1 (generate template rows), 3.2.1.2 (generate value rows). (8) Step 3.2.2 split into 3.2.2.1 (call build_queries_from_matrix), 3.2.2.2 (check for "{"), 3.2.2.3 (enforce cap, pass to Step 4). (9) BUILD-TIME DEFAULTS: trends score = mean of series (or last value); cap overflow = truncate and log (no fail). (10) READY TO EXECUTE: leaf checklist and execution order updated for all new leaf steps.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ACTION PLAN
+═══════════════════════════════════════════════════════════════════════════════
+
+DEFAULT: Execute steps in bottom-up, innermost-first order. One step at a time: complete → verify → mark complete → then next. Plan format and execution rules follow playground/HOW_TO_PLAN2.txt.
+
+────────────────────────────────────────────────────────────────────────────────
+READY TO EXECUTE — Start here
+────────────────────────────────────────────────────────────────────────────────
+
+  Executor instruction: Use the BUILD-TIME DEFAULTS in DECISIONS for every decision point (operating prompts, buckets, dedupe, trends, targets, top-25 shaping). Do not ask the user for these; implement with the stated values. If you must deviate, document the choice in setup1.2.py (comment or constant name) and note why.
+
+  Prerequisites (before Step 0):
+  • Python runs locally (same environment used for `full_stack/setup.py`)
+  • OPENAI_API_KEY available via `.env` at repo root (same convention as `setup.py`)
+  • Safe to run without overwriting an existing client folder
+
+  Reuse from codebase:
+  • `full_stack/setup.py` patterns (slug normalize, idempotency, write datafile, write banks, write config)
+  • `full_stack/schema.py` (`TEMPLATE_HEADERS`, `VALUE_HEADERS`)
+  • `full_stack/lib.py` (`build_queries_from_matrix` validation)
+  • NON-NEGOTIABLE: Create NEW `full_stack/setup1.2.py` only. Do NOT modify `full_stack/setup.py`.
+
+  First step to implement: Step 0.1.1.
+
+  Leaf-step checklist (tick [ ] → [x] as you verify each step):
+  [x] 0.1.1  [x] 0.1.2  [x] 0.1.3  [x] 0.1   [x] 0
+  [x] 1.1.1  [x] 1.1.2  [x] 1.1   [x] 1.2.1.1  [x] 1.2.1.2  [x] 1.2.1.3  [x] 1.2.1  [x] 1.2   [x] 1
+  [x] 2.1.1  [x] 2.1.2  [x] 2.1.3.1  [x] 2.1.3.2  [x] 2.1.3.3  [x] 2.1.3  [x] 2.1   [x] 2.2.1.1  [x] 2.2.1.2  [x] 2.2.1.3  [x] 2.2.1  [x] 2.2.2  [x] 2.2   [x] 2
+  [x] 3.1.1  [x] 3.1.2  [x] 3.1   [x] 3.2.1.1  [x] 3.2.1.2  [x] 3.2.1  [x] 3.2.2.1  [x] 3.2.2.2  [x] 3.2.2.3  [x] 3.2.2  [x] 3.2   [x] 3
+  [x] 4.1.1  [x] 4.1.2  [x] 4.1.3  [x] 4.1   [x] 4.2.1  [x] 4.2   [x] 4
+
+  Execution order (innermost first; one step per turn):
+  0.1.1 → 0.1.2 → 0.1.3 → 0.1 → 0 →
+  1.1.1 → 1.1.2 → 1.1 → 1.2.1.1 → 1.2.1.2 → 1.2.1.3 → 1.2.1 → 1.2 → 1 →
+  2.1.1 → 2.1.2 → 2.1.3.1 → 2.1.3.2 → 2.1.3.3 → 2.1.3 → 2.1 → 2.2.1.1 → 2.2.1.2 → 2.2.1.3 → 2.2.1 → 2.2.2 → 2.2 → 2 →
+  3.1.1 → 3.1.2 → 3.1 → 3.2.1.1 → 3.2.1.2 → 3.2.1 → 3.2.2.1 → 3.2.2.2 → 3.2.2.3 → 3.2.2 → 3.2 → 3 →
+  4.1.1 → 4.1.2 → 4.1.3 → 4.1 → 4.2.1 → 4.2 → 4
+
+  ONE STEP AT A TIME: Never batch steps. Complete → verify → mark complete (tick checkbox, add "DONE — do not modify" to the step) → then next. (HOW_TO_PLAN2 §3, OVERVIEW "When a step is verified".)
+  Step tree: Each Step N has children N.1, N.2, …; those can have children N.1.1, N.1.2, … Execute innermost leaves first, then parents (e.g. 0.1.1 → 0.1.2 → 0.1.3 → 0.1 → 0 then 1.1.1 → …). Depth can go as deep as needed (HOW_TO_PLAN2 §1).
+
+  Build-time decisions: All resolved. Use BUILD-TIME DEFAULTS in DECISIONS (above). No need to ask; implement as specified. If you deviate, document in code.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 0: Create NEW `full_stack/setup1.2.py` (setup.py untouched)
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/setup1.2.py | int:(none) | en:1 | deliv:setup1.2.py skeleton (new runnable setup script) | prereq:python,OPENAI_API_KEY | complex:small | env:local
+
+  Description: Create the new setup entrypoint `full_stack/setup1.2.py` with safe rerun behavior, matching the overall UX flow of `setup.py` but implementing the new requirements in this plan. `full_stack/setup.py` is not modified.
+
+  Verification (Step 0 complete):
+  • `full_stack/setup1.2.py` exists and can be executed (no syntax errors).
+  • If OPENAI_API_KEY is missing, it exits with a clear message (no crash).
+
+  0.1 Minimum runnable skeleton + safe reruns
+      human:no | loc:full_stack/setup1.2.py | int:(none) | en:1 | deliv:runnable CLI + idempotency + folder + progress UX | prereq:python | complex:small | env:local
+      Implement slug input, normalization, idempotency checks, client folder creation, and progress bar parity with setup.py.
+      Verification (Step 0.1 complete): New slug creates a client folder; rerun refuses if banks/config already exist; progress bar style matches setup.py.
+      0.1.1 Slug normalization + idempotency + API key check
+          human:no | loc:full_stack/setup1.2.py | int:(none) | en:0.1.2,1 | deliv:safe rerun behavior | prereq:(none) | complex:small | env:local
+          At script start: if OPENAI_API_KEY is missing or empty, print a clear message (e.g. "OPENAI_API_KEY not set. See full_stack/.env.example.") and sys.exit(1). Then: get slug (CLI arg or prompt), normalize (same pattern as setup.py: strip, re.sub non-alnum to underscore). If client folder already has query_template_bank.csv or config.json, print "Already set up for '<slug>'. Delete bank CSVs and config.json to re-run setup." and sys.exit(1).
+          0.1.1 Verification: Missing OPENAI_API_KEY exits with message; re-run with existing banks/config prints the idempotency message and exits non-destructively.
+
+      0.1.2 Client folder creation
+          human:no | loc:full_stack/setup1.2.py | int:0.1.1 | en:0.1.3,1 | deliv:client folder on disk | prereq:(none) | complex:small | env:local
+          client_folder = _repo_root / slug; client_folder.mkdir(parents=True, exist_ok=True). Optionally print "Created folder: {client_folder}".
+          0.1.2 Verification: Folder exists at repo_root/<slug>/ for the given slug.
+
+      0.1.3 Progress bar parity with setup.py
+          human:no | loc:full_stack/setup1.2.py | int:0.1.2 | en:1 | deliv:_bar() helper + phased calls | prereq:(none) | complex:small | env:local
+          Add _bar(current, total) helper matching setup.py (20-segment bar, Unicode fallback on encode error). Call _bar(1,5) after collect context, _bar(2,5) after 50 tester questions, _bar(3,5) after top 25 selected, _bar(4,5) after bank generation + validation, _bar(5,5) after writing CSVs and config (phases per CONSIDERATIONS).
+          0.1.3 Verification: _bar(1,5) through _bar(5,5) print without error; style matches setup.py (or fallback to #); each call occurs at the correct phase.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 1: Collect richer business context (writes `datafile.json`)
+────────────────────────────────────────────────────────────────────────────────
+
+  human:yes | loc:full_stack/setup1.2.py | int:0.1 | en:2,3 | deliv:datafile.json (extended schema) | prereq:(none) | complex:small | env:local
+
+  Description: Run the same interactive collect flow as setup.py (call or replicate collect_context for industry, products_services, geography, etc.), then prompt for operating_model and operating_region in that order (wording per BUILD-TIME DEFAULTS), append to the context dict, and write datafile.json so downstream generation can be location-aware.
+
+  Verification (Step 1 complete):
+  • `datafile.json` exists in the client folder.
+  • It includes the original required keys (`industry`, `products_services`, `geography`) plus the new operating keys (see Step 1.1).
+
+  1.1 Add operating questions (location-aware)
+      human:yes | loc:full_stack/setup1.2.py | int:1 | en:1.2 | deliv:operating fields in datafile | prereq:(none) | complex:small | env:local
+      Capture operating model + operating region/location in the chat and write them into `datafile.json`.
+      Verification (Step 1.1 complete): `datafile.json` contains `operating_model` and `operating_region` (or the final chosen names).
+      1.1.1 Add operating_model prompt
+          human:yes | loc:full_stack/setup1.2.py | int:(none) | en:1.2.1,2,3 | deliv:datafile.operating_model | prereq:(none) | complex:small | env:local
+          Add a prompt asking if the business is physical / online / both (store canonical values).
+          1.1.1 Verification: Stored value is present and matches allowed options (or a clearly defined fallback).
+
+      1.1.2 Add operating_region/location prompt
+          human:yes | loc:full_stack/setup1.2.py | int:(none) | en:1.2.1,2,3 | deliv:datafile.operating_region | prereq:(none) | complex:small | env:local
+          Add a prompt asking where the business operates (city/region/country) OR if it’s online/anywhere (record consistently).
+          1.1.2 Verification: Stored value is present and non-empty when required.
+
+  1.2 Turn operating answers into generation rules
+      human:no | loc:full_stack/setup1.2.py | int:1.1 | en:2,3 | deliv:location-aware generation rules | prereq:(none) | complex:small | env:local
+      Encode explicit rules that affect templates/values (e.g. local-intent emphasis for physical businesses; avoid “near me” for online-only).
+      Verification (Step 1.2 complete): Rules text is built from operating_model/operating_region and injected into both tester and bank prompts.
+      1.2.1 Implement location-aware prompt rules
+          human:no | loc:full_stack/setup1.2.py | int:1.1.1,1.1.2 | en:2,3 | deliv:updated prompt text | prereq:(none) | complex:small | env:local
+          Add a “Rules” section telling the model when to use/avoid `{city}`, `{landmark}`, `{neighborhood}`, `{location}`.
+          1.2.1 Verification: Rules are present in both prompt sites; spot-check output shows expected local vs online differences.
+          1.2.1.1 Build location-rules string from datafile
+              human:no | loc:full_stack/setup1.2.py | int:1.1.1,1.1.2 | en:1.2.1.2,1.2.1.3 | deliv:rules_string | prereq:(none) | complex:small | env:local
+              From datafile operating_model and operating_region, build a single rules string per BUILD-TIME DEFAULTS (use/avoid {city}, {landmark}, {neighborhood}, {location}; require at least one location placeholder for physical/both; pass operating_region for examples).
+              1.2.1.1 Verification: rules_string is non-empty and reflects operating_model and operating_region.
+
+          1.2.1.2 Inject rules into tester-question generation prompt
+              human:no | loc:full_stack/setup1.2.py | int:1.2.1.1 | en:2.1.2 | deliv:prompt includes rules | prereq:(none) | complex:small | env:local
+              Add the rules string to the prompt used in Step 2.1.2 (tester-question LLM call) under a Rules or Location section so the model produces location-appropriate questions.
+              1.2.1.2 Verification: Tester-question prompt contains the rules text (or a reference to the same rules).
+
+          1.2.1.3 Inject rules into template and value bank generation prompts
+              human:no | loc:full_stack/setup1.2.py | int:1.2.1.1 | en:3.2.1.1,3.2.1.2 | deliv:bank prompts include rules | prereq:(none) | complex:small | env:local
+              Add the same rules string to the prompts used in Step 3.2.1 (template rows and value rows LLM calls) so generated rows respect local vs online.
+              1.2.1.3 Verification: Template and value generation prompts both include the rules text.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 2: Generate 50 unique tester questions → rank by trends → keep top 25
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/setup1.2.py | int:1.2 | en:3 | deliv:top25 tester questions | prereq:OPENAI_API_KEY,trends_source | complex:medium | env:local
+
+  Description: Generate ~50 tester questions that are all different in idea/format, then rank them by Google Trends (or the chosen trends source) and keep the top half (top 25). These top 25 shape the final bank generation to match real-world phrasing.
+
+  Verification (Step 2 complete):
+  • Exactly 50 unique tester questions exist (post-dedupe).
+  • Each tester question has a trend score/search-volume proxy.
+  • A deterministic top-25 list exists and is used in Step 3 prompts.
+
+  2.1 Generate candidates + enforce uniqueness to exactly 50
+      human:no | loc:full_stack/setup1.2.py | int:1.2 | en:2.2 | deliv:tester_questions[50] | prereq:OPENAI_API_KEY | complex:medium | env:local
+      Define intent buckets and format quotas, generate candidates from LLM, then dedupe and refill until exactly 50 remain.
+      Verification (Step 2.1 complete): Exactly 50 tester questions; no two are effectively the same idea or format.
+      2.1.1 Define intent buckets + format quotas and encode in prompt
+          human:no | loc:full_stack/setup1.2.py | int:1.2.1 | en:2.1.2 | deliv:prompt with buckets/quotas | prereq:(none) | complex:small | env:local
+          Define bucket list and per-bucket caps per INTENT_BUCKETS in BUILD-TIME DEFAULTS (sum = 50); include format diversity (at least 2 per bucket). Encode these in the tester-question generation prompt so the model produces a spread. Single source of truth: constants in setup1.2.py.
+          2.1.1 Verification: Prompt text includes explicit bucket names and caps (or quota rules); no magic numbers in generation call.
+
+      2.1.2 Generate candidate list via LLM (60–80 questions)
+          human:no | loc:full_stack/setup1.2.py | int:2.1.1 | en:2.1.3 | deliv:raw_candidates list | prereq:OPENAI_API_KEY | complex:medium | env:local
+          Call LLM with the bucket/quota-aware prompt and datafile context (and location rules from 1.2.1). Request 60–80 candidate questions. Return list of strings (one question per item).
+          2.1.2 Verification: raw_candidates is a list of strings; length between 60 and 80 (or retry); spans multiple formats per spot-check.
+
+      2.1.3 Dedupe to exactly 50 (embedding similarity)
+          human:no | loc:full_stack/setup1.2.py | int:2.1.2 | en:2.2.1 | deliv:tester_questions[50] | prereq:OPENAI_API_KEY (embeddings) | complex:medium | env:local
+          Apply embedding dedupe per BUILD-TIME DEFAULTS; output exactly 50 unique questions.
+          Verification (Step 2.1.3 complete): len(tester_questions) == 50; closest-pair review shows no near-duplicates.
+          2.1.3.1 Embed candidates and compute similarities
+              human:no | loc:full_stack/setup1.2.py | int:2.1.2 | en:2.1.3.2 | deliv:embeddings + pairwise sim | prereq:OPENAI_API_KEY | complex:medium | env:local
+              Embed all current candidates with OpenAI text-embedding-3-small (batch if needed). Compute cosine similarity of each candidate to each already-accepted one.
+              2.1.3.1 Verification: Every candidate has an embedding; similarity to accepted set can be computed.
+
+          2.1.3.2 Filter: accept only if max sim to accepted < threshold
+              human:no | loc:full_stack/setup1.2.py | int:2.1.3.1 | en:2.1.3.3 | deliv:accepted list | prereq:(none) | complex:small | env:local
+              Accept first candidate. For each remaining: accept only if max(cosine_sim to any accepted) < EMBEDDING_SIMILARITY_THRESHOLD (0.85); otherwise reject.
+              2.1.3.2 Verification: Accepted list has no pair with sim >= 0.85.
+
+          2.1.3.3 Refill until 50 accepted
+              human:no | loc:full_stack/setup1.2.py | int:2.1.3.2 | en:2.2.1 | deliv:tester_questions[50] | prereq:OPENAI_API_KEY | complex:medium | env:local
+              If accepted count < 50, request more candidates from LLM (same bucket/quota prompt), append to candidate list, repeat from 2.1.3.1 until exactly 50 accepted. Output tester_questions = accepted list.
+              2.1.3.3 Verification: len(tester_questions) == 50; all unique by embedding dedupe.
+
+  2.2 Rank by trends and select top 25
+      human:no | loc:full_stack/setup1.2.py | int:2.1 | en:3 | deliv:top25 list | prereq:trends_source | complex:medium | env:local
+      Obtain a trend score for each of the 50 tester questions, then sort and keep the top 25.
+      Verification (Step 2.2 complete): Every tester question has a score; top 25 selected deterministically; top25 is passed into Step 3.
+      2.2.1 Get trend score per tester question
+          human:no | loc:full_stack/setup1.2.py | int:2.1.3 | en:2.2.2 | deliv:question_to_score dict | prereq:pytrends (per BUILD-TIME DEFAULTS) | complex:medium | env:local
+          Obtain a search-volume/interest proxy for each of the 50 questions via pytrends; store question_to_score[q] = score. On failure, apply fallback per BUILD-TIME DEFAULTS.
+          Verification (Step 2.2.1 complete): All 50 questions have a numeric score (or explicit fallback applied).
+          2.2.1.1 Initialize pytrends and prepare keyword list
+              human:no | loc:full_stack/setup1.2.py | int:2.1.3 | en:2.2.1.2 | deliv:pytrends ready, keywords[50] | prereq:pytrends | complex:small | env:local
+              Initialize pytrends with GEO and time window per BUILD-TIME DEFAULTS (GEO = "US", "today 12-m"). Prepare list of 50 keywords from tester_questions (truncate per pytrends keyword length limits if needed).
+              2.2.1.1 Verification: pytrends configured; keyword list has 50 entries.
+
+          2.2.1.2 Request interest_over_time per question (or batch) and map to score
+              human:no | loc:full_stack/setup1.2.py | int:2.2.1.1 | en:2.2.1.3 | deliv:question_to_score | prereq:(none) | complex:medium | env:local
+              For each question (or batch per pytrends limits), request interest_over_time. Score = mean of series (or last value if single point) per BUILD-TIME DEFAULTS. Store question_to_score[q] = score.
+              2.2.1.2 Verification: question_to_score has 50 keys; each value is numeric.
+
+          2.2.1.3 On rate limit or failure: apply fallback
+              human:no | loc:full_stack/setup1.2.py | int:2.2.1.2 | en:2.2.2 | deliv:question_to_score complete | prereq:(none) | complex:small | env:local
+              On pytrends rate limit or API failure: do not crash. Use fallback: assign scores so that "first 25 by list order" is well-defined (e.g. first 25 get score 1, rest 0), or set all to 0 and sort by order; print "Trends unavailable; using first 25 by order."
+              2.2.1.3 Verification: Either all 50 have real scores or fallback was applied and warning printed.
+
+      2.2.2 Sort by score descending and take top 25
+          human:no | loc:full_stack/setup1.2.py | int:2.2.1 | en:3.1.2 | deliv:top25 list | prereq:(none) | complex:small | env:local
+          Sort tester questions by question_to_score descending; top25 = first 25. Optionally write top25 to client_folder (e.g. top25_tester_questions.json) for debugging. Pass top25 into Step 3 generation prompts.
+          2.2.2 Verification: top25 is list of exactly 25 strings; same list is referenced when building Step 3 prompts.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 3: Generate MUCH larger bank rows (shaped by top 25) + validate
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/setup1.2.py | int:2.2 | en:4 | deliv:large bank rows (validated) | prereq:OPENAI_API_KEY | complex:large | env:local
+
+  Description: Generate significantly more template rows and value rows than `setup.py`, explicitly shaped by the top 25 tester questions, then validate the matrix expansion with `build_queries_from_matrix` (no unfilled placeholders; bounded total output).
+
+  Verification (Step 3 complete):
+  • Template/value row counts meet the configured targets.
+  • `build_queries_from_matrix` produces a non-empty list with no unfilled `{placeholder}` tokens.
+  • The expanded question count is within a safety cap (no explosion).
+
+  3.1 Prompt shaping + output targets/caps
+      human:no | loc:full_stack/setup1.2.py | int:2.2 | en:3.2 | deliv:targets,caps,prompts | prereq:(none) | complex:medium | env:local
+      Choose the shaping mechanism and set explicit targets + safety caps to avoid cross-product explosion.
+      Verification (Step 3.1 complete): Targets/caps live in one place and prompts reference the top 25.
+      3.1.1 Define counts + max-expansion cap
+          human:no | loc:full_stack/setup1.2.py | int:(none) | en:3.2.1 | deliv:constants for targets/caps | prereq:(none) | complex:small | env:local
+          Define: #template_rows target, #value_rows target, and max expanded questions cap (single source of truth).
+          3.1.1 Verification: Expansion never exceeds the cap (deterministic truncation if needed).
+
+      3.1.2 Include top-25 guidance in generation prompts
+          human:no | loc:full_stack/setup1.2.py | int:2.2.2 | en:3.2.1 | deliv:prompt text updated | prereq:(none) | complex:medium | env:local
+          Include the exact top 25 questions as examples inside the generation prompts under a heading like "Example questions (match this style and variety):" (no extraction step; see BUILD-TIME DEFAULTS Step 3.1.2).
+          3.1.2 Verification: Sample output resembles the top-25 phrasing patterns.
+
+  3.2 Generate rows + validate matrix
+      human:no | loc:full_stack/setup1.2.py | int:3.1 | en:4.1 | deliv:template_rows,value_rows (validated) | prereq:OPENAI_API_KEY | complex:large | env:local
+      Generate template and value rows via LLM (shaped by top 25), then validate expansion and enforce placeholder/cap rules.
+      Verification (Step 3.2 complete): template_rows and value_rows meet targets; build_queries_from_matrix output is non-empty, has no "{", and is within cap.
+      3.2.1 Generate template rows and value rows via LLM
+          human:no | loc:full_stack/setup1.2.py | int:3.1.1,3.1.2,2.2.2 | en:3.2.2 | deliv:template_rows,value_rows | prereq:OPENAI_API_KEY | complex:large | env:local
+          Generate template rows then value rows via LLM; prompts include top 25 examples and location rules (from 1.2.1). Use TEMPLATE_HEADERS and VALUE_HEADERS from full_stack/schema.py.
+          Verification (Step 3.2.1 complete): len(template_rows) and len(value_rows) meet configured targets; rows have correct keys per schema.
+          3.2.1.1 Generate template rows via LLM
+              human:no | loc:full_stack/setup1.2.py | int:3.1.1,3.1.2,2.2.2,1.2.1.3 | en:3.2.1.2 | deliv:template_rows | prereq:OPENAI_API_KEY | complex:medium | env:local
+              Call LLM with prompt that includes top 25 examples, location rules, and target TARGET_TEMPLATE_ROWS (50). Output list of dicts with keys per TEMPLATE_HEADERS; each row is a template string with {placeholder} tokens.
+              3.2.1.1 Verification: len(template_rows) >= TARGET_TEMPLATE_ROWS (or retry); each row has correct keys.
+
+          3.2.1.2 Generate value rows via LLM
+              human:no | loc:full_stack/setup1.2.py | int:3.1.1,3.1.2,2.2.2,1.2.1.3 | en:3.2.2 | deliv:value_rows | prereq:OPENAI_API_KEY | complex:medium | env:local
+              Call LLM with prompt that includes top 25 examples, location rules, and target TARGET_VALUE_ROWS (100). Output list of dicts with keys per VALUE_HEADERS; each row supplies values for placeholders.
+              3.2.1.2 Verification: len(value_rows) >= TARGET_VALUE_ROWS (or retry); each row has correct keys.
+
+      3.2.2 Validate with build_queries_from_matrix and enforce placeholder/cap
+          human:no | loc:full_stack/setup1.2.py | int:3.2.1,3.1.1 | en:4.1.1,4.1.2 | deliv:validated rows (or fail/truncate) | prereq:full_stack.lib | complex:medium | env:local
+          Run build_queries_from_matrix; check for unfilled placeholders and cap; pass validated rows to Step 4.
+          Verification (Step 3.2.2 complete): expanded has no "{" in any element; len(expanded) <= max_expansion_cap; validated rows passed to write step.
+          3.2.2.1 Call build_queries_from_matrix and get expanded list
+              human:no | loc:full_stack/setup1.2.py | int:3.2.1.1,3.2.1.2,3.1.1 | en:3.2.2.2,3.2.2.3 | deliv:expanded list | prereq:full_stack.lib | complex:small | env:local
+              expanded = build_queries_from_matrix(template_rows, value_rows). Do not write CSVs until validation passes.
+              3.2.2.1 Verification: expanded is a list of strings.
+
+          3.2.2.2 Check for unfilled placeholders; fail or fix
+              human:no | loc:full_stack/setup1.2.py | int:3.2.2.1 | en:3.2.2.3 | deliv:no "{" in expanded | prereq:(none) | complex:small | env:local
+              If any string in expanded contains "{", treat as validation failure: log which rows/placeholders, then fix prompts or truncate rows and retry from 3.2.1 (or fail with clear message).
+              3.2.2.2 Verification: No element of expanded contains "{".
+
+          3.2.2.3 Enforce max-expansion cap and pass to Step 4
+              human:no | loc:full_stack/setup1.2.py | int:3.2.2.2 | en:4.1.1,4.1.2 | deliv:validated rows | prereq:(none) | complex:small | env:local
+              If len(expanded) > MAX_EXPANSION_CAP (5000), truncate to first MAX_EXPANSION_CAP and log a warning (per BUILD-TIME DEFAULTS). Pass the same template_rows and value_rows (unchanged) to Step 4; truncation affects only the in-memory expanded list for validation, not the rows written.
+              3.2.2.3 Verification: len(expanded) <= MAX_EXPANSION_CAP; template_rows and value_rows passed to write step.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 4: Write artifacts + print next steps
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/setup1.2.py | int:3.2 | en:(none) | deliv:query_template_bank.csv,value_bank.csv,config.json + console output | prereq:(none) | complex:small | env:local
+
+  Description: Write the final artifacts to the client folder (bank CSVs + config) and print the “review banks then run collect” guidance.
+
+  Verification (Step 4 complete):
+  • `query_template_bank.csv` and `value_bank.csv` exist, have correct headers, and are non-empty.
+  • `config.json` exists and contains `slug` (and optional display_name parity if used).
+  • Console output shows correct next steps: `python full_stack/collect.py <slug>`.
+
+  4.1 Write CSVs + config (same shape as setup.py)
+      human:no | loc:full_stack/setup1.2.py | int:3.2.2 | en:4.2 | deliv:bank CSVs + config | prereq:(none) | complex:small | env:local
+      Write bank CSVs with headers from full_stack/schema.py and write config.json.
+      Verification (Step 4.1 complete): Both CSVs and config.json exist; headers match schema; config contains slug.
+      4.1.1 Write query_template_bank.csv
+          human:no | loc:full_stack/setup1.2.py | int:3.2.2 | en:(none) | deliv:query_template_bank.csv written | prereq:(none) | complex:small | env:local
+          Write template rows to client_folder/query_template_bank.csv using TEMPLATE_HEADERS from full_stack/schema.py (same pattern as setup.py write_bank_csvs).
+          4.1.1 Verification: File exists; header row equals TEMPLATE_HEADERS; row count meets target.
+
+      4.1.2 Write value_bank.csv
+          human:no | loc:full_stack/setup1.2.py | int:3.2.2 | en:4.1.3 | deliv:value_bank.csv written | prereq:(none) | complex:small | env:local
+          Write value rows to client_folder/value_bank.csv using VALUE_HEADERS from full_stack/schema.py.
+          4.1.2 Verification: File exists; header row equals VALUE_HEADERS; row count meets target.
+
+      4.1.3 Write config.json
+          human:no | loc:full_stack/setup1.2.py | int:3.2.2 | en:4.2 | deliv:config.json written | prereq:(none) | complex:small | env:local
+          Write client_folder/config.json with at least slug (and optional display_name if present in datafile). Same shape as setup.py write_config.
+          4.1.3 Verification: File exists; JSON has "slug" key; optional display_name if used.
+
+  4.2 Print final UX + next-step instructions
+      human:no | loc:full_stack/setup1.2.py | int:4.1.3 | en:(none) | deliv:console output | prereq:(none) | complex:small | env:local
+      Print “setup complete”, recommend reviewing the banks, and show the `collect.py` command to run next.
+      Verification (Step 4.2 complete): Output includes correct paths and the correct slug.
+      4.2.1 Print "review then collect" guidance
+          human:no | loc:full_stack/setup1.2.py | int:4.1.3 | en:(none) | deliv:console guidance | prereq:(none) | complex:small | env:local
+          Print "Setup complete for '<slug>'.", "Recommend reviewing query_template_bank.csv and value_bank.csv before running collect.", and "Run collect: python full_stack/collect.py <slug>" (slug from variable).
+          4.2.1 Verification: The command shown is executable and matches the created slug; wording matches setup.py style.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CHECKLIST (before considering plan done — HOW_TO_PLAN2 § PLAN CREATION)
+═══════════════════════════════════════════════════════════════════════════════
+
+  • PRODUCT INTENT, HOW IT WORKS, HOW TO USE/RUN, CONSIDERATIONS, DECISIONS, SPECIFICATIONS, HOSTING, WHAT CHANGED — all present and filled.
+  • ACTION PLAN: READY TO EXECUTE block with prerequisites, reuse, first step, leaf-step checklist, execution order, ONE STEP AT A TIME. Build-time decisions resolved (use BUILD-TIME DEFAULTS).
+  • ATOMICITY: Each step has one primary action, one concern, one verification target. Compound steps split into leaves (0.1.1–0.1.3; 1.2.1.1–1.2.1.3; 2.1.3.1–2.1.3.3, 2.2.1.1–2.2.1.3; 3.2.1.1–3.2.1.2, 3.2.2.1–3.2.2.3; 4.1.1–4.1.3, 4.2.1).
+  • Parent steps 0–4 have full description, data tags, and verification. Leaf steps have N.M Verification.
+  • Execute innermost-first; verify each step before moving on; mark complete with "DONE — do not modify".

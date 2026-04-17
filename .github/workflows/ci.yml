@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax-check:
+    name: Python Syntax & Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Syntax check — compile all Python files
+        run: |
+          echo "Checking Python syntax..."
+          # Use -print0 + xargs -0 to safely handle filenames with spaces
+          find . -name "*.py" \
+            -not -path "./.venv/*" \
+            -not -path "./.git/*" \
+            -not -path "./*__pycache__*" \
+            -print0 | xargs -0 python -m py_compile
+          echo "All files compiled OK."
+
+      - name: Lint — ruff (core modules only)
+        run: |
+          # Only lint the core pipeline and webish — playground/SBACO are scratch areas
+          ruff check full_stack/ webish/ \
+            --select E,F,W \
+            --ignore E501,W291,W293,E402,E741,F841
+          # E501  ignored: line length not enforced
+          # W291/W293 ignored: trailing whitespace (cosmetic)
+          # E402  ignored: intentional imports-after-sys.path pattern used throughout
+          # E741  ignored: single-letter vars (l) in legacy code — cosmetic
+          # F841  ignored: assigned-but-unused vars in legacy analysis scripts

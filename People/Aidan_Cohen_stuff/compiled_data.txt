@@ -1,0 +1,272 @@
+COMPILED DATA — Aidan_Cohen_stuff
+Generated: 2026-04-03
+================================================================================
+
+
+================================================================================
+SECTION 1: IMESSAGE CONVERSATIONS
+================================================================================
+
+--- Thread: Ashwin ---
+
+Ashwin: We can adjust pricing to fit the client's needs.
+Aidan: Ok I will let them know
+
+Ashwin: Hi Aidan, sorry for calling you out. My friend works for VizionForge he
+was curious about the product but still is skeptical.
+
+But I believe in your product and would like to sign up for your services. I do
+not expect any special pricing. I will pay what you think is fair. I plan on
+measuring success on your platform for 3 months and sharing it with my group to
+see if I can get interest. Is that something you would be interested in?
+
+My website is conciergeone.net
+
+Aidan: Yes.
+
+Ashwin: Great we can talk details on Friday 5:30pm till then you can do your
+research on pricing and strategy of our deal
+
+Aidan: Yes.
+[Read 12:33 PM]
+
+--- Thread: Caroline Baker Dimock ---
+[Sent her the AISO document via iMessage — no reply visible in screenshots]
+
+
+================================================================================
+SECTION 2: AISO DOCUMENT — "Integrated AI - AI Search Optimization"
+================================================================================
+
+Tagline: Integrated AI allows you to position your business where AI is already looking.
+
+--- About Us ---
+AI Search optimization (AISO) is built for a new reality: one where customers
+are no longer just searching traditional platforms, but asking AI what to buy,
+who to trust, and where to go next. In this environment, visibility is no longer
+just about ranking in a Google search, but about AI search as well.
+
+Our mission is simple: AISO will work to increase revenue from AI searches by
+ensuring your product and brand are embedded directly within AI search pathways.
+
+--- What We Do ---
+AISO uses data-driven analysis to identify where your business is, and more
+importantly, where it isn't, appearing in AI search results. These are the
+responses customers receive when they ask tools like AI assistants, chat based
+search engines and recommendation systems for advice.
+
+We locate the websites and databases the AI systems rely on to generate answers
+within your industry. This allows you to then strategically position your
+business within those pathways.
+
+That means:
+  → Identifying high-impact AI search environments where your competitors appear
+  → Pinpointing gaps where your brand is missing from AI-generated recommendations
+  → Expanding your presence across the sources, networks, and signals AI systems
+    use to construct answers
+
+--- Our Approach ---
+Traditional SEO focuses on ranking links. AISO focuses on influencing answers.
+
+We analyze how AI systems gather and prioritize information, across websites
+databases, structured content, and industry specific networks. From there, we
+place your business into the ecosystems that AI trusts and uses.
+
+Beyond visibility, we ensure your product is positioned within the networks AI
+uses to recommend solutions in your industry. This is not passive optimization:
+it is active placement within the architecture of AI-driven discovery.
+
+--- Why it Matters ---
+AI is rapidly becoming the first point of contact between customers and products.
+If your business is not included in AI-generated responses, you are effectively
+invisible in a growing segment of the market.
+
+AISO ensures that when customers ask AI:
+  → "What should I buy?"
+  → "Who's the best in this space?"
+  → "What are my options?"
+Your business is part of the answer.
+
+--- Measurable Impact ---
+  → % of mentions in AI search responses: [INSERT DATA]
+  → Change in visibility compared to competitors: [INSERT DATA]
+
+These benchmarks show not just growth, but competitive positioning within
+AI-driven markets.
+
+--- The Future of Search Starts Here ---
+Search is no longer about being found; it's about being recommended.
+
+Integrated AI gives your business a strategic advantage by embedding it directly
+into the systems shaping customer decisions. As AI continues to define how people
+discover products and services, we make sure your brand isn't left out of the
+conversation.
+
+
+================================================================================
+SECTION 3: WHITEBOARD NOTES
+================================================================================
+
+--- Board 1 (red marker, labeled "1") — Focused Industry Assessment ---
+Concept: a plot that shows [client] and competitor industry mention rate over time.
+
+Visual: Bar chart
+  Y-axis: % Mentions
+  X-axis bars: Client | Comp#1 | Comp#2 | Comp#4 | Comp#5
+  (Client bar is lowest — illustrating gap to address)
+
+Also: line graph (left side) with date/time axis showing mention rate trends
+across multiple competitors.
+
+--- Board 2 (blue cursive, labeled "2") — Profile Setup Questions ---
+[Photographed multiple times from different angles — same content]
+
+Profile setup questions:
+  - What product/service does your business provide
+  - Where geographically do you sell
+  - What specific industry and subcategories do you operate in
+  - Do you have a specific display name
+  - What are 3 questions that you feel are important to optimize for
+  - Do you have any specific target customers
+  - Can your business operate completely online (anywhere in the world)
+
+--- Board 9 (blue cursive, labeled "9") — Deliverable: Directory Update Audit ---
+[Photographed twice — same content, different angles]
+
+"A list of all the web paths and registries that your business has been added to,
+and the information [posts] added to each location."
+
+Label: directory update audit
+
+--- Board (black marker, partially erased) — Pricing + Concept Sketch ---
+  google search concel[pt?]
+
+  Specific pricing:
+    - $700 one-time set up
+    - $275/month
+    - help me learn container rotations [uncertain read]
+
+  Diagram: circular arrangement of "$" signs around the word "ai"
+
+--- Board (black marker, large planning board) — Ashwin Meeting Prep ---
+5:30 Friday: Ashwin meeting
+
+Must Have:
+  - Specific pricing
+  - Sales document
+  - Commitments for deliveries
+
+[Box] CRM: Twenty
+      Payment processor: Stripe
+
+Commitments: document          Clicky — for meetings
+
+Setup:
+  - Profiling
+    - Come in with profile setup questions
+    - Explain what a profile is
+    - Focused industry assessments
+
+Monthly:
+  - Evolving industry assessments
+  - Show example in sales documents
+  - A list of all the stuff that I put up and where it is
+
+
+================================================================================
+SECTION 4: PDF — "Integrated_ai AI Search Optimization (AISO)"
+File: Integrated_ai AI Search Optimization (AISO).pdf
+================================================================================
+
+--- About Us ---
+AI is rapidly becoming the first point of contact between customers and products.
+Today, 60% of Americans use AI to find information online, making it necessary
+to prioritize AI marketing.
+
+Our mission is simple: AISO will increase revenue from AI search.
+
+--- What We Do ---
+Integrated_ai software identifies where you and your competitors appear within
+AI search results.
+
+AISO will map the networks AI uses to generate responses for your clients. We
+place your business inside the networks used in your industry.
+
+--- Our Approach ---
+We analyze how AI systems gather and prioritize marketing and advertising
+information. From there, we place your business into the networks that AI uses
+to recommend businesses in your industry.
+
+--- Measurable Results ---
+Chart title: "AI Search Mentions Over Time"
+  X-axis: Date (7/14/2025 → 3/28/2026)
+  Y-axis: % of AI Search Mentions
+
+  SBACO (Client — bold black line):
+    Start: 21.1%  →  End: 24.4%  [INCREASING]
+
+  Competitors (gray lines, all declining or flat):
+    - Island Packers:            ~25% → declining
+    - Surf Happens:              ~20% → declining
+    - Santa Barbara Surf School: ~17% → declining
+    - Santa Barbara Wine Tours:  ~15% → declining
+
+Caption: "Change in number of AI search mentions over time with the use of AISO."
+
+--- Why it Matters ---
+Integrated AI gives your business an edge by building it into the systems that
+influence customer decisions. As AI shapes how people find products and services,
+we ensure your brand appears in front of your clients.
+
+
+================================================================================
+SECTION 5: SERVICE COMMITMENTS DOC — FEEDBACK & DECISIONS
+================================================================================
+
+--- Profiling ---
+- Do NOT list the profile setup questions in the commitments doc
+- Just briefly mention profiling as a process
+- Method: voice recorder (if client consents) or written responses
+- Keep it one short paragraph max
+
+--- Focused Industry Assessment (Setup deliverable) ---
+Three components:
+  1. Share of mentions chart — bar chart, client vs competitors, % of AI search mentions
+  2. Sentiment chart — scores how positively the business is perceived in AI responses
+  (Written analysis dropped — not a committed deliverable)
+User confirmed: this IS enough for setup (profiling + full industry assessment)
+
+--- Evolving Industry Assessment (Monthly deliverable) ---
+- It is a LINE CHART over time, not a bar chart
+- X-axis: date (monthly snapshots)
+- Y-axis: % of AI search mentions
+- Lines: client (bold) + competitors (lighter)
+- Each monthly delivery adds one new time-point to the chart — so it literally grows
+- Delivery 1: 2 data points | Delivery 2: 3 data points | Delivery 3: 4 | etc.
+- The SBACO chart in the PDF is an example with 2 data points
+- Example in the commitments doc should show 3 data points
+- Previous description in doc ("adds a new competitor each month") was WRONG — it adds a new time snapshot
+
+--- Chart standards ---
+- All charts must have proper axis labels and units
+- Bar chart: X-axis = company names, Y-axis = "% of AI Search Mentions"
+- Line chart: X-axis = Date, Y-axis = "% of AI Search Mentions"
+- Legend required on all charts
+- No garbage formatting — clean, professional, labeled
+
+--- General doc feedback ---
+- First iteration rated 3/10 — needs significant visual and content improvement
+- Do not make the doc look like AI generated
+- Next step: write a plan file first, then rebuild the HTML from the plan
+
+
+================================================================================
+NOTES ON CONFIDENCE
+================================================================================
+- All phone screenshots: high confidence, text is sharp and clear
+- Whiteboard handwriting: ~90% confidence overall
+- Lower confidence reads: "container rotations" (one phrase on pricing board),
+  "concel." (likely "concept"), small annotations near whiteboard diagrams
+- Duplicate images: several whiteboards and AISO doc screenshots appear 2-4x
+  from different angles/zoom levels — content consistent across all copies
+================================================================================

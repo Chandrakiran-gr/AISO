@@ -1,0 +1,25 @@
+THE BASICS
+----------
+Push = make the one online match yours (send your stuff up)
+Pull = make the one on your computer match the one online (grab their stuff down)
+New repo = turn a folder into a repo and connect it to GitHub
+
+
+COMMANDS
+--------
+Push:
+  git add .
+  git commit -m "message"
+  git push
+
+Pull:
+  git pull
+
+New repo from folder:
+  cd path/to/folder
+  git init
+  git add .
+  git commit -m "first commit"
+  git branch -M main
+  git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
+  git push -u origin main

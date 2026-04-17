@@ -1,0 +1,99 @@
+# Ways to Determine If Someone Can Put a Company's Business on a URL
+
+**Goal:** Given a website URL and a company (slug/business), determine whether it's *possible* for someone on the internet (human or bot) to associate that company's business with that URL. We're not building the thing that does it — we're assessing *feasibility*.
+
+---
+
+## 1. What “Put the Company’s Business On” Can Mean
+
+- **List the business** on the site (directory, chamber, tourism site, etc.).
+- **Impersonate or represent** the company at that URL (fake site, clone, “we are Company X”).
+- **Claim ownership** of the company at that URL in some system (e.g. Google Business, schema, meta tags).
+
+So “is it possible?” can mean: can a third party (1) get the business listed there, (2) make the URL look like it’s the company, or (3) formally claim the business at that URL.
+
+---
+
+## 2. Ways to Determine If It’s Possible
+
+### A. **Can someone list the business on this URL?** (directory / addable-style)
+
+- **Does the site accept listings?**  
+  Check for: “Add your business”, “Submit”, “List your company”, “Claim”, “Register”, “Sign up”, contact-for-listing, forms.  
+  → If yes, then *someone* (with the right info) can put the company on that URL (or a page under it).
+- **Is there a gatekeeper?**  
+  Human approval, membership, geography, industry rules.  
+  → Still “possible”, but with conditions (whoever does it must satisfy those).
+- **Is the business already there?**  
+  Search the site for the company name/slug. If already listed, “put the business on” is already done (by someone).
+
+**Feasibility:** If the site has a submission/listing flow and no hard technical barrier (e.g. invite-only with no way to get invited), then *yes, it’s possible* for someone to get the company listed.
+
+---
+
+### B. **Can someone make this URL represent the company?** (impersonation / lookalike)
+
+- **Who controls the domain?**  
+  WHOIS, DNS. If a random person can register or control the domain (or a typosquat variant), they can host a page that *says* it’s the company.
+- **Who controls the content?**  
+  If the URL is on a platform (e.g. Facebook, Yelp, Google), the platform’s policies determine who can “claim” or edit the page. Often anyone can *attempt* to claim; verification may or may not be strict.
+- **Is there verification?**  
+  If the site requires proof (e.g. email at domain, DNS TXT, document), then “someone” can only put the company on if they have that proof. If there’s no verification, it’s easier for a third party to do it.
+
+**Feasibility:** If there’s no strong verification (domain ownership, legal docs, etc.), then *yes, it’s possible* for someone to make that URL (or a similar one) appear to be the company.
+
+---
+
+### C. **Can someone “claim” the business at this URL in a formal sense?** (ownership / attribution)
+
+- **Does the URL have a “claim” or “verify” flow?**  
+  e.g. Google Business Profile, Bing Places, Apple Maps, directories with “Claim this business”.  
+  → If the flow exists and is not restricted (e.g. by domain or postcard), then *someone* who can pass the checks can attach the company to that URL/page.
+- **What proof is required?**  
+  Email @company domain, phone, postcard, document upload.  
+  → The stricter the proof, the fewer people can do it; but if *any* person could obtain that (e.g. employee, contractor), it’s still “possible”.
+- **Schema / meta / APIs:**  
+  If the site uses structured data or APIs that let you “set” business name/URL, and those aren’t locked down, then programmatic “putting the company on” is possible.
+
+**Feasibility:** If there is a claim/verification flow and the required proof is obtainable by at least one person (or bot with credentials), then *yes, it’s possible*.
+
+---
+
+## 3. Minimal Checklist to Answer “Is It Possible?”
+
+Use this to **determine** feasibility for one URL + company:
+
+| Question | If answer is … | Then “someone can put company on this URL” is … |
+|----------|----------------|--------------------------------------------------|
+| Does the site allow adding/listing/claiming businesses? | Yes | Possible (maybe with conditions). |
+| Can the domain/content be controlled by anyone? | Yes, and no strong verification | Possible (impersonation/lookalike). |
+| Is there a claim/verify flow? What proof is needed? | Flow exists; proof is obtainable by someone | Possible (formal claim). |
+| Is the business already listed/claimed there? | Yes | Already done (so “possible” in the past). |
+
+So: **if any of the above is “yes” in the “possible” sense, then it *is* possible** for someone (human or not) to put the slug company’s business on that URL (in at least one of the three meanings above).
+
+---
+
+## 4. Lightweight Technical Checks (Optional)
+
+To *actually* determine this for a given URL, you can:
+
+1. **Fetch the URL**  
+   - Look for: “Add your business”, “Submit”, “Claim”, “List your business”, forms, signup.  
+   - Look for: company name/slug in title, meta, or body (already “on” the page?).
+2. **WHOIS / DNS**  
+   - Who owns the domain? When does it expire?  
+   - Could someone else register a similar domain and host a clone?
+3. **Platform**  
+   - Is the URL on a known platform (e.g. Google, Yelp, Facebook)?  
+   - Look up that platform’s “claim business” or “verify ownership” policy → possible or not?
+4. **Verification mechanisms**  
+   - Meta tags (e.g. ownership verification), DNS TXT, file-in-root.  
+   - If none required to “be” the company, then bar is low for someone to pretend.
+
+---
+
+## 5. One-Sentence Summary
+
+**It’s possible for someone to put the company’s business on a URL if:**  
+the site allows listing/claiming (and they can pass the gates), **or** the URL/content can be controlled without strong verification, **or** there’s a claim flow with obtainable proof — so the way to *determine* it is to check those three angles (listing policy, control/verification, claim flow) for that URL and company.

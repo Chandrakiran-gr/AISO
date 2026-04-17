@@ -1,0 +1,49 @@
+# ─── Secrets & Keys ──────────────────────────────────────────────────────────
+.env
+*.env
+!*.env.example
+*-key*.json
+*credentials*.json
+**/service*account*.json
+# Google service account (specific file currently in repo)
+**/integratedai-aio-sbaco-*.json
+
+# Benchmark datasets — large generated files
+SBACO/aio_benchmark/benchmark_data_*.csv
+SBACO/aio_benchmark/benchmark_retest_*.csv
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# ─── Webish session & results ────────────────────────────────────────────────
+webish/.session/
+webish/results/
+SBACO/webish/.session/
+SBACO/webish/results/
+
+# ─── IDE & Editor ────────────────────────────────────────────────────────────
+.cursor/
+.claude/
+.DS_Store
+Thumbs.db
+*.code-workspace
+.vscode/
+.idea/
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Node (for Firebase / web projects) ──────────────────────────────────────
+node_modules/
+.firebase/
+.firebaserc

@@ -1,0 +1,243 @@
+SERVICE COMMITMENTS DOC — BUILD PLAN v3
+================================================================================
+Changes from v2: Added written deliverable to both Setup and Monthly sections.
+Changes from v2 (continued): Added llm.txt / website file implementation to Setup.
+Build the HTML from this file.
+
+
+================================================================================
+DOCUMENT STRUCTURE (top to bottom)
+================================================================================
+
+1. Brand name          — "Integrated_ai", small, once, top left
+2. Doc title           — "Service Commitments"
+3. Subtitle            — "What we deliver and when."
+4. Meta fields         — Client (blank line), Start Date (blank line)
+5. Divider
+6. Section 1: Setup
+7. Divider
+8. Section 2: Monthly
+9. Divider
+10. Pricing            — two blank fill-in lines
+11. Divider
+12. Signatures         — two sig lines side by side
+
+
+================================================================================
+SECTION 1: SETUP
+================================================================================
+
+Timing line: "Delivered within one week of signing."
+
+--- Deliverable 1: Profiling ---
+One short paragraph only:
+  "We conduct a session with you to understand your business — what you offer,
+  who you serve, where you operate, and what you want to be known for. This
+  becomes the foundation of your presence in AI search."
+NO questions listed. NO mention of voice recorder.
+
+--- Deliverable 2: Focused Industry Assessment ---
+Description: full picture of where the client stands in AI search right now.
+Two charts:
+
+  [Chart 1] Share of Mentions — Bar chart
+  - Title: "AI Search Mentions by Company"
+  - Y-axis: "% of AI Search Mentions"
+  - Client bar = black. Competitor bars = gray.
+  - Legend: "Your Business" / "Competitors"
+  - Example data: YB=21%, C1=31%, C2=26%, C3=22%, C4=18%
+
+  [Chart 2] Sentiment Score — Bar chart
+  - Title: "AI Search Sentiment Score by Company"
+  - Y-axis: "Sentiment Score (0–10)"
+  - Same visual language as Chart 1
+  - Example data: YB=6.2, C1=7.8, C2=5.4, C3=6.9, C4=4.1
+
+  Example note below charts: "Example data shown. Your actual assessment
+  reflects your industry and competitors."
+
+--- Deliverable 3: Website File Implementation (NEW) ---
+PURPOSE: We implement an llm.txt file (and other relevant files) directly on
+the client's website as part of the technical setup. This embeds the client
+into AI search pathways at the source level.
+
+Default path — we request website access:
+  We ask for backend access to the client's website to implement and maintain
+  the necessary files directly. This is the preferred approach because it lets
+  us iterate on the llm.txt, add additional files over time, and make updates
+  without going back and forth with the client.
+
+Opt-out clause — if client doesn't want to give access:
+  If the client prefers not to grant access, we deliver the file(s) directly
+  and assist them in getting it live on their site.
+
+Suggested copy for the doc:
+  Name: "Website File Implementation"
+  Body: "To establish your presence in AI search at the technical level, we'll
+  implement the necessary files directly on your website. We'll request backend
+  access to handle this — and keep it updated — ourselves. If you'd prefer not
+  to share access, we'll deliver the files to you directly and walk you through
+  getting them live."
+
+Notes:
+  - Lead with the access-first path — make it sound like the normal thing
+  - The opt-out should feel like an accommodation, not the default
+  - Don't use the term "llm.txt" in the client-facing doc — just "the necessary
+    files" or "technical files". Keeps it clean and non-intimidating.
+  - This also covers future files beyond llm.txt — the language is intentionally
+    broad enough to include anything else added to the site down the line
+
+--- Deliverable 4: Written Observations (NEW) ---
+PURPOSE: Commit to writing the client something useful without specifying
+exactly what. Should feel like expert attention, not a report format.
+
+Language goal: "I'm going to write you something worth reading" — open-ended
+on content, closed on the fact that it will happen.
+
+Suggested copy for the doc:
+  Name: "Written Observations"
+  Body: "Alongside your charts, we'll share our written take — what we're
+  seeing in your space, what stands out, and anything we think is worth
+  your attention as we get started."
+
+Notes on this deliverable:
+  - Do NOT specify length, format, or exact content
+  - Do NOT use words like "report", "analysis", "summary" — too formal/specific
+  - "Our written take" or "written observations" is the right register:
+    implies expert attention, doesn't promise a deliverable structure
+  - It should feel like something a smart person sent you, not a template
+  - One paragraph description in the doc is enough — do not over-explain it
+
+
+================================================================================
+SECTION 2: MONTHLY DELIVERABLES
+================================================================================
+
+Timing line: "Delivered every month following setup."
+
+--- Deliverable 1: Evolving Industry Assessment ---
+LINE CHART, grows by one time-snapshot per month.
+
+  - Title: "AI Search Mentions Over Time"
+  - X-axis: "Date" (monthly snapshots, real-looking dates)
+  - Y-axis: "% of AI Search Mentions"
+  - Client line: bold black, stroke-width 2.5
+  - Competitor lines: gray, stroke-width 1.5
+  - Data point dots on each node
+  - Legend: right side of chart
+
+  Example chart: 3 data points
+    Your Business: 18% → 22% → 25%   (rising)
+    Comp. 1:       33% → 30% → 27%   (falling)
+    Comp. 2:       27% → 25% → 24%   (slight decline)
+    Comp. 3:       22% → 21% → 21%   (flat)
+
+  Benchmark growth note below chart:
+    "Delivery 1: 2 snapshots · Delivery 2: 3 snapshots · Delivery 3: 4 · etc."
+
+  Example note: "Example data shown. Your actual report reflects your
+  industry and competitors."
+
+--- Deliverable 2: Directory Update Audit ---
+One short paragraph:
+  "A complete record of every web path and registry your business was added
+  to that month, and the specific information submitted to each location.
+  Full transparency into exactly what was done and where."
+
+--- Deliverable 3: Monthly Notes (NEW) ---
+PURPOSE: Same as the setup written deliverable — commit to writing something
+useful each month without specifying what. This is the ongoing version.
+
+Language goal: feels like an expert checking in with observations, not a
+templated report.
+
+Suggested copy for the doc:
+  Name: "Monthly Notes"
+  Body: "Each month, alongside your report, we'll include a brief written
+  note — what we noticed, what changed, and anything we think is worth
+  your attention."
+
+Notes on this deliverable:
+  - "Monthly Notes" is intentionally casual/human — contrasts well with the
+    formal chart deliverables and makes the whole package feel more personal
+  - "What we noticed" implies active attention without committing to content
+  - Keep the description short — one or two sentences max
+  - Do NOT use words like "insights report", "executive summary", etc.
+  - The brevity of the description is intentional and works in your favor:
+    it signals confidence, not vagueness
+
+
+================================================================================
+CHART IMPLEMENTATION NOTES
+================================================================================
+
+All charts: pure SVG inside HTML. No JS, no external libs. Must print cleanly.
+
+Bar charts (SVG):
+  - viewBox: "0 0 500 215"
+  - Chart area: x=60 to x=395, y=20 to y=180 (height=160)
+  - Bar width: 40px, 5 bars
+  - Y-axis: left border line + rotated text label
+  - X-axis: bottom border line
+  - Gridlines: dashed, light gray (#ddd)
+  - Value labels above each bar
+  - Company name labels below x-axis
+  - Legend: right of chart area
+
+Line chart (SVG):
+  - viewBox: "0 0 520 215"
+  - Chart area: x=60 to x=370, y=20 to y=180 (height=160)
+  - Y-axis: 0–40%, gridlines at 0/10/20/30/40%
+  - X-axis: date labels + tick marks
+  - Client line: stroke="#000", stroke-width=2.5, circle r=4
+  - Competitor lines: stroke="#999"/"#aaa"/"#c0c0c0", stroke-width=1.5, r=3
+  - Legend: right side, line samples + labels
+
+Design rules:
+  - Black and white only
+  - Arial/Helvetica for labels and UI. Georgia for body copy.
+  - No shadows, rounded corners, gradients
+  - Do not look like AI output
+  - All charts: title, both axis labels, units, legend
+
+Writing rules (apply to ALL copy in the doc):
+  - No em dashes (—) used as a stylistic crutch
+  - No phrases like "cutting-edge", "leverage", "deliverables", "seamlessly",
+    "streamlined", "robust", "in today's landscape", "tailored to your needs",
+    "we are committed to", "our team", "ensuring that", "at the end of the day"
+  - No bullet points in the body copy — prose only
+  - Write like a person wrote it, not like a template was filled in
+  - Short sentences. Plain words. If a normal person wouldn't say it out loud,
+    cut it.
+
+
+================================================================================
+PRICING SECTION
+================================================================================
+
+Two rows, blank fill-in lines:
+  - One-time setup fee
+  - Monthly retainer
+
+
+================================================================================
+SIGNATURE SECTION
+================================================================================
+
+Two sig blocks side by side:
+  - Left:  "Client Signature & Date"
+  - Right: "Integrated_ai & Date"
+
+
+================================================================================
+RESOLVED QUESTIONS (from v2)
+================================================================================
+
+- Sentiment scale: 0–10 ✓
+- Written deliverable: open-ended, non-specific, one paragraph each ✓
+- Page length: let it breathe, no forced limit ✓
+
+
+================================================================================
+END OF PLAN v3
+================================================================================

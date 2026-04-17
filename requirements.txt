@@ -1,0 +1,9 @@
+# AISO Platform dependencies
+openai           # OpenAI + Perplexity (Perplexity uses OpenAI-compatible API)
+python-dotenv
+playwright
+anthropic        # Claude provider
+google-generativeai     # Gemini provider
+pytrends         # Google Trends popularity scoring (setup2.py score_popularity)
+requests         # HTTP dependency for pytrends
+ollama           # Local LLM via Ollama  (setup2.py --llm local, optional)

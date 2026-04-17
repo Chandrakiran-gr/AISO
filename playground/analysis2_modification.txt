@@ -1,0 +1,251 @@
+analysis2_modification — Plan to add "integrateable" column (HOW_TO_PLAN compliant)
+
+Take full_stack/analysis2.py as-is. Change the output so the CSV has exactly 3 columns. The first two columns stay (register URL, direct URL). The third column is "integrateable": the exact URL where someone can start adding the slug's business to that website — or blank if no such thing was found. A website is deemed integrateable only when an AI, after opening the site in a browser and clicking around, finds concrete evidence of "you can add your business here" and one concrete next step (e.g. a form, a "contact us to register" page, or a submission link). The value in the integrateable column is that specific link. If the AI cannot find anything like that, the row still appears but the integrateable cell is blank.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCT INTENT
+═══════════════════════════════════════════════════════════════════════════════
+
+What this is
+  A modification of analysis2 so that the output CSV has 3 columns: the first two unchanged (register, direct), and a third column "integrateable" containing the exact URL where the slug's business can be started to be added — or blank.
+
+Who it's for
+  The same user who runs analysis2 (developer/analyst doing outbound-listing recommendations). They get a list where the third column tells them precisely where to go to add the business when the system could confirm it.
+
+What problem it solves
+  Today analysis2 outputs addable sites and a "feasible" flag from a brittle phrase scan. This change replaces that with: open each site in a browser, let an AI click around to find a real "add your business" entry point, and record that exact URL. So "integrateable" means: we have one concrete next step (a link) to start adding the business.
+
+Outcome
+  CSV with 3 columns. Rows for all addable domains; integrateable column is either the specific URL the AI found or blank. No prompts to the user; everything automatic.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW IT WORKS
+═══════════════════════════════════════════════════════════════════════════════
+
+High-level flow
+  1. analysis2 runs as today through the point where we have addable_domains and domain_to_register_url (and domain_to_best_url, direct, etc.).
+  2. For each addable domain, instead of (or in addition to) the current feasibility fetch:
+     (a) Open a browser (automated: Playwright or Selenium) with the register URL (second column).
+     (b) An AI agent gets the current page (DOM and/or screenshot), plus context: slug, business type from datafile.
+     (c) The AI decides one of: FOUND — "I found a concrete place to add/register a business; here is the exact URL"; CLICK — "click this element" (selector or link href); GIVE_UP — "I see no way to add a business here."
+     (d) If FOUND: store that URL in domain_to_integrateable[domain], close page, next domain.
+     (e) If CLICK: perform the click in the browser, wait for load, go to (b) again (with a max step limit to avoid infinite loops).
+     (f) If GIVE_UP: domain_to_integrateable[domain] = "" (blank), close page, next domain.
+  3. Build output with exactly 3 columns: register, direct, integrateable. Write CSV as today (same path/filename).
+
+Definition of "deemed integrateable" (must be in the plan)
+  A website is deemed integrateable when the AI finds, by clicking around the live site, at least one concrete thing in "internet speak" that satisfies BOTH:
+  (1) It is possible to add your business to this website (the slug's business type can be registered there).
+  (2) Here is how you do it — one concrete next step. That can be: a form to submit a business, a "list your business" or "add your business" link, a "contact us to register your business" page, a directory signup URL, or any single link/URL that is the exact spot where someone would start that process.
+  If the AI finds such a thing, the integrateable column gets that exact URL. If the AI cannot find anything like this after exploring (within step/time limits), the integrateable column is left blank. "Contact us to register your business" is explicitly valid as the concrete next step. The bar is: one concrete next step; it does not have to be a full plan or multiple steps.
+
+Data flow
+  • Input: unchanged (client folder, enriched aiso CSV, datafile for slug/business context).
+  • New: browser automation + LLM with page content. Per domain: start URL = register URL; after agent run, integrateable = found URL or "".
+  • Output: {slug}_aisodata{N}_new_addable.csv with 3 columns: register, direct, integrateable. Same file path as today.
+
+Integrations
+  • Reuse: all of analysis2 up to and including domain_to_register_url, addable_domains, direct_url.
+  • New: browser automation library (Playwright preferred or Selenium); LLM API (OpenAI or existing project pattern) with vision or DOM text input; step limit and timeout per domain.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO USE / RUN
+═══════════════════════════════════════════════════════════════════════════════
+
+Prerequisites
+  • Same as analysis2 (Python, repo root, enriched aiso CSV).
+  • New: browser automation (Playwright or Selenium) installed; LLM API key if not already (e.g. OPENAI_API_KEY).
+  • Run from repo root: python full_stack/analysis2.py <slug_or_path>.
+
+What runs
+  • Same as analysis2 until the per-domain "check" phase. Then for each addable domain: launch browser with register URL, run AI agent (see page → decide FOUND / CLICK / GIVE_UP), record integrateable URL or blank. Write CSV with 3 columns.
+
+Iteration
+  • Re-run overwrites the CSV. To tune: adjust agent prompt, step limit, or timeout.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CONSIDERATIONS / GOTCHAS
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Agent loops: Cap clicks per domain (e.g. 5–10 steps) and total time so one bad site doesn't hang the run.
+  • Headless vs headed: For "AI clicks around," headed browser can help with JS-heavy sites; consider env flag (e.g. HEADED=1) for debugging.
+  • Rate limits: LLM and browser; add short delays between domains if needed.
+  • What to send the LLM: Screenshot + accessible text/links is often better than raw DOM. Specify in SPECIFICATIONS how page content is passed (e.g. screenshot + list of links and buttons).
+  • Exact URL: On FOUND, the agent must return the current page URL or the href of the specific link that starts "add your business" — no guessing. That URL goes in integrateable.
+  • Slug/business context: Pass datafile (industry, products_services, geography) or slug to the agent so it can judge "can this business be registered here."
+
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS / GATHERED INFO
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Output: Exactly 3 columns. First two = register, direct (unchanged from current analysis2 semantics). Third = integrateable (exact URL or blank).
+  • "First two stay": We keep register and direct; we drop source, register_from_citation, feasible from the written CSV. So the only change to columns is: output has 3 columns (register, direct, integrateable).
+  • Browser: Plan assumes Playwright (or Selenium if already in project). Decision to be locked in SPECIFICATIONS.
+  • LLM: Use existing project pattern (e.g. OpenAI with vision or text). Agent receives page representation and returns action: FOUND + url, or CLICK + selector/href, or GIVE_UP.
+  • One concrete next step: "Contact us to register your business" is valid. Form, link, or contact page that clearly starts the process counts.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+SPECIFICATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Output CSV: Exactly 3 columns, in order: register, direct, integrateable. UTF-8, same filename and path as current analysis2: {slug}_aisodata{N}_new_addable.csv in client_folder.
+  • Column "integrateable": Either the exact URL (string) where the AI found the concrete next step to add the slug's business, or empty string (blank in CSV). No other values.
+  • Deemed integrateable: As defined in HOW IT WORKS — AI finds (1) it is possible to add this business to the site, and (2) one concrete next step (link/form/contact page); integrateable = that URL.
+  • Browser automation: Playwright (preferred) or Selenium. Start URL for each domain = register URL (same as current "second column" semantics). One page (or tab) per domain; close after agent finishes.
+  • Agent input: Per page, pass to LLM at least: current page URL, screenshot and/or list of links/buttons (text + href), and slug/business context (datafile industry, products_services, geography). Exact format in implementation step.
+  • Agent output: One of: FOUND with url (string); CLICK with selector or href; GIVE_UP. Max steps per domain (e.g. 10) and max time per domain (e.g. 60s) to be defined in implementation.
+  • Remove from output: Do not write source, register_from_citation, feasible to the new CSV. Only register, direct, integrateable.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOSTING / DOMAIN / INFRA
+═══════════════════════════════════════════════════════════════════════════════
+
+  Local only. No new hosting. Browser runs locally; LLM calls use existing API (e.g. OpenAI). No domain or deploy changes.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT CHANGED
+═══════════════════════════════════════════════════════════════════════════════
+
+  • This is a modification plan. Current analysis2: outputs CSV with source, direct, register, register_from_citation, feasible; feasibility = open browser + fetch + phrase scan. After modification: output CSV has 3 columns (register, direct, integrateable); feasibility replaced by AI browser agent that clicks around and records the exact "add your business" URL or leaves integrateable blank.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ACTION PLAN
+═══════════════════════════════════════════════════════════════════════════════
+
+DEFAULT: Execute steps in bottom-up, innermost-first order. One step at a time: complete → verify → mark complete → then next. Plan format and execution rules follow SBACO/HOW_TO_PLAN.txt.
+
+────────────────────────────────────────────────────────────────────────────────
+READY TO EXECUTE — Start here
+────────────────────────────────────────────────────────────────────────────────
+
+  Prerequisites (before Step 1):
+  • analysis2.py exists and runs (slug resolution, enriched CSV load, addable domains, register/direct URLs). Repo root, client folder, datafile as today.
+  • Python env with deps. Decide: Playwright vs Selenium (SPECIFICATIONS). LLM API key (e.g. OPENAI_API_KEY) for agent.
+
+  Reuse from codebase:
+  • full_stack/analysis2.py: all steps 1–5.3 and 5.4 (through domain_to_register_url, addable_domains, direct_url, domain_to_best_url). full_stack/collect.py: resolve_client_folder. datafile.json for slug/business context.
+
+  First step to implement: Step 7.1.1 (browser automation dependency and launch helper). Then 7.1.2, 7.2.1, 7.2.2, 7.3.1, 7.3.2, 7.4, 7.5, 8.1, 8.2, 8.
+
+  Leaf-step checklist (tick [ ] → [x] as you verify each step):
+  [x] 7.1.1  [x] 7.1.2  [x] 7.1
+  [x] 7.2.1  [x] 7.2.2  [x] 7.2
+  [x] 7.3.1  [x] 7.3.2  [x] 7.3
+  [x] 7.4    [x] 7.5    [x] 7
+  [x] 8.1    [x] 8.2    [x] 8
+
+  Execution order (innermost first; one step per turn):
+  7.1.1 → 7.1.2 → 7.1 → 7.2.1 → 7.2.2 → 7.2 → 7.3.1 → 7.3.2 → 7.3 → 7.4 → 7.5 → 7 → 8.1 → 8.2 → 8
+
+  ONE STEP AT A TIME: Complete → verify → mark complete (tick + "DONE — do not modify") → then next. No batching.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 7: Integrateable check — browser automation + AI agent per domain
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/analysis2.py (and optional agent module) | int:5.4 | en:8 | deliv:domain_to_integrateable | prereq:addable_domains,domain_to_register_url,datafile,LLM API,browser automation | complex:large | env:local
+
+  Description: For each addable domain, open the register URL in an automated browser. Run an AI agent that can see the page (screenshot and/or DOM/links) and decide: FOUND (return exact URL for "add your business" entry point), CLICK (navigate to a link), or GIVE_UP. If FOUND, store that URL in domain_to_integrateable[domain]. If GIVE_UP or max steps/time, store "". Ensure the agent receives slug and business context (datafile) so it can judge whether the slug's business can be registered. Per SPECIFICATIONS: one concrete next step (form, "contact us to register," submission link) is enough; integrateable = that exact URL.
+
+  Verification (Step 7 complete): domain_to_integrateable is a dict: domain → str (URL or ""). Every addable domain has an entry. No user prompts; all automatic.
+
+  7.1 Browser automation — dependency and launch  ✓ DONE — do not modify
+      human:no | loc:full_stack/analysis2.py or full_stack/browser_agent.py | int:5.4 | en:7.2,7.3 | deliv:browser launch,page load | prereq:Playwright or Selenium installed | complex:medium | env:local
+      Verification (Step 7.1 complete): Script can launch a browser (headless or headed per config), open a URL, and expose the page for screenshot and/or DOM/link extraction. Browser closes after use.
+      VERIFIED: playwright import OK; get_page_content() launches headless Chromium, navigates, extracts links, closes browser.
+  7.1.1 Add browser automation dependency and install  ✓ DONE — do not modify
+          human:no | loc:requirements or project deps | int:(none) | en:7.1.2 | deliv:Playwright or Selenium available | prereq:Python | complex:small | env:local
+          Add playwright (or selenium) to project dependencies. Document install (e.g. playwright install chromium). Do not implement agent yet.
+          7.1.1 Verification: pip install (or playwright install) succeeds; import in Python works.
+          VERIFIED: playwright==1.58.0 in requirements.txt; `from playwright.sync_api import sync_playwright` OK; browser.launch + page.goto('https://example.com') succeeded.
+
+  7.1.2 Implement "open URL and get page content" helper  ✓ DONE — do not modify
+          human:no | loc:full_stack/analysis2.py or full_stack/browser_agent.py | int:7.1.1 | en:7.2 | deliv:function that given url returns page representation | prereq:7.1.1 | complex:small | env:local
+          Function: open url in browser, get current page URL, screenshot and/or list of links/buttons (text + href). Return structure (e.g. dict with url, screenshot path or base64, links list). Close or reuse browser per design. Timeout on load (e.g. 15s).
+          7.1.2 Verification: Call with a known URL; receive page URL and links/screenshot without crash.
+          VERIFIED: get_page_content('https://example.com') → {url: 'https://example.com/', links: [{'text': 'Learn more', 'href': '...'}]}. No crash.
+
+  7.2 AI agent — prompt and response format  ✓ DONE — do not modify
+      human:no | loc:full_stack/analysis2.py or full_stack/browser_agent.py | int:7.1 | en:7.3 | deliv:agent prompt,response parser | prereq:LLM API | complex:medium | env:local
+      Verification (Step 7.2 complete): Given page content + slug/context, LLM returns a structured action: FOUND + url, or CLICK + selector/href, or GIVE_UP. Parser extracts action and target.
+      VERIFIED: build_agent_prompt + parse_agent_response both tested OK.
+  7.2.1 Define agent prompt (what to look for)  ✓ DONE — do not modify
+          human:no | loc:full_stack/browser_agent.py or analysis2.py | int:7.1.2 | en:7.2.2 | deliv:prompt text | prereq:SPECIFICATIONS "deemed integrateable" | complex:small | env:local
+          Prompt must state: You are on a website. Goal: find a concrete place where a business can be added/registered. The business is described by slug/datafile (industry, products_services, geography). Valid finds: "add your business" link, form to submit a business, "contact us to register your business" page, directory signup URL — any ONE concrete next step. If you see it, respond FOUND and the exact URL. If you see a link that might lead there, respond CLICK and the link href or selector. If you cannot find anything after looking, respond GIVE_UP. Include in prompt: current page URL, list of links (text + href), and optionally screenshot reference; and slug + datafile context.
+          7.2.1 Verification: Prompt is defined and includes current URL, links, business context, and the three actions (FOUND/CLICK/GIVE_UP).
+          VERIFIED: build_agent_prompt() has FOUND/CLICK/GIVE_UP, page URL, business context, links list.
+
+  7.2.2 Define response parser (FOUND/CLICK/GIVE_UP)  ✓ DONE — do not modify
+          human:no | loc:full_stack/browser_agent.py or analysis2.py | int:7.2.1 | en:7.3 | deliv:parse_agent_response() | prereq:7.2.1 | complex:small | env:local
+          Parse LLM output to one of: ("FOUND", url), ("CLICK", href_or_selector), ("GIVE_UP", None). Handle malformed output (treat as GIVE_UP).
+          7.2.2 Verification: Unit or inline test: sample LLM outputs for FOUND/CLICK/GIVE_UP parse correctly.
+          VERIFIED: All 5 cases (FOUND, CLICK, GIVE_UP, malformed, empty) parse correctly.
+
+  7.3 Per-domain agent loop
+      human:no | loc:full_stack/analysis2.py | int:7.1,7.2 | en:7.4 | deliv:domain_to_integrateable | prereq:7.1.2,7.2.2 | complex:large | env:local
+      Verification (Step 7.3 complete): For one domain, loop: get page content → call agent → if FOUND save URL and break; if CLICK perform click and repeat; if GIVE_UP or max steps/time save "" and break. domain_to_integrateable populated for that domain.
+  7.3.1 Implement single-domain loop (max steps, timeout)  ✓ DONE — do not modify
+          human:no | loc:full_stack/analysis2.py | int:7.1.2,7.2.2 | en:7.3.2 | deliv:run_agent_for_domain(domain, register_url, slug, datafile) → str | prereq:7.1,7.2 | complex:medium | env:local
+          Loop: load register_url in browser; get page content; call LLM with prompt + content + context; parse response. If FOUND: return url. If CLICK: navigate to href (or click selector), wait for load, repeat (increment step count; if step >= max_steps return ""). If GIVE_UP: return "". Timeout per domain (e.g. 60s total). Return exact URL or "".
+          7.3.1 Verification: run_agent_for_domain returns a string (URL or ""); does not hang; respects max steps.
+          VERIFIED: run_agent_for_domain('example.com', 'https://example.com', ...) → "" (string); no crash; max steps respected.
+
+  7.3.2 Call run_agent_for_domain for every addable domain; fill domain_to_integrateable
+          human:no | loc:full_stack/analysis2.py | int:7.3.1 | en:7.4 | deliv:domain_to_integrateable | prereq:addable_domains,domain_to_register_url | complex:small | env:local
+          For each domain in addable_domains: domain_to_integrateable[domain] = run_agent_for_domain(domain, domain_to_register_url[domain], slug, datafile). Optionally show progress (e.g. loading bar). Do not open user-facing browser (webbrowser.open); only automated browser.
+          7.3.2 Verification: domain_to_integrateable has one entry per addable domain; each value is URL or "".
+
+  7.4 Remove old feasibility logic (browser open + phrase fetch)
+      human:no | loc:full_stack/analysis2.py | int:7.3 | en:7.5 | deliv:analysis2 without webbrowser.open or check_listing_feasibility in main flow | prereq:7.3 | complex:small | env:local
+      Remove or bypass: webbrowser.open for each URL; check_listing_feasibility; domain_to_feasible. The integrateable step (7.3) replaces them. Keep loading bar for the new loop (per-domain agent run).
+      7.4 Verification: Running analysis2 does not open user browser tabs; does not call check_listing_feasibility for output; does call run_agent_for_domain (or equivalent) and domain_to_integrateable is used for output.
+
+  7.5 Integrateable column: use domain_to_integrateable in output
+      human:no | loc:full_stack/analysis2.py | int:7.4 | en:8 | deliv:output rows include integrateable | prereq:7.3.2 | complex:small | env:local
+      When building output_rows, include integrateable = domain_to_integrateable[d] for each domain d. No other columns for integrateable; this is the only source for the third column.
+      7.5 Verification: output_rows (or equivalent) have a key "integrateable" with value from domain_to_integrateable; no feasible/source/register_from_citation in output.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 8: Write CSV with 3 columns only (register, direct, integrateable)
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/analysis2.py | int:7 | en:(none) | deliv:{slug}_aisodata{N}_new_addable.csv | prereq:7.5 | complex:small | env:local
+
+  Description: Output CSV has exactly 3 columns: register, direct, integrateable. One row per addable domain. UTF-8, same path as today. Remove all other columns (source, register_from_citation, feasible).
+
+  Verification (Step 8 complete): Open output CSV; header is register,direct,integrateable; each row has three values; integrateable is URL or empty; file path and name unchanged from current analysis2.
+
+  8.1 Set output fieldnames to ["register", "direct", "integrateable"]
+      human:no | loc:full_stack/analysis2.py | int:7.5 | en:8.2 | deliv:fieldnames | prereq:7 | complex:small | env:local
+      fieldnames = ["register", "direct", "integrateable"]. Build each row as {"register": domain_to_register_url[d], "direct": direct_url(d), "integrateable": domain_to_integrateable[d]} for d in sorted(addable_domains).
+      8.1 Verification: output_rows are dicts with only these three keys; order of columns is register, direct, integrateable.
+
+  8.2 Write CSV; do not write source, register_from_citation, feasible
+      human:no | loc:full_stack/analysis2.py | int:8.1 | en:(none) | deliv:output CSV file | prereq:8.1 | complex:small | env:local
+      DictWriter with fieldnames = ["register", "direct", "integrateable"]. writerows(output_rows). Same path: client_folder / f"{slug}_aisodata{N}_new_addable.csv". Print success message as today.
+      8.2 Verification: File exists; exactly 3 columns; no extra columns; re-read CSV and assert header and row count match.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CHECKLIST (before considering plan done)
+═══════════════════════════════════════════════════════════════════════════════
+
+  • PRODUCT INTENT — present and filled
+  • HOW IT WORKS — present and filled (includes definition of "deemed integrateable")
+  • HOW TO USE / RUN — present and filled
+  • CONSIDERATIONS / GOTCHAS — present and filled
+  • DECISIONS / GATHERED INFO — present and filled
+  • SPECIFICATIONS — present and filled
+  • HOSTING / DOMAIN / INFRA — present and filled
+  • WHAT CHANGED — present and filled
+  • ACTION PLAN — READY TO EXECUTE block; step tree 7 and 8 with sub-steps; leaf checklist; execution order; ONE STEP AT A TIME
+  • ATOMICITY: Steps 7.1, 7.2, 7.3 have sub-steps; 8.1, 8.2 are leaf steps. Parent steps have full description and verification.

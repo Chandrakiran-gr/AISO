@@ -1,0 +1,455 @@
+analysis2 — Full plan (HOW_TO_PLAN compliant)
+
+Script: analysis2.py in full_stack. Next step after analysis1. Input: enriched aiso CSV from analysis1 (with business columns + Unassigned). Purpose: Compile {slug}_aisodata{N}_new_addable.csv with a nice list of websites to add the business to (addable sites where the focal business is not already listed).
+
+
+────────────────────────────────────────────────────────────────────────────────
+PROCESS: How to identify "addable" sources from the business-column data
+────────────────────────────────────────────────────────────────────────────────
+
+Input: The business columns in the enriched aiso CSV. Each cell contains markdown links [text](url) — the sources ChatGPT cited for that business for that question.
+
+Step 1: Extract all unique domains from the cited links.
+  • Parse each markdown link to get the URL.
+  • Extract the domain (e.g. venturacountycoast.com, islandkayaking.com).
+  • Dedupe across all rows and all business columns.
+
+Step 2: Classify each domain as "addable" or "not addable".
+  • Core rule: Addable = a site where a business can actually be added (directory, tourism bureau, visitor bureau, chamber, listing site). Not addable = anywhere a business cannot submit or request inclusion.
+  • Competitor sites: Competitor dot-coms don't match addable patterns (chambers, tourism, etc.) so they're naturally excluded. No extra competitor-domain filter needed.
+  • .gov: Include .gov sites that accept listings (city/county chambers, visitor bureaus). Exclude .gov that don't (nps.gov, editorial). Don't blanket-exclude *.gov.
+  Heuristics:
+    — Addable: visit*.com, *tourism*.org, *chamber*, *visitor*, travel aggregators, activity directories, municipal/parks (cms.*, revize*), paddle/kayak directories, city/county .gov that list businesses.
+    — Not addable: en.wikipedia.org, nps.gov, news sites (latimes, etc.), editorial .gov. No blanket *.gov exclusion.
+
+Step 3: For each addable domain, verify before keeping it:
+  (a) A business like the one in the slug (use slug's datafile: industry, products_services, geography, etc.) can actually be added to that site — e.g. the site accepts that type of listing, serves that geography, or has a submission process. (Phase 1: geography-only via relevance filter. Full industry/products_services verification deferred to Phase 2.)
+  (b) CRITICAL: The business in the slug is NOT already listed on that addable website — if the focal business is already there, do not include it in the output.
+  Only domains that pass both checks remain in the addable list.
+
+Step 4: Pick the best URL per addable domain (prefer submission/add pages over deep links).
+Step 5: Optional relevance filter using datafile (exclude domains clearly for a different region).
+Step 6: Compile into list and write to CSV:
+  • Filename: {slug}_aisodata{N}_new_addable.csv
+  • Output: Single column (url), one website per row. Each URL = best URL for that domain (submission page or base URL).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCT INTENT
+═══════════════════════════════════════════════════════════════════════════════
+
+What this is
+  A script that outputs {slug}_aisodata{N}_new_addable.csv — a list of addable websites where the focal business could get listed but is not already.
+
+Who it's for
+  The developer or analyst running the full_stack pipeline after analysis1. Same user who runs setup, collect, and analysis1. Used when generating outbound-listing recommendations for a client.
+
+What problem it solves
+  Identifies actionable outbound-listing opportunities: sites ChatGPT cited for competitors (or general context) that the business could realistically submit to.
+
+Outcome
+  A nice list of websites to add the business to.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW IT WORKS
+═══════════════════════════════════════════════════════════════════════════════
+
+High-level flow
+  1. User runs analysis2 with a slug (or client folder path). Script resolves to client folder and slug (same pattern as collect and analysis1).
+  2. Script finds the latest enriched {slug}_aisodata{N}.csv (one that has analysis1 columns: focal, competitors, Unassigned). If none exists, exit with clear message.
+  3. Extract all unique domains from every business-column cell (parse [text](url), get domain, dedupe). Exclude domains that appear only in the focal business column — those sources cited the focal business, so the focal is likely already listed there. Focus on domains from competitor columns and Unassigned (potential new-addable opportunities).
+  4. Classify each remaining domain as "addable" or "not addable" using heuristics (directories, tourism bureaus, chambers, visitor info → addable; competitors, Wikipedia, news, government editorial → not addable).
+  5. Filter: blocklist (exclude), allowlist (include), relevance (datafile geography — exclude wrong-region domains).
+  6. Pick best URL per domain: prefer paths with add|list|submit|directory|businesses|list-your; else base URL.
+  7. Write {slug}_aisodata{N}_new_addable.csv: single column (url), one website per row. Each URL = best URL for that domain.
+
+Data flow
+  • Input: client folder (from slug/path), latest enriched aiso CSV (with Unassigned in header).
+  • In memory: rows, business column names, focal column name; extracted domains with source (which column they came from); classified addable/not; filtered list.
+  • Output: {slug}_aisodata{N}_new_addable.csv in the same client folder; UTF-8.
+
+Integrations
+  • Reuses slug/client-folder resolution (same as collect and analysis1 — resolve_client_folder, normalize_slug).
+  • Reads enriched CSV only; no external APIs required for basic flow. Optional: lightweight web check (e.g. requests) to verify focal not listed — can be deferred to a later step.
+  • Reads datafile.json for business context (industry, products_services, geography) when doing addable verification.
+
+Edge cases
+  • No enriched CSV: exit with "No enriched aiso data found. Run analysis1 first."
+  • Empty business columns / no links: output CSV has header but zero addable domains.
+  • All domains in focal column: no "new addable" opportunities; output empty list.
+  • Malformed markdown links: skip or best-effort parse; do not crash.
+  • Empty domain from URL (e.g. relative URL, mailto:): skip; do not add to domain_to_info.
+  • CSV with BOM: If CSV was saved with UTF-8 BOM, open with encoding="utf-8-sig" to strip BOM; or use utf-8 and accept first column name with BOM — analysis1 writes without BOM.
+  • No backup: Re-run overwrites {slug}_aisodata{N}_new_addable.csv; no backup of previous run.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO USE / RUN
+═══════════════════════════════════════════════════════════════════════════════
+
+Prerequisites
+  • Python env with project deps (same as collect, analysis1).
+  • At least one enriched {slug}_aisodata{N}.csv in the client folder (header contains "Unassigned" — analysis1 has been run).
+  • No OPENAI_API_KEY required for basic flow (heuristic-only classification). If AI is used for addable verification, key needed.
+
+Commands
+  • Run from repo root:
+    python full_stack/analysis2.py <slug_or_path>
+  • Or:
+    python full_stack/analysis2.py "Channel_Islands_Adventure_Company"
+  • If no argument: prompt for "Business folder path or slug" (same as collect and analysis1).
+
+What runs
+  • Resolves slug → client folder; finds latest enriched aiso CSV; extracts domains from business columns; excludes focal-column-only domains; classifies addable vs not; filters; writes {slug}_aisodata{N}_new_addable.csv.
+
+Iteration
+  • Re-run overwrites the new_addable CSV (no idempotency block). Each run produces a fresh list. To change behavior, adjust heuristics or re-run analysis1 first for a different enriched input.
+
+Quick verification (after first run)
+  • Run: python full_stack/analysis2.py <slug>. Expect: "Written: ... (N addable sites)." and file {slug}_aisodata{N}_new_addable.csv in client folder. Open CSV: one "url" column, one row per addable site. No crash, no empty path.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CONSIDERATIONS / GOTCHAS
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Focal-column exclusion: Domains that appear only in the focal business column are treated as "focal already listed there" — exclude from output. This is heuristic; some focal citations might be from the focal's own site or tangential. Conservative approach: exclude focal-column domains.
+  • Competitor-column focus: Domains from competitor columns are the primary source of "new addable" opportunities. Competitor dot-coms don't match addable patterns (chambers, tourism, etc.) so they're naturally filtered out.
+  • Heuristic brittleness: Addable/not-addable rules are pattern-based. Optional allowlist/blocklist files in client folder override: addable_allowlist.txt (one domain per line — always include) and addable_blocklist.txt (always exclude). Use for edge cases.
+  • "Not already listed" verification: Full web check (visit each site, search for focal name) is expensive and brittle. Phase 1: heuristic only (exclude focal-column domains). Phase 2 (future): optional lightweight check.
+  • Empty output: If all cited domains are in focal column or all are "not addable," output will be empty. That's valid — no new opportunities found.
+  • Focal column: analysis1 always produces focal + competitors + Unassigned; focal is first. If only Unassigned existed, focal_col would be Unassigned — treat as edge case (analysis1 does not produce that).
+  • Link format: Cells may have multiple links (newline-separated). Parse each [text](url) in each cell.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS / GATHERED INFO
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Script path: full_stack/analysis2.py. Same entry pattern as analysis1 (slug or path).
+  • Input: Latest enriched aiso CSV only. "Enriched" = header contains "Unassigned" (analysis1 has been run).
+  • Output: {slug}_aisodata{N}_new_addable.csv in client folder. N from input file stem (e.g. channel_islands_adventure_company_aisodata0.csv → N=0).
+  • Domain exclusion rule: Exclude domains that appear exclusively in the focal business column. Include domains from competitor columns and Unassigned (and from focal if also in competitor/Unassigned). Focal column = first business column (no config lookup).
+  • Addable heuristics: Core rule = "can a business actually be added here?" Addable: visit*, *tourism*, *chamber*, *visitor*, travel/activity directories, municipal (cms.*, revize*), paddle/kayak, city/county .gov that list businesses. Not addable: wikipedia, nps.gov, news, editorial .gov. No blanket *.gov exclusion; competitor sites naturally excluded (don't match addable patterns).
+  • Output: Single column (url), one website per row. Use the full URL from source links (or best-URL selection) as the url column value so user can click. datafile will get more fields in later analyses — keep minimal for now.
+  • datafile.json: Use for relevance filter — if geography exists, exclude domains that clearly indicate a different region (e.g. visitflorida.com when geography is California).
+  • Allowlist/blocklist: Optional client_folder/addable_allowlist.txt and addable_blocklist.txt (one domain per line). Blocklist = always exclude; blocklist wins if a domain appears in both. Allowlist = always include (even if patterns missed).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+SPECIFICATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Where to build: Repo root = the directory that contains full_stack/ (e.g. Integrated_ai). Create analysis2.py inside full_stack/. Client folders are subdirectories of repo root when using a slug (e.g. repo_root/Channel_Islands_Adventure_Company/). Run all commands from repo root.
+  • Script path: full_stack/analysis2.py. Entry: same as analysis1 — arg or prompt for slug/path.
+  • Client folder and slug: MUST match collect/analysis1. Reuse full_stack.collect.resolve_client_folder (or duplicate).
+  • Latest enriched CSV: Glob {client_folder}/{slug}_aisodata*.csv; keep only files whose header contains "Unassigned"; parse N from stem; use file with max N. If no enriched file: exit with "No enriched aiso data found. Run analysis1 first."
+  • Identify focal column: First business column is focal (analysis1 order: focal, competitors, Unassigned). Implementation uses first business column only — no config/datafile name lookup in analysis2. Per analysis1, focal is first in column_names_ordered.
+  • Link parser: Same as analysis1 — re.findall(r'\[([^\]]*)\]\(([^)]*)\)', s) returns list of (text, url). Use second element (url) for domain. extract_domain: urlparse(url).netloc, lower, strip "www." (replace "www.", "", 1). Return None if netloc empty.
+  • Addable patterns (include if domain matches): visit*, *tourism*, *chamber*, *visitor*, *travel*, *directory*, cms.*, revize*, *paddle*, *kayak*. Case-insensitive. Core rule: can a business actually be added here?
+  • Not-addable patterns (exclude): en.wikipedia.org, *.wikipedia.org, nps.gov, news sites (latimes, etc.), editorial .gov. Do NOT blanket-exclude *.gov — city/county chambers and visitor bureaus at .gov are addable. Competitor sites are naturally excluded (don't match addable patterns).
+  • Output CSV: UTF-8, single column "url", one website per row. Each cell = best URL for that domain (see URL selection below). One row per addable domain.
+  • URL selection (per domain): Prefer a URL whose path contains add|list|submit|directory|businesses|list-your (case-insensitive). If none match, use base URL (https:// + domain). Store all URLs seen per domain in domain_to_info for this.
+  • Relevance filter: Load datafile. If geography exists, exclude addable domains where domain name clearly indicates a different region (e.g. visitflorida.com when geography mentions "California" or "Channel Islands"). Use simple rule: domain contains US state/region token not in geography string → exclude. State tokens (single source of truth): ("florida", "maine", "texas", "hawaii", "oregon", "california", "arizona", "nevada", "colorado"). Extend as needed.
+  • Constants (single source of truth for implementation): ADDABLE_SUBSTRINGS = ("visit", "tourism", "chamber", "visitor", "travel", "directory", "cms.", "revize", "paddle", "kayak"). NOT_ADDABLE: exact "en.wikipedia.org"; "wikipedia" in domain; "nps.gov" in domain; news tokens (latimes, nytimes, npr.org, bbc, cnn, reuters, apnews). STATE_TOKENS = ("florida", "maine", "texas", "hawaii", "oregon", "california", "arizona", "nevada", "colorado"). URL_PATH_KEYWORDS = ("add", "list", "submit", "directory", "businesses", "list-your").
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOSTING / DOMAIN / INFRA
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Local script only. No hosting or domain. Run from dev machine; reads/writes local client folders and CSVs.
+  • No environment variables required for basic heuristic flow.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT CHANGED
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Initial: analysis2.txt created; sections stubbed for HOW_TO_PLAN compliance. Content TBD.
+  • Added purpose: compile {slug}_aisodata{N}_new_addable.csv with list of websites to add business to. Filled Product Intent (What this is, What problem it solves, Outcome).
+  • First flesh-out: Filled all HOW_TO_PLAN sections (Who it's for, How It Works, How To Use/Run, Considerations, Decisions, Specifications, Hosting). Added ACTION PLAN with READY TO EXECUTE block and step tree (1–6 with sub-steps). Execution order: innermost-first.
+  • Clarifications: (1) Addable rule = "can a business actually be added here?" Competitor sites naturally excluded. (2) .gov: include addable .gov; exclude nps.gov, editorial. (3) Output: single column "url", one website per row.
+  • Quality fixes: (1) URL selection: prefer submission/add-like paths, else base URL; store urls_seen per domain. (2) Relevance: datafile geography — exclude domains clearly for different region. (3) Allowlist/blocklist: optional addable_allowlist.txt and addable_blocklist.txt in client folder. New steps: 5.2.1 (blocklist, allowlist, relevance), 5.3 (pick best URL).
+  • Consistency scan: Fixed url_example→url wording; clarified Process 3(a) as Phase 1 (geography only), full verification deferred; blocklist wins over allowlist; expanded state tokens (california, arizona, nevada, colorado); regex stem pattern aligned with analysis1; noted focal-only-Unassigned edge case.
+  • Implementation gotchas: Added explicit sys.path, empty-arg handling, domain-extractor None/empty, pattern-matching impl hints, datafile/allowlist/blocklist details, relevance logic, URL path check.
+  • HOW_TO_PLAN alignment: Split 5.2.1 into 5.2.1.1 (blocklist), 5.2.1.2 (allowlist), 5.2.1.3 (relevance) for atomicity; added parent-step verification for Steps 2–6; added HOW_TO_PLAN reference; 1.5 and 1.1 explicit exit logic; trip-ups (urls_seen dedupe, URL scheme, None cell).
+  • Extra pass: Parent 5.2.1 data tags; "mark complete = tick + DONE — do not modify"; split 1.5 into 1.5.1 (header-per-path), 1.5.2 (filter); SPECIFICATIONS constants; focal = first col only; cell = (row.get(col) or ""); allowlist/blocklist normalize; edge cases (BOM, no backup); AIDANplan5 reference.
+  • More substeps: 1.6 → 1.6.1, 1.6.2; 3.1 → 3.1.1, 3.1.2; 5.2.1.3 → 5.2.1.3.1, 5.2.1.3.2. One primary action per step (HOW_TO_PLAN ATOMICITY).
+  • Final sweep: 1.5.2 en→1.6.1; 1.5.1 syntax (with open as f: reader=...); 5.2.1.3.1 try/except (FileNotFoundError, JSONDecodeError); Step 6 int:1,5; 6.2 int:6.1,1.2,1.6.2; 6.2 print example.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ACTION PLAN
+═══════════════════════════════════════════════════════════════════════════════
+
+DEFAULT: Claude executes steps. Steps marked [HUMAN] require the user. Execute in bottom-up, innermost-first order. One step at a time: complete → verify → mark complete → then next. Plan format and execution rules follow SBACO/HOW_TO_PLAN.txt. For READY TO EXECUTE block format, reference playground/analysis1.txt ACTION PLAN (HOW_TO_PLAN § READY TO EXECUTE).
+
+────────────────────────────────────────────────────────────────────────────────
+READY TO EXECUTE — Start here
+────────────────────────────────────────────────────────────────────────────────
+
+  Prerequisites (before Step 1):
+  • Repo root = directory containing full_stack/ (e.g. Integrated_ai). Run from repo root so `python full_stack/analysis2.py <slug>` works.
+  • full_stack/ must contain collect.py (resolve_client_folder, normalize_slug); analysis2.py will be created there. Client data lives in repo_root/<client_slug>/ (e.g. repo_root/Channel_Islands_Adventure_Company/).
+  • At least one enriched {slug}_aisodata{N}.csv in the client folder (analysis1 already run for that slug).
+  • No OPENAI_API_KEY required for basic heuristic flow.
+
+  Reuse from codebase:
+  • full_stack/collect.py: normalize_slug(raw), resolve_client_folder(arg) → (client_folder, slug). Same repo_root and sys.path pattern as collect/analysis1.
+  • full_stack/analysis1.py: extract_links(s) (same regex); resolve_client_folder usage. Copy patterns from analysis1 for link parsing and CSV/Path handling.
+
+  Implementation gotchas (avoid tripping Claude):
+  • Sys.path: At top of analysis2.py, add repo root to sys.path before importing full_stack.collect (same as analysis1 lines 10–13).
+  • 1.1 empty arg: If arg is empty after strip, exit with "No slug or path provided." (match analysis1).
+  • 1.5.1/1.5.2: Read only header per file (DictReader.fieldnames); do not consume rows. Normalize: path_to_header can be a dict mapping Path → list of fieldnames.
+  • 1.6.1/1.6.2: 1.6.1 exits if enriched_paths empty; 1.6.2 parses N from path.stem (re.search(r"_aisodata(\d+)$", p.stem)); if tie on max N, any is fine.
+  • 2.1 empty business_cols: If business_cols is empty (no cols except question/response/error), exit with clear message — should not happen with analysis1 output.
+  • 3.1 extract_domain: Use urllib.parse.urlparse(url).netloc; if empty or invalid, return None and skip in 3.2. Strip "www." with domain.lower().replace("www.", "", 1) to avoid double-replace quirks.
+  • 5.1 addable patterns: Use SPECIFICATIONS constants ADDABLE_SUBSTRINGS; domain matches if any substring in domain.lower(). Any one match → addable.
+  • 5.2 not-addable: Use SPECIFICATIONS NOT_ADDABLE rules (en.wikipedia.org, wikipedia, nps.gov, news tokens). Expand as needed.
+  • 5.2.1.1/5.2.1.2/5.2.1.3: Order is blocklist → allowlist → relevance. Each step consumes output of previous.
+  • 5.2.1.1 blocklist: client_folder / "addable_blocklist.txt". If file missing, skip (no-op). Start from candidate_addable_filtered. Normalize read domains: line.strip().lower() for consistent comparison.
+  • 5.2.1.2 allowlist: client_folder / "addable_allowlist.txt". after_allowlist = after_blocklist | {d for d in allowlist_domains if d not in blocklist_set}. Normalize read domains: strip, lower.
+  • 5.2.1.3 datafile: client_folder / "datafile.json". Geography at datafile.get("geography") or datafile.get("config", {}).get("geography"). If file missing or invalid JSON, skip relevance filter (do not crash).
+  • Allowlist/blocklist format: Strip each line; skip empty and #; use lowercase for set membership.
+  • 5.3 URL path check: Use SPECIFICATIONS URL_PATH_KEYWORDS; urlparse(url).path (path component only); if any keyword in path (case-insensitive), use that URL. If multiple match, first wins. Base URL: "https://" + domain (no extra slashes).
+  • 6.2 DictWriter: Use "with open(...) as f" and writer.writerows(output_rows); write header even when output_rows is empty (valid output).
+  • Trip-up: urls_seen may have duplicates (same URL from multiple rows); dedupe when picking best URL (or first match is fine).
+  • Trip-up: Preserve URL scheme when using source URL; for base URL use "https://" + domain. Do not double-prefix (url already has scheme).
+  • Trip-up: row.get(col, "") — cell may be None; use (row.get(col) or "").
+
+  First step to implement: Step 1.1.
+
+  Leaf-step checklist (tick [ ] → [x] as you verify each step):
+  [ ] 1.1   [ ] 1.2   [ ] 1.3   [ ] 1.4   [ ] 1.5.1  [ ] 1.5.2  [ ] 1.5   [ ] 1.6.1  [ ] 1.6.2  [ ] 1.6   [ ] 1.7   [ ] 1
+  [ ] 2.1   [ ] 2.2   [ ] 2
+  [ ] 3.1.1  [ ] 3.1.2  [ ] 3.1   [ ] 3.2   [ ] 3.3   [ ] 3
+  [ ] 4.1   [ ] 4
+  [ ] 5.1   [ ] 5.2   [ ] 5.2.1.1  [ ] 5.2.1.2  [ ] 5.2.1.3.1  [ ] 5.2.1.3.2  [ ] 5.2.1.3  [ ] 5.3   [ ] 5
+  [ ] 6.1   [ ] 6.2   [ ] 6
+
+  Execution order (innermost first; one step per turn):
+  1.1 → 1.2 → 1.3 → 1.4 → 1.5.1 → 1.5.2 → 1.5 → 1.6.1 → 1.6.2 → 1.6 → 1.7 → 1 →
+  2.1 → 2.2 → 2 →
+  3.1.1 → 3.1.2 → 3.1 → 3.2 → 3.3 → 3 →
+  4.1 → 4 →
+  5.1 → 5.2 → 5.2.1.1 → 5.2.1.2 → 5.2.1.3.1 → 5.2.1.3.2 → 5.2.1.3 → 5.3 → 5 →
+  6.1 → 6.2 → 6
+
+  ONE STEP AT A TIME: Never batch steps. Complete → verify → mark complete (tick checkbox, add "DONE — do not modify" to the step) → then next. (HOW_TO_PLAN §3, OVERVIEW "When a step is verified".)
+  Step depth: The tree can go as deep as needed (1.1.1.1, 5.2.1.3.2.1, etc.). Add more substeps whenever a step has multiple actions or verification targets. (HOW_TO_PLAN §1 "The tree can go as deep as necessary".)
+
+────────────────────────────────────────────────────────────────────────────────
+Step 1: Resolve slug and load latest enriched aiso CSV
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/analysis2.py | int:(none) | en:2,3,4,5,6 | deliv:client_folder,slug,path_to_csv,rows,header_list,N | prereq:Python,repo,enriched_aiso_CSV | complex:small | env:local
+
+  Description: From script argument (or prompt), resolve to (client_folder, slug). Find the latest enriched {slug}_aisodata{N}.csv (header contains "Unassigned"). Read CSV into rows. Parse N from stem for output filename. If no enriched file exists, exit with message.
+
+  Verification (Step 1 complete):
+  • client_folder exists; path_to_csv exists; rows is list of dicts; header_list contains "Unassigned"; N is int from stem. Or script exited with "No enriched aiso data found. Run analysis1 first."
+
+  1.1 Get raw argument (slug or path)
+      human:no | loc:full_stack/analysis2.py | int:(none) | en:1.2 | deliv:arg | prereq:Python | complex:small | env:local
+      If len(sys.argv) >= 2, arg = sys.argv[1].strip(). Else: arg = input("Business folder path or slug: ").strip(). If not arg: print("No slug or path provided."); sys.exit(1). Same as analysis1.
+      1.1 Verification: arg is non-empty string; or script exited with that message.
+
+  1.2 Resolve arg to (client_folder, slug)
+      human:no | loc:full_stack/analysis2.py | int:1.1 | en:1.3 | deliv:client_folder,slug | prereq:repo | complex:small | env:local
+      Use resolve_client_folder(arg) from collect. Set client_folder, slug.
+      1.2 Verification: client_folder is Path; slug is non-empty string.
+
+  1.3 Validate client_folder exists; exit if missing
+      human:no | loc:full_stack/analysis2.py | int:1.2 | en:1.4 | deliv:none | prereq:1.2 | complex:small | env:local
+      If not client_folder.exists() or not client_folder.is_dir(): print(f"Business folder not found: {client_folder}"); sys.exit(1).
+      1.3 Verification: When folder missing, script exits with that message.
+
+  1.4 Glob for {slug}_aisodata*.csv in client_folder
+      human:no | loc:full_stack/analysis2.py | int:1.3 | en:1.5 | deliv:candidate_paths | prereq:1.3 | complex:small | env:local
+      candidate_paths = list(client_folder.glob(f"{slug}_aisodata*.csv")).
+      1.4 Verification: candidate_paths is list of Paths (may be empty).
+
+  1.5 Filter to enriched CSVs (header contains "Unassigned")
+      human:no | loc:full_stack/analysis2.py | int:1.4 | en:1.6 | deliv:enriched_paths | prereq:1.4 | complex:small | env:local
+      Verification (Step 1.5 complete): enriched_paths is list of Paths whose headers contain "Unassigned"; may be empty.
+  1.5.1 Build header-for-path: for each path in candidate_paths, read header only
+      human:no | loc:full_stack/analysis2.py | int:1.4 | en:1.5.2 | deliv:path_to_header | prereq:1.4 | complex:small | env:local
+      For each p in candidate_paths: with open(p, newline="", encoding="utf-8") as f: reader = csv.DictReader(f); header = list(reader.fieldnames or []). Store path_to_header[p] = header (or equivalent).
+      1.5.1 Verification: Every path in candidate_paths has a header list; no full file read.
+  1.5.2 Filter to paths with "Unassigned" in header
+      human:no | loc:full_stack/analysis2.py | int:1.5.1 | en:1.6.1 | deliv:enriched_paths | prereq:1.5.1 | complex:small | env:local
+      enriched_paths = [p for p in candidate_paths if "Unassigned" in path_to_header[p]].
+      1.5.2 Verification: enriched_paths is list; only paths with "Unassigned" in header; may be empty.
+
+  1.6 Pick path with max N; exit if none
+      human:no | loc:full_stack/analysis2.py | int:1.5.2 | en:1.7 | deliv:path_to_csv,N | prereq:1.5 | complex:small | env:local
+      Verification (Step 1.6 complete): path_to_csv is single Path; N is int; or script exited with "No enriched aiso data found. Run analysis1 first."
+  1.6.1 Exit if no enriched paths
+      human:no | loc:full_stack/analysis2.py | int:1.5.2 | en:1.6.2 | deliv:none | prereq:1.5.2 | complex:small | env:local
+      If not enriched_paths: print("No enriched aiso data found. Run analysis1 first."); sys.exit(1).
+      1.6.1 Verification: If enriched_paths was empty, script exited; else continue.
+  1.6.2 Parse N from each stem; choose path with max N
+      human:no | loc:full_stack/analysis2.py | int:1.6.1 | en:1.7 | deliv:path_to_csv,N | prereq:1.6.1 | complex:small | env:local
+      For each p in enriched_paths: m = re.search(r"_aisodata(\d+)$", p.stem); if m, n = int(m.group(1)); else skip. Choose p with max n. If tie, any is fine. path_to_csv = chosen Path; N = that n.
+      1.6.2 Verification: path_to_csv is single Path; N is int.
+
+  1.7 Read CSV into rows; capture header
+      human:no | loc:full_stack/analysis2.py | int:1.6.2 | en:2,3 | deliv:rows,header_list | prereq:1.6 | complex:small | env:local
+      Open path_to_csv, UTF-8, csv.DictReader; header_list = list(reader.fieldnames); rows = list(reader).
+      1.7 Verification: rows is list of dicts; header_list equals CSV fieldnames; "Unassigned" in header_list.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 2: Identify focal and non-focal business columns
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/analysis2.py | int:1 | en:3,4 | deliv:focal_col,other_business_cols | prereq:1 | complex:small | env:local
+
+  Description: Determine which column is the focal business (first business column per analysis1 order) and which are competitor + Unassigned columns. Business columns = all columns except question, response, error.
+
+  Verification (Step 2 complete): focal_col is first business column; other_business_cols is rest; business_cols has at least one element; "Unassigned" in business_cols.
+
+  2.1 Identify business columns (exclude question, response, error)
+      human:no | loc:full_stack/analysis2.py | int:1.7 | en:2.2 | deliv:business_cols | prereq:1 | complex:small | env:local
+      business_cols = [c for c in header_list if c not in ("question", "response", "error")]. If not business_cols: exit with "No business columns found (expected focal, competitors, Unassigned)." Per analysis1, order is focal, competitors, Unassigned.
+      2.1 Verification: business_cols is non-empty list; "Unassigned" in business_cols.
+
+  2.2 Set focal_col = first business column; other_business_cols = rest
+      human:no | loc:full_stack/analysis2.py | int:2.1 | en:3,4 | deliv:focal_col,other_business_cols | prereq:2.1 | complex:small | env:local
+      focal_col = business_cols[0]; other_business_cols = business_cols[1:].
+      2.2 Verification: focal_col is string; other_business_cols is list; focal_col != "Unassigned" typically (or first col is focal per analysis1).
+
+────────────────────────────────────────────────────────────────────────────────
+Step 3: Extract all unique domains from business columns, with source
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/analysis2.py | int:1,2 | en:4,5 | deliv:domain_to_info | prereq:none | complex:small | env:local
+
+  Description: Parse every [text](url) in every business-column cell. Extract domain from each URL. Build mapping: domain → {urls_seen, source_columns}. urls_seen = list of all URLs seen for that domain (for later best-URL selection).
+
+  Verification (Step 3 complete): domain_to_info is dict; each value has urls_seen (list) and source_columns (set); every domain has at least one URL.
+
+  3.1 Define link parser and domain extractor
+      human:no | loc:full_stack/analysis2.py | int:(none) | en:3.2 | deliv:extract_links,extract_domain | prereq:Python | complex:small | env:local
+      Verification (Step 3.1 complete): extract_links and extract_domain work per 3.1.1 and 3.1.2.
+  3.1.1 Define extract_links
+      human:no | loc:full_stack/analysis2.py | int:(none) | en:3.1.2 | deliv:extract_links | prereq:Python | complex:small | env:local
+      extract_links(s) = re.findall(r'\[([^\]]*)\]\(([^)]*)\)', s) → list of (text, url) tuples.
+      3.1.1 Verification: extract_links("[a](https://x.com)") → [("a", "https://x.com")].
+  3.1.2 Define extract_domain
+      human:no | loc:full_stack/analysis2.py | int:3.1.1 | en:3.2 | deliv:extract_domain | prereq:Python | complex:small | env:local
+      extract_domain(url): netloc = urlparse(url).netloc; if not netloc return None; d = netloc.lower().replace("www.", "", 1); return d if d else None.
+      3.1.2 Verification: extract_domain("https://www.example.com/path") → "example.com"; extract_domain("") → None.
+
+  3.2 Iterate rows and business columns; parse links; extract domain; record source
+      human:no | loc:full_stack/analysis2.py | int:2.2,3.1.2 | en:3.3 | deliv:raw_domain_list | prereq:3.1 | complex:small | env:local
+      For each row, each col in business_cols: cell = (row.get(col) or ""); links = extract_links(cell); for (text, url) in links: domain = extract_domain(url); if domain: record (domain, url, col). Skip when domain is None or empty.
+      3.2 Verification: Every link in business columns processed; (domain, url, col) tuples collected; no None/empty domains.
+
+  3.3 Build domain_to_info: domain → {urls_seen, source_columns}
+      human:no | loc:full_stack/analysis2.py | int:3.2 | en:4 | deliv:domain_to_info | prereq:3.2 | complex:small | env:local
+      Dedupe by domain. For each domain: urls_seen = list of all URLs seen; source_columns = set of column names. domain_to_info[domain] = {"urls_seen": [...], "source_columns": ...}.
+      3.3 Verification: domain_to_info is dict; each value has urls_seen (non-empty list) and source_columns; no duplicate domains.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 4: Exclude domains that appear only in focal column
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/analysis2.py | int:2,3 | en:5 | deliv:filtered_domains | prereq:none | complex:small | env:local
+
+  Description: Remove from consideration any domain whose source_columns equals {focal_col}. Those domains cited the focal business; focal is likely already listed there. Keep domains that appear in other_business_cols (competitors or Unassigned).
+
+  Verification (Step 4 complete): filtered_domains contains only domains with at least one non-focal source; domains with source_columns == {focal_col} excluded.
+
+  4.1 Filter domain_to_info: keep only domains with at least one non-focal source
+      human:no | loc:full_stack/analysis2.py | int:3.3,2.2 | en:5 | deliv:filtered_domains | prereq:none | complex:small | env:local
+      filtered_domains = [d for d, info in domain_to_info.items() if info["source_columns"] - {focal_col} != set()]. I.e. keep if domain appeared in any column other than (or in addition to) focal.
+      4.1 Verification: Domains with source_columns == {focal_col} are excluded; all others retained.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 5: Classify, filter, and pick best URL per addable domain
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/analysis2.py | int:4 | en:6 | deliv:addable_domains,domain_to_best_url | prereq:datafile,optional_blocklist_allowlist | complex:small | env:local
+
+  Description: Apply addable patterns; remove not-addable; apply blocklist, allowlist, relevance filter (datafile geography); pick best URL per domain (prefer submission pages).
+
+  Verification (Step 5 complete): addable_domains is final set; domain_to_best_url has one URL per addable domain; blocklist/allowlist/relevance applied correctly.
+
+  5.1 Build initial addable set from addable patterns
+      human:no | loc:full_stack/analysis2.py | int:4.1 | en:5.2 | deliv:candidate_addable | prereq:none | complex:small | env:local
+      For each domain in filtered_domains: if matches addable pattern (visit*, *tourism*, *chamber*, *visitor*, etc. — case-insensitive), add to candidate_addable.
+      5.1 Verification: candidate_addable is set of domains matching addable heuristics.
+
+  5.2 Remove not-addable domains from candidate_addable
+      human:no | loc:full_stack/analysis2.py | int:5.1 | en:5.2.1.1 | deliv:candidate_addable_filtered | prereq:none | complex:small | env:local
+      Remove domains matching not-addable: en.wikipedia.org, *.wikipedia.org, nps.gov, news sites. Do NOT blanket-exclude *.gov.
+      5.2 Verification: Not-addable domains removed; candidate_addable_filtered = result.
+
+  5.2.1 (parent) Blocklist, allowlist, relevance filter — implemented by 5.2.1.1, 5.2.1.2, 5.2.1.3.1, 5.2.1.3.2
+      human:no | loc:full_stack/analysis2.py | int:5.2 | en:5.3 | deliv:addable_domains | prereq:client_folder,datafile,optional_lists | complex:small | env:local
+      Verification (Step 5.2.1 complete): Blocklisted excluded; allowlisted included; wrong-region excluded; addable_domains ready for 5.3.
+
+  5.2.1.1 Apply blocklist (exclude domains)
+      human:no | loc:full_stack/analysis2.py | int:5.2 | en:5.2.1.2 | deliv:after_blocklist,blocklist_set | prereq:client_folder | complex:small | env:local
+      Start from candidate_addable_filtered. If client_folder/addable_blocklist.txt exists, read domains (one per line, strip, lower, skip empty and #); blocklist_set = that set. after_blocklist = candidate_addable_filtered - blocklist_set. If no file, blocklist_set = set(), after_blocklist = candidate_addable_filtered.
+      5.2.1.1 Verification: Blocklisted domains not in after_blocklist; blocklist_set retained for 5.2.1.2.
+  5.2.1.2 Apply allowlist (include domains)
+      human:no | loc:full_stack/analysis2.py | int:5.2.1.1 | en:5.2.1.3.1 | deliv:after_allowlist | prereq:client_folder | complex:small | env:local
+      If client_folder/addable_allowlist.txt exists, read domains (strip, lower, skip empty and #). after_allowlist = after_blocklist | {d for d in allowlist_domains if d not in blocklist_set}. Else after_allowlist = after_blocklist.
+      5.2.1.2 Verification: Allowlisted domains in after_allowlist; blocklisted still excluded.
+  5.2.1.3 (parent) Apply relevance filter (datafile geography) — implemented by 5.2.1.3.1, 5.2.1.3.2
+      human:no | loc:full_stack/analysis2.py | int:5.2.1.2 | en:5.3 | deliv:addable_domains | prereq:client_folder,datafile | complex:small | env:local
+      Verification (Step 5.2.1.3 complete): Wrong-region domains excluded; addable_domains is final set.
+  5.2.1.3.1 Load datafile and get geography string
+      human:no | loc:full_stack/analysis2.py | int:5.2.1.2 | en:5.2.1.3.2 | deliv:geography_str | prereq:client_folder | complex:small | env:local
+      Try: datafile = json.loads((client_folder / "datafile.json").read_text(encoding="utf-8")); geography = datafile.get("geography") or datafile.get("config", {}).get("geography"); geography_str = (geography or "").lower(). Except (FileNotFoundError, json.JSONDecodeError): geography_str = "" (skip filter).
+      5.2.1.3.1 Verification: geography_str is string (possibly empty).
+  5.2.1.3.2 Exclude wrong-region domains
+      human:no | loc:full_stack/analysis2.py | int:5.2.1.3.1 | en:5.3 | deliv:addable_domains | prereq:5.2.1.3.1 | complex:small | env:local
+      For each domain in after_allowlist: if geography_str and any((token in domain.lower()) and (token not in geography_str) for token in STATE_TOKENS), exclude. addable_domains = remaining set.
+      5.2.1.3.2 Verification: addable_domains has no wrong-region domains; final set for 5.3.
+
+  5.3 Pick best URL per addable domain
+      human:no | loc:full_stack/analysis2.py | int:5.2.1.3.2,3.3 | en:6 | deliv:domain_to_best_url | prereq:3.3 | complex:small | env:local
+      For each domain in addable_domains: if domain not in domain_to_info (allowlisted only): use "https://" + domain. Else: from urls_seen, pick first URL whose path (urlparse(url).path) contains any of URL_PATH_KEYWORDS (see SPECIFICATIONS). If none match, use "https://" + domain. domain_to_best_url[domain] = chosen URL. Preserve scheme of source URL when using it; base URL is always https.
+      5.3 Verification: Every addable domain has exactly one URL; allowlisted domains get base URL; others prefer submission-like path.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 6: Write output CSV
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/analysis2.py | int:1,5 | en:(none) | deliv:{slug}_aisodata{N}_new_addable.csv | prereq:5.3 | complex:small | env:local
+
+  Description: Build output rows — single column "url", one website per row. Each row = best URL for one addable domain (from 5.3). Write to {slug}_aisodata{N}_new_addable.csv in client_folder. UTF-8.
+
+  Verification (Step 6 complete): File exists; re-reading yields same row count; header "url"; each row has valid URL.
+
+  6.1 Build output rows (single column: url)
+      human:no | loc:full_stack/analysis2.py | int:5.3 | en:6.2 | deliv:output_rows | prereq:5.3 | complex:small | env:local
+      output_rows = [{"url": domain_to_best_url[d]} for d in sorted(addable_domains)].
+      6.1 Verification: output_rows is list of dicts with single key "url"; one row per addable domain; URLs from domain_to_best_url.
+
+  6.2 Write CSV to client_folder
+      human:no | loc:full_stack/analysis2.py | int:6.1,1.2,1.6.2 | en:(none) | deliv:output_file | prereq:6.1 | complex:small | env:local
+      output_path = client_folder / f"{slug}_aisodata{N}_new_addable.csv". with open(output_path, "w", newline="", encoding="utf-8") as f: writer = csv.DictWriter(f, fieldnames=["url"]); writer.writeheader(); writer.writerows(output_rows). Then print success: e.g. print(f"Written: {output_path} ({len(output_rows)} addable sites).")
+      6.2 Verification: File exists; single column "url"; one website per row; re-reading yields same count; script printed success message.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CHECKLIST (before considering plan done)
+═══════════════════════════════════════════════════════════════════════════════
+
+  • PRODUCT INTENT — present and filled
+  • HOW IT WORKS — present and filled
+  • HOW TO USE / RUN — present and filled
+  • CONSIDERATIONS / GOTCHAS — present and filled
+  • DECISIONS / GATHERED INFO — present and filled
+  • SPECIFICATIONS — present and filled
+  • HOSTING / DOMAIN / INFRA — present and filled
+  • WHAT CHANGED — present and filled
+  • ACTION PLAN — READY TO EXECUTE block; step tree 1–6 with sub-steps; leaf checklist (includes 1.5.1, 1.5.2, 1.6.1, 1.6.2, 3.1.1, 3.1.2, 5.2.1.3.1, 5.2.1.3.2); execution order; ONE STEP AT A TIME with mark-complete instruction.
+  • ATOMICITY: Step 5.2.1 → 5.2.1.1, 5.2.1.2, 5.2.1.3.1, 5.2.1.3.2; Step 1.5 → 1.5.1, 1.5.2; Step 1.6 → 1.6.1, 1.6.2; Step 3.1 → 3.1.1, 3.1.2 per HOW_TO_PLAN.
+  • Parent steps 1–6 and 5.2.1 have full description, data tags (where applicable), and verification.

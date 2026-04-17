@@ -1,0 +1,575 @@
+collect1.2 — Full plan (HOW_TO_PLAN compliant)
+
+Script: collect1.2.py in full_stack. Next: replace slow collect.py loop with a faster, concurrency-limited runner that preserves output ordering + CSV schema.
+
+
+────────────────────────────────────────────────────────────────────────────────
+PROCESS: Make `collect.py` faster without changing its data contract
+────────────────────────────────────────────────────────────────────────────────
+
+Input: `query_template_bank.csv` and `value_bank.csv` in a client folder.
+
+Core work: build the full `questions` list (same as collect.py) then run `webish(query)` for each question.
+
+Constraint: output must remain compatible with the existing pipeline:
+  - same CSV columns: `question,response,error`
+  - same output filename rule (“next N” based on existing `{slug}_aisodata*.csv`)
+  - same row order as `collect.py`’s question list
+
+Strategy:
+  1. Remove avoidable overhead inside `webish/api_query.py` (cache the system prompt loaded from disk).
+  2. Run web requests in parallel with a fixed cap on concurrency (to reduce `429` retry “thrash”).
+  3. Preserve exact ordering by attaching question indices and sorting within each batch before writing (ordering becomes deterministic even if workers finish out of order).
+  4. Write CSV incrementally (batch-by-batch) to keep memory stable.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCT INTENT
+═══════════════════════════════════════════════════════════════════════════════
+
+What this is
+  A faster drop-in runner: `python full_stack/collect1.2.py <slug_or_path>` that produces the same kind of output CSV as `full_stack/collect.py`, but with much lower runtime on large question sets.
+
+Who it's for
+  The developer running the full_stack pipeline (setup → collect → analysis1 → downstream scripts) and needing large-load speedups.
+
+What problem it solves
+  `collect.py` runs `webish(query, mode="api")` sequentially for every question, so large loads take a long time even though the work is network I/O bound.
+
+Outcome
+  A significantly faster collection run while preserving the CSV “contract” (columns, filename rule, row order, error capture behavior).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW IT WORKS
+═══════════════════════════════════════════════════════════════════════════════
+
+High-level flow
+  1. Resolve `slug` and `client_folder` (same as collect.py).
+  2. Load `query_template_bank.csv` and `value_bank.csv`.
+  3. Build `questions` with `build_queries_from_matrix(template_rows, value_rows)`.
+  4. Validate that `questions` are non-empty and fully filled (no `{...}` placeholders remain).
+  5. Split `questions` into batches (so we can write incrementally).
+  6. For each batch:
+     - run that batch's questions in its worker (sequentially inside the worker, but multiple workers run in parallel)
+     - enforce a fixed global concurrency cap via `MAX_IN_FLIGHT` (= number of concurrent worker-batches)
+     - catch exceptions per question and convert them to `error=str(e)` with `response=""`
+     - sort results by original question index
+     - append rows to the output CSV
+  7. Print the same success/failure summary.
+
+Data flow
+  - Input: two CSV banks per client.
+  - In memory: questions list + current batch results.
+  - Output: `{slug}_aisodata{N}.csv` with header `question,response,error`.
+
+Integrations
+  - Reuses `full_stack/collect.py`’s `resolve_client_folder()` + `normalize_slug()` logic.
+  - Reuses `full_stack/lib.py`’s `read_csv_to_rows()`, `build_queries_from_matrix()`, `call_webish()`.
+  - Reuses `webish/webish.py`’s formatting behavior via `call_webish()` (so response formatting stays identical).
+
+Edge cases
+  - Missing CSV banks: exit with clear message (same as collect.py).
+  - Invalid/empty question list: exit (same checks as collect.py).
+  - Individual question failures: write error into that row; continue the run.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO USE / RUN
+═══════════════════════════════════════════════════════════════════════════════
+
+Prerequisites
+  - Python env with project deps (same as collect.py).
+  - `OPENAI_API_KEY` set for actual webish calls.
+  - Client folder contains:
+    - `query_template_bank.csv`
+    - `value_bank.csv`
+
+Commands
+  - From repo root:
+    python full_stack/collect1.2.py <slug_or_path>
+  - Example:
+    python full_stack/collect1.2.py "Channel_Islands_Adventure_Company"
+
+What runs
+  - Builds the same question list as collect.py, then runs each question via `call_webish()`.
+  - Writes the output CSV using the same “next N” logic as collect.py.
+
+Quick verification (after first implementation)
+  - Run both scripts on the same client with a small workload (add `--limit` if needed for fast local checks).
+  - Confirm:
+    - output CSV exists
+    - header is `question,response,error`
+    - CSV row count equals number of questions run
+    - row order matches question order produced from the banks
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CONSIDERATIONS / GOTCHAS
+═══════════════════════════════════════════════════════════════════════════════
+
+1) “Exact same results” vs nondeterminism
+  - Even with the same parameters, LLM web-search outputs can vary run-to-run.
+  - The plan guarantees:
+    - exact same mapping question[i] → response/error row[i]
+    - exact same CSV order
+    - same formatting behavior
+  - It does not guarantee byte-identical response text across independent runs unless you add a caching layer for responses.
+
+2) 429 rate limiting
+  - Too much concurrency can trigger many 429s and make performance worse.
+  - The runner must cap in-flight requests and retry behavior must remain centralized in `webish/api_query.py`.
+
+3) Memory pressure
+  - Holding all responses for huge loads can bloat memory.
+  - The runner should write batch-by-batch to avoid accumulating all rows in memory.
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+DECISIONS / GATHERED INFO
+═══════════════════════════════════════════════════════════════════════════════
+
+Gathered from code inspection
+  - `full_stack/collect.py` is a simple for-loop; runtime is dominated by `call_webish(question)` per question.
+  - `webish/api_query.py` loads the system prompt from disk per request via `_load_browser_like_prompt()`.
+  - `webish/api_query.py` catches `RateLimitError` and sleeps with exponential backoff, so concurrency affects runtime dramatically.
+
+Chosen approach
+  - Keep request semantics: still call `call_webish(question)` once per question.
+  - Improve speed by:
+    - caching the system prompt in `webish/api_query.py`
+    - running worker-batches in parallel with a fixed global cap (`MAX_IN_FLIGHT`)
+    - preserving output order via question indices
+    - incremental CSV writing
+
+
+═══════════════════════════════════════════════════════════════════════════════
+SPECIFICATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+Where to build
+  Repo root = directory containing `full_stack/`.
+  Create/modify:
+    - `full_stack/collect1.2.py`
+    - optionally `webish/api_query.py` (prompt caching)
+
+Must reuse / keep compatible
+  - `full_stack/collect.py`:
+    - `resolve_client_folder(arg)`
+    - `normalize_slug(raw)`
+    - output file naming “next N” logic (choose max existing index + 1).
+  - `full_stack/lib.py`:
+    - `read_csv_to_rows`
+    - `build_queries_from_matrix`
+    - `call_webish`
+
+Output contract
+  - Output CSV path:
+    - `{client_folder}/{slug}_aisodata{next_n}.csv`
+    - next_n computed exactly like collect.py (glob `{slug}_aisodata*.csv`, parse `_aisodata(\d+)$`, max+1, avoid collisions).
+  - CSV header:
+    - `question,response,error`
+  - Error behavior:
+    - on exception: write `response=""` and `error=str(e)` for that question row
+  - Ordering behavior:
+    - final CSV row order must match the `questions` list order created from the banks
+
+Concurrency defaults / tuning (fill in these constants in code)
+  - `MAX_IN_FLIGHT` (default: 10)
+    - meaning: how many worker-batches may be running in parallel
+    - practical effect: because each worker processes its batch sequentially, `MAX_IN_FLIGHT` is also the cap on simultaneous in-flight API calls.
+  - `NUM_WORKERS_EFFECTIVE` = `min(MAX_IN_FLIGHT, len(questions))`
+  - `BATCH_SIZE` = `ceil(len(questions) / NUM_WORKERS_EFFECTIVE)`
+
+Concurrency rules
+  - Use `ProcessPoolExecutor` (or equivalent) with `max_workers=NUM_WORKERS_EFFECTIVE`.
+  - Split into `NUM_WORKERS_EFFECTIVE` contiguous batches (piles), where each batch is `BATCH_SIZE` questions except possibly the last.
+  - Preserve batch-by-batch sequential writing:
+    - worker-batches may finish out of order,
+    - but the main process must write batch results in the original batch order (use `executor.map(...)` or equivalent ordered collection).
+
+Implementation delta checklist (align with current repo code)
+- Replace the current hardcoded batching constant (e.g. `NUM_BATCHES = 10`) with `MAX_IN_FLIGHT` and derive:
+  - `NUM_WORKERS_EFFECTIVE = min(MAX_IN_FLIGHT, len(questions))`
+  - `BATCH_SIZE = ceil(len(questions) / NUM_WORKERS_EFFECTIVE)`
+- Remove the current “collect everything into `records = []`, then write once at the end” flow.
+  - Instead, write CSV rows incrementally in the main process as each batch result is received (Step 4.2).
+- Match `full_stack/collect.py`’s loading bar behavior:
+  - update per question (not just at the end),
+  - compute `filled = round(processed / total * 20)`,
+  - print with `"\r" + ...` and `flush=True`,
+  - keep the `UnicodeEncodeError` fallback (replace `█` with `#`) exactly like `collect.py`.
+- Prompt caching:
+  - in `webish/api_query.py`, load the browser-like prompt once at module import time into a module-level constant (e.g. `SYSTEM_PROMPT`)
+  - and use that constant inside `api_query()` instead of reading the prompt file every call.
+- `--limit` (verification-only mode):
+  - implement an optional CLI flag `--limit N` that truncates the built `questions` list right after Step 1.4,
+  - and ensure all later steps (batching, progress total, CSV row count) use the truncated list.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+HOSTING / DOMAIN / INFRA
+═══════════════════════════════════════════════════════════════════════════════
+
+Local script only. No hosting/domain required.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT CHANGED
+═══════════════════════════════════════════════════════════════════════════════
+
+  • This plan: rewrote `playground/collect1.2.txt` to be compliant with HOW_TO_PLAN2’s required sections and the ACTION PLAN/READY TO EXECUTE template.
+  • Proposed implementation: introduce `full_stack/collect1.2.py` with concurrency + prompt caching and batch-ordered CSV writing.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ACTION PLAN
+═══════════════════════════════════════════════════════════════════════════════
+
+DEFAULT: Claude executes steps. Steps marked [HUMAN] require the user. Execute in bottom-up, innermost-first order. One step at a time: complete → verify → mark complete → then next. Plan format and execution rules follow SBACO/HOW_TO_PLAN.txt. For READY TO EXECUTE block format, reference playground/analysis1.txt ACTION PLAN (HOW_TO_PLAN § READY TO EXECUTE).
+
+────────────────────────────────────────────────────────────────────────────────
+READY TO EXECUTE — Start here
+────────────────────────────────────────────────────────────────────────────────
+
+  Prerequisites (before Step 1):
+  • Repo root = directory containing full_stack/ (e.g. Integrated_ai). Run from repo root for consistent imports.
+  • full_stack/ must already contain collect.py, lib.py.
+  • webish/ must already contain api_query.py and webish.py.
+  • Client folder exists with query_template_bank.csv and value_bank.csv.
+
+  Reuse from codebase:
+  • full_stack/collect.py: normalize_slug(raw), resolve_client_folder(arg)
+  • full_stack/lib.py: read_csv_to_rows, build_queries_from_matrix, call_webish
+  • webish/webish.py: formatting wrapper via call_webish()
+  • webish/api_query.py: retry behavior (keep it; only cache prompt loading)
+
+  First step to implement: Step 1.1.
+
+  Leaf-step checklist (tick [ ] → [x] as you verify each step):
+  [x] 1.1   [x] 1.2   [x] 1.3   [x] 1.4   [x] 1
+  [x] 2.1   [x] 2.2   [x] 2.3   [x] 2
+  [x] 3.1.1  [x] 3.1.2  [x] 3.1   [x] 3.2.1  [x] 3.2.2  [x] 3.2   [x] 3
+  [x] 4.1   [x] 4.2   [x] 4
+  [x] 5.1   [x] 5.2   [x] 5.3   [x] 5
+
+  Execution order (innermost first; one step per turn):
+  1.1 → 1.2 → 1.3 → 1.4 → 1 →
+  2.1 → 2.2 → 2.3 → 2 →
+  3.1.1 → 3.1.2 → 3.1 →
+  3.2.1 → 3.2.2 → 3.2 →
+  3 →
+  4.1 → 4.2 → 4 →
+  5.1 → 5.2 → 5.3 → 5
+
+  ONE STEP AT A TIME: Never batch steps. Complete → verify → mark complete (tick checkbox, add "DONE — do not modify" to the step) → then next.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 1: Resolve slug and load banks (same question list as collect.py) — DONE — do not modify
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/collect1.2.py | int:(none) | en:3,4,5 | deliv:inputs_loaded,questions_built | prereq:Python,repo,client_csv_banks | complex:small | env:local
+
+  Description: Implement the CLI/prompt flow and input loading so collect1.2 builds the exact same `questions` list as collect.py (before any concurrency).
+
+  Verification (Step 1 complete):
+  • Script resolves `client_folder` + `slug`.
+  • Required banks exist and are loaded.
+  • `questions` list is built using `build_queries_from_matrix`.
+
+  1.1 Get raw argument (slug or path) — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:(none) | en:1.2 | deliv:arg | prereq:Python | complex:small | env:local
+      Before any work:
+        1. Ensure repo root is on `sys.path`:
+           - `_repo_root = Path(__file__).resolve().parent.parent`
+           - if not in sys.path: insert it
+        2. Load environment variables the same way `collect.py` does:
+           - `from dotenv import load_dotenv`
+           - `load_dotenv(_repo_root / ".env")`
+        3. Read `OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")` (same env key as collect.py).
+        4. If not set: print `OPENAI_API_KEY not set. See full_stack/.env.example.` and sys.exit(1).
+      Then resolve CLI input:
+        5. If len(sys.argv) >= 2: arg = sys.argv[1].strip()
+        6. Else: prompt for "Business folder path or slug: " and `.strip()`
+        7. If not arg: print error and sys.exit(1) (clean exit; exact text not critical).
+      1.1 Verification: arg is non-empty string (and OPENAI_API_KEY is present), or script exits cleanly like collect.py.
+        Micro-checks:
+        [ ] `sys.path` includes repo root before importing other modules
+        [ ] `.env` is loaded via `load_dotenv(_repo_root / ".env")`
+        [ ] script exits early when `OPENAI_API_KEY` is missing
+        [ ] arg is obtained from `sys.argv[1]` when provided, else from `input(...)`
+        [ ] arg is `.strip()`'d and validated non-empty
+
+  1.2 Resolve arg to (client_folder, slug) — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:1.1 | en:1.3 | deliv:client_folder,slug | prereq:repo | complex:small | env:local
+      Use resolve_client_folder(arg) from collect.py (same repo_root sys.path pattern).
+      1.2 Verification: client_folder is Path; slug is normalized non-empty string.
+        Micro-checks:
+        [ ] uses `collect.py`'s `resolve_client_folder` (or equivalent compatible logic)
+        [ ] returned `client_folder` is a `Path` object
+        [ ] returned `slug` is non-empty and normalized
+
+  1.3 Validate required banks exist — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:1.2 | en:1.4 | deliv:bank_paths | prereq:1.2 | complex:small | env:local
+      Check (client_folder / "query_template_bank.csv") and (client_folder / "value_bank.csv"); exit with clear message if missing.
+      1.3 Verification: missing bank triggers a clean sys.exit(1); present banks proceed.
+        Micro-checks:
+        [ ] checks `query_template_bank.csv` existence
+        [ ] checks `value_bank.csv` existence
+        [ ] exits with code `1` on missing file
+
+  1.4 Load banks and build `questions` — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:1.3 | en:2 | deliv:questions | prereq:1.3 | complex:small | env:local
+      Use read_csv_to_rows for both CSVs, then build_queries_from_matrix(template_rows, value_rows).
+      1.4 Verification: questions is list[str] and has expected length > 0 (unless script exits).
+        Micro-checks:
+        [ ] `template_rows` and `value_rows` come from `read_csv_to_rows(...)`
+        [ ] `questions` comes from `build_queries_from_matrix(template_rows, value_rows)`
+        [ ] `questions` is `list[str]`
+        [ ] if empty, script exits cleanly
+
+────────────────────────────────────────────────────────────────────────────────
+Step 2: Validate question list and prepare ordered batches — DONE — do not modify
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/collect1.2.py | int:1 | en:3,4 | deliv:batches | prereq:1 | complex:small | env:local
+
+  Description: Add the remaining correctness checks from collect.py and split the work into batches while preserving original question indices for output ordering.
+
+  Verification (Step 2 complete):
+  • questions is validated (non-empty, no unfilled `{...}` placeholders).
+  • batches is an ordered list of batches, each batch contains (idx, question).
+
+  2.1 Validate question list (same checks as collect.py) — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:1.4 | en:2.2 | deliv:validated_questions | prereq:1.4 | complex:small | env:local
+      Verify questions exists and is non-empty; verify no question contains "{" (same validation as collect.py).
+      2.1 Verification: script exits if validation fails; otherwise continues.
+        Micro-checks:
+        [ ] `questions` is non-empty
+        [ ] no question contains the substring `{` (placeholder not fully resolved)
+        [ ] on failure, script exits cleanly (sys.exit(1))
+
+  2.2 Attach original question index — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:2.1 | en:2.3 | deliv:indexed_questions | prereq:2.1 | complex:small | env:local
+      Convert to list of tuples: indexed = [(i, q) for i, q in enumerate(questions)].
+      2.2 Verification: indexed_questions[0][0] == 0 and last index is len(questions)-1.
+
+  2.3 Split into `MAX_IN_FLIGHT` batches (worker-batches) — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:2.2 | en:3,4 | deliv:batches | prereq:2.2 | complex:small | env:local
+      Split using the concurrency defaults so batching matches the parallelism cap:
+        1. Define `NUM_WORKERS_EFFECTIVE = min(MAX_IN_FLIGHT, len(indexed_questions))`.
+        2. Define `BATCH_SIZE = ceil(len(indexed_questions) / NUM_WORKERS_EFFECTIVE)`.
+        3. Create contiguous slices: `batch[j] = indexed_questions[j*BATCH_SIZE : (j+1)*BATCH_SIZE]` until you run out.
+        4. Only create as many batches as needed (if `len(questions) < MAX_IN_FLIGHT`, you will naturally have fewer batches).
+      2.3 Verification: Flattening batches yields the original indexed_questions in the same order.
+        Micro-checks:
+        [ ] `MAX_IN_FLIGHT` default is set (plan default: 10)
+        [ ] `NUM_WORKERS_EFFECTIVE = min(MAX_IN_FLIGHT, len(indexed_questions))`
+        [ ] `BATCH_SIZE = ceil(len(indexed_questions) / NUM_WORKERS_EFFECTIVE)`
+        [ ] batches are contiguous slices
+        [ ] flattening preserves exact idx ordering (round-trip property)
+        Implementation sub-steps:
+        1. Guarantee determinism by keeping `indexed_questions` as a materialized list (no iterators/generators).
+        2. Ensure each batch is a real list (not a slice view) so it serializes cleanly for multiprocessing.
+        3. Confirm the first batch starts at index `0` and the last batch ends at `len(indexed_questions) - 1`.
+        4. Do not pad batches: the last batch may be smaller; it must not be reordered or padded.
+        5. Edge case: if `len(indexed_questions) < MAX_IN_FLIGHT`, batch count should equal `len(indexed_questions)` and each batch should have one `(idx, question)`.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 3: Implement prompt caching + concurrency-limited querying — DONE — do not modify
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:webish/api_query.py,full_stack/collect1.2.py | int:2 | en:4,5 | deliv:concurrent_batch_results | prereq:2 | complex:medium | env:local
+
+  Description: Speed up the inner loop by caching `api_query`’s system prompt and running webish calls concurrently with a fixed in-flight cap, while still returning results tagged with question indices.
+  Note on interpretation of concurrency:
+    - `MAX_IN_FLIGHT` caps the number of worker-batches running in parallel,
+    - each worker processes its batch sequentially (so each worker has at most 1 in-flight API call at a time).
+
+  Verification (Step 3 complete):
+  • webish/api_query no longer reads the prompt file for every question call.
+  • batch execution returns results for each question in the batch with (idx, response, error).
+  • any exception is caught per question and converted into error fields.
+
+  3.1 Cache the browser-like system prompt (remove per-request file I/O) — DONE — do not modify
+      human:no | loc:webish/api_query.py | int:(none) | en:3.2 | deliv:cached_prompt | prereq:webish/api_query.py | complex:small | env:local
+      Cache the prompt text at module import time and reuse it inside `api_query()`.
+      Verification (Step 3.1 complete): api_query uses a cached prompt loaded once.
+      3.1.1 Load prompt once into a module-level constant — DONE — do not modify
+            human:no | loc:webish/api_query.py | int:(none) | en:3.1.2 | deliv:SYSTEM_PROMPT | prereq:Python,filesystem | complex:small | env:local
+            Replace repeated `_load_browser_like_prompt()` file reading by loading prompt at import time into a module-level variable.
+            3.1.1 Verification: starting the process loads the prompt; calling api_query does not touch the filesystem.
+              Micro-checks:
+              [ ] prompt is loaded at module import time into a module-level variable (e.g. `SYSTEM_PROMPT`)
+              [ ] `api_query()` uses the cached variable (no per-call `read_text(...)` / file IO)
+              Implementation sub-steps:
+              1. Define the prompt path using `Path(__file__).resolve()` relative to `webish/api_query.py` (so cwd doesn’t matter).
+              2. If prompt file exists: `SYSTEM_PROMPT = p.read_text(encoding="utf-8").strip()`.
+              3. If prompt file does not exist: use the exact fallback prompt string that `_load_browser_like_prompt()` used originally.
+              4. Ensure `SYSTEM_PROMPT` is immutable (assign once at import time).
+
+      3.1.2 Use cached SYSTEM_PROMPT in api_query — DONE — do not modify
+            human:no | loc:webish/api_query.py | int:3.1.1 | en:(none) | deliv:api_query_prompt | prereq:3.1.1 | complex:small | env:local
+            In api_query(), replace `system = _load_browser_like_prompt()` with `system = SYSTEM_PROMPT`.
+            3.1.2 Verification: api_query prompt text is identical to the old file contents (same code path, just cached).
+              Micro-checks:
+              [ ] replaces `system = _load_browser_like_prompt()` with `system = SYSTEM_PROMPT`
+              [ ] fallback prompt behavior remains identical if prompt file missing
+              Implementation sub-steps:
+              1. Keep the rest of `api_query()` unchanged (model, messages structure, link parsing).
+              2. Keep retry/backoff logic exactly as-is (only prompt source changes).
+
+  3.2 Implement concurrency-limited parallel worker querying per batch — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:2 | en:4 | deliv:batch_results | prereq:ProcessPoolExecutor,max_workers | complex:medium | env:local
+      For each batch, run that batch in a worker process. The worker must iterate its questions sequentially, but multiple batches run in parallel.
+      Verification (Step 3.2 complete): for every (idx, question) in the batch, a result tuple is returned.
+      3.2.1 Create batch worker that calls call_webish per question — DONE — do not modify
+            human:no | loc:full_stack/collect1.2.py | int:3.2 | en:3.2.2 | deliv:worker_fn | prereq:call_webish | complex:small | env:local
+            Implement a worker function that accepts one batch input and returns results for every item in that batch:
+              1. Input type: a list of tuples like `[(idx, question), ...]` (or an equivalent structure that preserves the idx).
+              2. For each `(idx, question)` in the input list, call `call_webish(question)` exactly once.
+              3. On success: append `(idx, response, "")`.
+              4. On exception: append `(idx, "", str(e))`.
+              5. Return the list of result tuples in the same order the input batch presented (so idx order is naturally increasing).
+            Multiprocessing constraint (important):
+              6. The worker function must be defined at module scope (top-level in `collect1.2.py`), not nested inside `main()`, so it is picklable by `ProcessPoolExecutor`.
+            3.2.1 Verification: any exception from call_webish becomes error=str(e) and response="".
+              Micro-checks:
+              [ ] worker function is top-level (picklable)
+              [ ] worker iterates through its input batch
+              [ ] calls `call_webish(question)` exactly once per question
+              [ ] exceptions are caught per-question (run continues)
+              [ ] on success -> `(idx, response, "")`
+              [ ] on failure -> `(idx, "", str(e))`
+
+      3.2.2 Wire ProcessPoolExecutor + ordered collection and collect results — DONE — do not modify
+            human:no | loc:full_stack/collect1.2.py | int:3.2.1 | en:4 | deliv:batch_results | prereq:3.2.1 | complex:small | env:local
+            1. Create a `ProcessPoolExecutor(max_workers=NUM_WORKERS_EFFECTIVE)`.
+            2. Use `executor.map(worker_fn, batches)` (or submit+ordered-join) so batch results are yielded in the same batch order as `batches`.
+            3. For each yielded `batch_results`, do NOT flatten all batches into one giant list; instead, pass the batch results immediately to Step 4’s CSV writer (to keep memory stable).
+            3.2.2 Verification: number of results equals batch size; results include all original indices from that batch.
+              Micro-checks:
+              [ ] uses `ProcessPoolExecutor(max_workers=NUM_WORKERS_EFFECTIVE)`
+              [ ] results are retrieved in original `batches` order (use `executor.map` or ordered-join)
+              [ ] writer/collector consumes each batch result without reordering
+              Implementation sub-steps:
+              1. Create the executor once (wrap the whole run in a single `with ProcessPoolExecutor(...)`).
+              2. Prefer `executor.map(worker_fn, batches)` so batches are yielded in the same order as `batches`.
+              3. Pass `batch_results` directly to Step 4 as soon as it arrives (streaming output behavior; no giant `records` list).
+              4. Confirm worker return types are pickleable: `list[tuple[int,str,str]]`.
+
+────────────────────────────────────────────────────────────────────────────────
+Step 4: Preserve output ordering + write CSV incrementally — DONE — do not modify
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/collect1.2.py | int:3 | en:5 | deliv:output_csv | prereq:3 | complex:small | env:local
+
+  Description: Write the output CSV so its rows are in the exact same order as collect.py would produce from the `questions` list, and avoid holding all results in memory.
+
+  Verification (Step 4 complete):
+  • Output CSV exists.
+  • Header is correct and row count matches questions run.
+  • For each i, the i-th CSV row corresponds to question indexed i (even though calls completed out of order).
+
+  4.1 Sort each batch’s results by original index before writing — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:3 | en:4.2 | deliv:ordered_rows | prereq:3 | complex:small | env:local
+      After each batch completes (i.e., once the worker returns `batch_results`):
+        1. Sort the returned tuples by `idx` (even if you believe they are already in-order; this is the safety net).
+        2. Convert sorted tuples into CSV row tuples `(question, response, error)` using the main-process `questions[idx]` source of truth.
+      4.1 Verification: ordered_rows are emitted in strictly increasing idx order and each idx maps to the same question string as `questions[idx]` built in Step 1/2.
+
+  4.2 Write header once, append rows batch-by-batch, preserve summary output — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:4.1 | en:(none) | deliv:{slug}_aisodata{N}.csv | prereq:4.1 | complex:small | env:local
+      Create output path using collect.py “next N” logic; then:
+        1. Open output CSV with the same parameters as collect.py:
+             `open(out_path, "w", newline="", encoding="utf-8")`
+        2. Write header `question,response,error`.
+        3. Maintain `total = len(questions)` and a running counter `processed = 0`.
+        4. For each batch’s ordered rows:
+          - for each `(question, response, error)` row:
+              a. writerow it immediately
+              b. increment `processed += 1`
+              c. update the loading bar to match collect.py’s style:
+                 - `filled = round(processed / total * 20)`
+                 - print `"\r" + ("█"*filled + "_"*(20-filled))` with `end=""` and `flush=True`
+                 - keep the UnicodeEncodeError fallback behavior (replace `█` with `#`) exactly like collect.py
+        5. After all rows are written, print the exact same success/failure summary shape as collect.py.
+      4.2 Verification: CSV header matches collect.py and final summary counts equal number of results with/without errors.
+        Micro-checks:
+        [ ] output path naming uses the same “next N” logic as collect.py
+        [ ] opens CSV using `open(out_path, "w", newline="", encoding="utf-8")`
+        [ ] writes header row exactly: `question,response,error`
+        [ ] writes rows incrementally (does not accumulate all records in RAM)
+        [ ] progress bar updates per question with `filled = round(processed / total * 20)`
+        [ ] Unicode fallback replaces `█` with `#` when needed
+        [ ] final summary line format matches collect.py (success count / failed count)
+        Implementation sub-steps:
+        1. Compute `next_n` by globbing `"{slug}_aisodata*.csv"` in `client_folder`, extracting `_aisodata(\d+)$`, and using `max(indices) + 1` (or `0` if none).
+        2. Collision safety: keep the `while out_path.exists()` loop and increment `next_n` until the path is free.
+        3. Ensure `processed` is 0-based internally but loading bar uses `processed` as 1-based (matches collect.py’s `i+1` logic).
+        4. Preserve exact progress bar output behavior (same `"\r" + bar` and same `end=""` / `flush=True` handling).
+
+────────────────────────────────────────────────────────────────────────────────
+Step 5: Verification run + performance check — DONE — do not modify
+────────────────────────────────────────────────────────────────────────────────
+
+  human:no | loc:full_stack/collect1.2.py (optional),terminal/runbook | int:4 | en:(none) | deliv:verification_report,benchmark_numbers | prereq:OpenAI_API_key | complex:medium | env:local
+
+  Description: Provide a repeatable way to validate that collect1.2 preserves the output contract and is faster on large loads.
+
+  Verification (Step 5 complete):
+  • Local verification shows CSV schema/order consistency with collect.py for a small limit.
+  • Benchmark run shows improved runtime for a larger limit.
+
+  5.1 Add optional `--limit` for fast local testing (default preserves full behavior) — DONE — do not modify
+      human:no | loc:full_stack/collect1.2.py | int:4 | en:5.2 | deliv:limit_flag | prereq:argparse/sys.argv | complex:small | env:local
+      Add a CLI arg `--limit <int>` (recommended: argparse) that truncates the `questions` list:
+        1. Parse optional `--limit` as an integer.
+        2. Validate `limit > 0` (else exit with clear message).
+        3. Apply truncation immediately after Step 1.4 succeeds:
+             `questions = questions[:limit]`
+        4. Ensure downstream steps use the truncated `questions` for:
+           - batching
+           - progress bar total
+           - CSV row count
+      5.1 Verification: running without `--limit` processes all questions; running with `--limit 20` processes exactly 20.
+        Micro-checks:
+        [ ] implements `--limit N` parsing (argparse)
+        [ ] validates `N > 0`
+        [ ] truncation happens immediately after Step 1.4 / question build
+        [ ] batching, progress bar `total`, and CSV row count reflect the truncated question list
+
+  5.2 Run collect.py vs collect1.2.py on same small limit and verify ordering/schema — DONE — do not modify
+      human:no | loc:terminal | int:5.1 | en:5.3 | deliv:csv_order_check | prereq:5.1,OpenAI_API_key | complex:small | env:local
+      Execute both scripts with the same `--limit` (or same truncated set) and compare:
+        - CSV exists and has `question,response,error` header
+        - CSV row i question text matches between scripts (ordering)
+        - response/error strings may differ due to nondeterminism; do not fail verification solely on text diffs.
+      5.2 Verification: mismatched question/row mapping is zero; schema/header matches.
+        Implementation sub-steps:
+        1. Load both CSVs with `csv.DictReader` and assert header keys are exactly `["question","response","error"]`.
+        2. Assert row counts are equal.
+        3. For each row index `i`, assert `csv_collect["question"][i] == csv_collect1_2["question"][i]`.
+        4. Do not assert exact equality on `response` or `error` text (nondeterminism / retry paths are allowed).
+        5. If a mismatch occurs, print/log the first failing index `i` and both questions so debugging is immediate.
+
+  5.3 Benchmark runtime on a larger limit and record improvement — DONE — do not modify
+      human:no | loc:terminal | int:5.2 | en:(none) | deliv:benchmark_report | prereq:OpenAI_API_key | complex:small | env:local
+      Measure wall-clock time (e.g. PowerShell `Measure-Command` or equivalent) for collect.py vs collect1.2.py on a larger limit, and record improvement ratio.
+      5.3 Verification: collect1.2 runtime is lower than collect.py runtime for the benchmark run.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CHECKLIST (before considering plan done)
+═══════════════════════════════════════════════════════════════════════════════
+
+  • PRODUCT INTENT — present and filled
+  • HOW IT WORKS — present and filled
+  • HOW TO USE / RUN — present and filled
+  • CONSIDERATIONS / GOTCHAS — present and filled
+  • DECISIONS / GATHERED INFO — present and filled
+  • SPECIFICATIONS — present and filled
+  • HOSTING / DOMAIN / INFRA — present and filled
+  • WHAT CHANGED — present and filled
+  • ACTION PLAN — READY TO EXECUTE block; step tree present; leaf checklist present; execution order present; ONE STEP AT A TIME reminder present
+  • ATOMICITY: steps are atomic (one concern per step) and parent steps have their own verification criteria

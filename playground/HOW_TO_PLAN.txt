@@ -1,0 +1,233 @@
+HOW TO PLAN — Instructions for Cursor
+
+Reference this file whenever creating or executing development plans, whether the user explicitly mentions it or not. If a task involves planning or running a multi-step plan, check HOW_TO_PLAN.txt.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+OVERVIEW — How Plans Are Used
+═══════════════════════════════════════════════════════════════════════════════
+
+Plans live in their own text files (e.g. PROJECT_PLAN.txt, full_stack_plan_setup_and_collection.txt). The user creates the file; Cursor creates or executes the plan inside it.
+
+What a plan contains
+  The step tree (ACTION PLAN) is ONE component. A complete plan has ALL of the sections below.
+  A plan is INCOMPLETE until every section is present and filled in — not just the step tree.
+  Reference AIDANplan5.txt for a full example.
+
+  REQUIRED SECTIONS (create all of these):
+
+  • PRODUCT INTENT
+    What this thing is. Who it's for. What problem it solves. The "why" that grounds every step.
+    Without this, the step tree has no context.
+
+  • HOW IT WORKS
+    High-level flow, architecture, key integrations. Not implementation detail — enough so a dev
+    (or Cursor) can reason about the system. Data flow, user flow, where things connect.
+
+  • HOW TO USE / RUN
+    How to run, test, deploy, iterate. Commands, env vars, common workflows.
+    The "day one" guide so someone can get moving without asking.
+
+  • CONSIDERATIONS / GOTCHAS
+    Things to keep in mind when building. Constraints, assumptions, non-obvious pitfalls,
+    decisions that are hard to undo. "Don't forget X." "Watch out for Y."
+
+  • DECISIONS / GATHERED INFO
+    Accounts, tools, paths, approach — stuff that must be known before building.
+    What the user already decided; what was researched and locked in.
+
+  • SPECIFICATIONS
+    Mandatory paths, project structure, design rules, backend specs. The "do exactly this,
+    don't guess" instructions. Resolves ambiguities before they cause rework.
+
+  • HOSTING / DOMAIN / INFRA
+    Provider, domain, deployment flow. Where it lives and how it gets there.
+
+  • WHAT CHANGED
+    Version log. Key pivots. "We used to do X, now we do Y." For reference during execution.
+
+  • ACTION PLAN
+    The step tree. Hierarchical steps with data tags, verification, [HUMAN] markers.
+    See sections 1–6 below for step tree format and execution rules.
+
+  CHECKLIST: Before considering a plan done, ensure every section above exists and has real
+  content. If a section is empty or thin, the plan is not ready. For the ACTION PLAN, also run
+  the ATOMICITY CHECK (section 2) — split any step that fails it.
+
+How plans are run
+  • User says: "actuate plan_name" or "run plan_name step X" (where X = current step)
+  • Cursor works through the plan on its own until it hits trouble or a human-required step
+  • User is there to unblock and handle human-only steps
+
+Plan creation — CRITICAL
+  • Name of the game: make damn sure this shit will work. NOT make it fast.
+  • NEVER create a plan in one pass. NEVER auto-run a plan after creating it.
+  • Process:
+    1. First pass: just the idea (big steps, rough structure)
+    2. User looks it over
+    3. Next prompt: iterate to a slightly more fleshed out version
+    4. User reviews again
+    5. Rinse and repeat until the plan is almost overkill
+  • Each iteration adds detail. Do not rush to "done."
+
+When a step is verified
+  • Mark the step as complete
+  • Add a "do not touch" note on it (e.g. "DONE — do not modify")
+  • Plans can be updated; verified steps should not be changed unless explicitly requested. During execution, do not re-edit or "improve" a step that is already marked complete — move on to the next step.
+
+The goal: plug-and-play development
+  When a plan is complete and ready to execute, it should function as a fully plug-and-play development tool. The developer should be able to rely on the plan and Cursor to carry the product to completion without having to think through each move.
+
+  • Hand-held execution: Every step is spelled out. The dev does not need to remember what comes next, decide what to do, or re-read context. They simply say "run plan_name step X" or "actuate plan_name" and Cursor executes the next step. Verified steps are marked, so it is always clear where to resume.
+  • Turn your brain off: Once the plan exists, the dev's job is to run steps and handle human-only tasks. Cursor does the rest. The dev should not need to make architectural decisions, guess at the next action, or hold the full project in their head during execution.
+  • Hand-holding when needed: If something blocks progress (error, ambiguity, missing info) or a step requires a human (login, approval, external action), Cursor provides crystal-clear instructions: direct links, exact clicks, what to copy and where to paste. The dev follows the hand-hold and reports back; Cursor continues.
+  • Reality check: This will not always work perfectly. Plans can hit unforeseen issues, specs can be wrong, integrations can break. But the aspiration is that a well-made plan, combined with Cursor, gets the product built with minimal cognitive load on the dev. Aim for that.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+1. THE STEPS TREE
+═══════════════════════════════════════════════════════════════════════════════
+
+Plans are hierarchical step trees. Start with big steps, then break each into smaller sub-steps, and continue until steps are atomic (no further breakdown needed). The tree can go as deep as necessary.
+
+Example structure:
+  1
+  1.1
+    1.1.1
+    1.1.2
+  1.2
+    1.2.1
+    1.2.2
+      1.2.2.1
+      1.2.2.2
+    1.2.3
+  2
+  2.1
+  2.2
+  3
+
+
+═══════════════════════════════════════════════════════════════════════════════
+2. PLAN CREATION (top-down)
+═══════════════════════════════════════════════════════════════════════════════
+
+When making the plan:
+- Build out ALL required sections (Product Intent, How It Works, How to Use, Considerations, Decisions, Specs, Hosting, What Changed, Action Plan) — not just the step tree
+- Start with the big steps (1, 2, 3, ...)
+- Break each big step into smaller sub-steps
+- Break those into smaller sub-steps
+- Continue until every step is atomic (concrete and doable)
+- Every step — including parent steps — must have a clear plan/description of what it accomplishes, even if sub-steps do the implementation work
+
+  CRITICAL — Parent steps are FULL steps, not shells:
+  When a step has sub-steps, it must STILL be fully fleshed out on its own. Parent steps do NOT lose their details or verification.
+  - Parent steps MUST have: (1) a complete description of what the step accomplishes, (2) data tags (human, loc, int, en, deliv, prereq, complex, env), (3) verification criteria. Same as leaf steps.
+  - Child steps implement the HOW; the parent step defines the WHAT and the verification that it's done. Both matter.
+  - Never reduce a parent step to a bare header or "see sub-steps." Parent steps stand alone as fully specified steps.
+
+  ATOMICITY CHECK — Split coarse steps before finishing the plan:
+  Before considering the ACTION PLAN done, run this check on every step. If a step fails any criterion, break it into sub-steps.
+  - ONE primary action per step: If the step does A AND B AND C (e.g. "manual login AND save session AND load session"), split into separate steps.
+  - ONE concern per step: Don't mix human action + code + config in one step (e.g. "login" + "save storageState" + "add to .gitignore" = 3 steps).
+  - ONE verification target: If verification has to check several unrelated things, the step is compound — split it.
+  - First-run vs subsequent-run: If the step has distinct paths ("first run: X; subsequent: Y"), each path or its setup deserves its own sub-step.
+  - Heuristic: If a step has 3+ bullet points or uses "and" / "or" to describe multiple operations, suspect it needs subdivision.
+  Apply this check after each iteration of plan creation. Coarse steps cause rework during execution; catch them early.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+3. EXECUTION ORDER (bottom-up, innermost first)
+═══════════════════════════════════════════════════════════════════════════════
+
+Execute like nested parentheses in math: innermost first, then work outward.
+
+Order: 1.1.1 → 1.1.2 → 1.1 → 1.2.1 → 1.2.2.1 → 1.2.2.2 → 1.2.2 → 1.2.3 → 1.2 → 1 → 2.1 → 2.2 → 2 → 3
+
+  ███████████████████████████████████████████████████████████████████████████████
+  ONE STEP AT A TIME — NON-NEGOTIABLE
+  ███████████████████████████████████████████████████████████████████████████████
+  NEVER execute more than ONE step (or sub-step) in a single turn.
+  NEVER batch, parallelize, or "get ahead" by doing 2, 3, or 4 steps at once.
+  Each step — no matter how small, trivial, or stupid it seems — MUST be:
+    1. Completed fully
+    2. Verified (per section 4)
+    3. Marked complete
+  BEFORE the next step is even started.
+  Do not be "efficient" or "bold." Be sequential. One step. Verify. Then next.
+  This prevents cascade failures, missed verification, and rework. Follow it.
+  ███████████████████████████████████████████████████████████████████████████████
+
+Rules:
+- Execute the deepest leaf steps first
+- When all children of a parent are complete, run and verify the parent
+- Parents are aggregation (their work is the combined work of children) — but parent-level verification is CRITICAL
+- Parent verification confirms the integrated whole works, not just each part alone
+- Parent steps have their own verification criteria. Do not skip or dilute parent verification because children exist.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+4. VERIFICATION (mandatory for EVERY step)
+═══════════════════════════════════════════════════════════════════════════════
+
+Every step — leaf or parent, big or tiny — MUST have verification.
+
+- Verification = a clear, checkable way to confirm the step is 100% complete
+- No exceptions. Even if it feels redundant. This is non-negotiable.
+- Leaf verification: confirms the atomic work is done correctly
+- Parent verification: confirms all children work together (integration). Parent steps MUST have their own explicit verification criteria. Do not omit or "inherit" from children — write the parent verification as a full, standalone check.
+- Prefer automated verification (tests, lint, build) when possible
+- Once verified: mark step complete and add "do not touch" (see OVERVIEW)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+5. DATA TAGS (compact inline format)
+═══════════════════════════════════════════════════════════════════════════════
+
+Each step gets one line of tags, pipe-separated. Use abbreviations. Aim to fill as many data tags as possible for every step.
+
+  human     yes / no
+  loc       where (file, dir, service)
+  int       integrates_with — step IDs this depends on
+  en        enables — step IDs that use this
+  deliv     deliverable — what this produces
+  prereq    prerequisites — tools, env, accounts needed
+  complex   small / medium / large
+  env       local / staging / prod / CI
+
+Multiple values in a tag: use commas inside the value. Do not repeat the tag.
+  int:1.1,1.2,2.1   (depends on three steps)
+  en:2.2,2.3,3.1    (enables three steps)
+  prereq:node,npm   (multiple prerequisites)
+
+Example (all tags):
+  1.1.1 | human:no | loc:src/components/Login.tsx | int:1.1,1.2 | en:1.2.2,1.2.3 | deliv:Login.tsx | prereq:node,npm | complex:small | env:local
+
+
+═══════════════════════════════════════════════════════════════════════════════
+6. MINIMIZE HUMAN EFFORT
+═══════════════════════════════════════════════════════════════════════════════
+
+This is very important.
+
+- Cursor does as much work as absolutely possible
+- Assume instructions may be followed by someone with minimal expertise (e.g. a 12-year-old)
+- If a step is 99% automatable and 1% human: Cursor does the 99%, then provides crystal-clear instructions for the 1% — direct links, exact clicks, specific text to paste
+- Human dev time costs far more than AI dev time. Minimize human involvement at all costs.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+7. FORMAT
+═══════════════════════════════════════════════════════════════════════════════
+
+- Plans go in a text file
+- Data tags use compact inline format (see section 5)
+- Use consistent numbering: 1, 1.1, 1.1.1, etc.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+8. WHEN TO USE
+═══════════════════════════════════════════════════════════════════════════════
+
+Reference this file whenever you are creating or executing development plans — whether the user explicitly mentions it or not. If a task involves planning or running a multi-step plan, check HOW_TO_PLAN.txt.
+
+When RUNNING/EXECUTING a plan: Before starting, re-read section 3 (EXECUTION ORDER). Execute steps in the correct bottom-up, innermost-first order. Do not execute steps top-down or in document order. ONE STEP AT A TIME: never start the next step until the current one is complete and verified. No batching, no parallel, no "getting ahead."
