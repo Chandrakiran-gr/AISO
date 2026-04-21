@@ -7,7 +7,7 @@ Swap DATABASE_URL env var to switch backends.
 from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./aiso.db")
@@ -34,7 +34,7 @@ class User(Base):
     name          = Column(String, nullable=True)
     password_hash = Column(String, nullable=True)             # Null for OAuth users
     provider      = Column(String, default="credentials")     # "google" | "credentials"
-    created_at    = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_active     = Column(Boolean, default=True)
 
 
@@ -49,8 +49,8 @@ class Client(Base):
     industry     = Column(String, nullable=True)
     location     = Column(String, nullable=True)
     competitors  = Column(Text, nullable=True)                # JSON array of competitor names
-    created_at   = Column(DateTime, default=lambda: datetime.now(UTC))
-    updated_at   = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    created_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Scan(Base):
@@ -65,7 +65,7 @@ class Scan(Base):
     started_at  = Column(DateTime, nullable=True)
     completed_at= Column(DateTime, nullable=True)
     error       = Column(Text, nullable=True)
-    created_at  = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class ScanResult(Base):
@@ -82,7 +82,7 @@ class ScanResult(Base):
     avg_position      = Column(Float, nullable=True)
     visibility_score  = Column(Float, nullable=True)           # 0.0 – 100.0
     competitor_data   = Column(Text, nullable=True)            # JSON: {competitor: mention_count}
-    created_at        = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Action(Base):
@@ -99,7 +99,7 @@ class Action(Base):
     impact_pts  = Column(String, nullable=True)               # "+3-5 pts"
     effort      = Column(String, nullable=True)               # "30 min" | "1 hour"
     status      = Column(String, default="open")              # "open" | "done" | "dismissed"
-    created_at  = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at= Column(DateTime, nullable=True)
 
 

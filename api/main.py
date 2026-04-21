@@ -50,19 +50,27 @@ async def add_process_time_header(request: Request, call_next):
     response = await call_next(request)
     duration = time.perf_counter() - start
     response.headers["X-Process-Time"] = f"{duration:.4f}s"
-    # Remove server fingerprinting
-    response.headers.pop("server", None)
+    # Remove server fingerprinting (MutableHeaders uses del, not pop)
+    try:
+        del response.headers["server"]
+    except KeyError:
+        pass
     return response
 
 # ── Global exception handler ─────────────────────────────────────────────────
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    # Log the real error server-side, return generic message to client
     print(f"[AISO API Error] {request.method} {request.url.path} — {type(exc).__name__}: {exc}")
     return JSONResponse(
         status_code=500,
         content={"error": "An internal error occurred. Please try again."},
     )
+
+
+@app.on_event("startup")
+def on_startup():
+    from api.database import init_db
+    init_db()
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(health.router,   prefix="/api/v1")

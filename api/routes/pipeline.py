@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 import uuid
 import json
 
@@ -61,7 +61,7 @@ async def run_pipeline(scan_id: str, client_id: str, providers: List[str], group
         if not scan:
             return
         scan.status = "running"
-        scan.started_at = datetime.now(UTC)
+        scan.started_at = datetime.now(timezone.utc)
         db.commit()
 
         # TODO: Replace with actual pipeline calls:
@@ -75,7 +75,7 @@ async def run_pipeline(scan_id: str, client_id: str, providers: List[str], group
         await asyncio.sleep(2)
 
         scan.status = "complete"
-        scan.completed_at = datetime.now(UTC)
+        scan.completed_at = datetime.now(timezone.utc)
         db.commit()
         print(f"[AISO Pipeline] Scan {scan_id} complete.")
     except Exception as e:
