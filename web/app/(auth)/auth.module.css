@@ -1,0 +1,251 @@
+/* ── Auth pages (login / signup) ────────────────────────── */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  background: var(--bg-base);
+}
+
+/* Left panel — branding + social proof */
+.left {
+  display: none;
+  flex: 1;
+  padding: var(--space-3xl) var(--space-2xl);
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(0,212,170,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(124,92,252,0.08) 0%, transparent 60%),
+    var(--bg-deep);
+  border-right: var(--border-subtle);
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+@media (min-width: 960px) {
+  .left { display: flex; }
+}
+
+.leftLogo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.logoMark {
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 1.25rem;
+}
+
+.leftTagline {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--text-primary);
+  max-width: 380px;
+}
+
+.leftSubtitle {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  margin-top: var(--space-md);
+  line-height: 1.65;
+  max-width: 360px;
+}
+
+/* Stats strip on left */
+.leftStats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.leftStat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: rgba(255,255,255,0.03);
+  border: var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.leftStatIcon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,212,170,0.08);
+  border-radius: var(--radius-md);
+  font-size: 1.125rem;
+  flex-shrink: 0;
+}
+
+.leftStatText strong {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.leftStatText span {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* Right panel — form */
+.right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl) var(--space-lg);
+}
+
+.formCard {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.formHeader {
+  text-align: center;
+}
+
+.formTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+
+.formSubtitle {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+/* Google OAuth button */
+.oauthBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: 11px var(--space-md);
+  background: var(--bg-surface);
+  border: var(--border-muted);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.oauthBtn:hover {
+  background: var(--bg-hover);
+  border-color: rgba(255,255,255,0.15);
+}
+
+.oauthIcon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Divider */
+.dividerRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.dividerLine {
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,0.07);
+}
+
+/* Form fields */
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.submitBtn {
+  width: 100%;
+  padding: 12px;
+  background: var(--gradient-brand);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-inverse);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.submitBtn:hover { opacity: 0.9; transform: translateY(-1px); }
+.submitBtn:active { transform: translateY(0); }
+
+.switchText {
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.switchText a {
+  color: var(--accent-teal);
+  font-weight: 500;
+}
+
+.terms {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.terms a { color: var(--text-muted); text-decoration: underline; }
+
+/* Top nav link back to home */
+.backNav {
+  position: absolute;
+  top: var(--space-lg);
+  left: var(--space-lg);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.backNav:hover { color: var(--text-primary); }

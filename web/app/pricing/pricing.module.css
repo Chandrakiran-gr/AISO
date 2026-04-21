@@ -1,0 +1,303 @@
+/* ── Pricing page ─────────────────────────────────────────── */
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-2xl);
+  border-bottom: var(--border-subtle);
+  background: rgba(15,17,23,0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.logoMark {
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 1.125rem;
+}
+
+.navActions { display: flex; gap: var(--space-sm); align-items: center; }
+
+/* Hero */
+.hero {
+  padding: var(--space-3xl) var(--space-2xl) var(--space-2xl);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.heroBadge {
+  display: inline-flex;
+  padding: 4px 14px;
+  background: rgba(0,212,170,0.08);
+  border: 1px solid rgba(0,212,170,0.2);
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-teal);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.heroTitle {
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  max-width: 640px;
+}
+
+.heroSub {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  max-width: 420px;
+}
+
+/* Plans grid */
+.plansSection {
+  padding: 0 var(--space-2xl) var(--space-3xl);
+}
+
+.plansGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-md);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+@media (max-width: 960px) {
+  .plansGrid { grid-template-columns: 1fr; max-width: 440px; }
+}
+
+/* Plan card */
+.planCard {
+  position: relative;
+  background: rgba(22,25,35,0.75);
+  border: var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.planCard:hover {
+  border-color: rgba(255,255,255,0.12);
+  transform: translateY(-2px);
+}
+
+.planCardHighlight {
+  border-color: rgba(0,212,170,0.30);
+  background: rgba(0,212,170,0.04);
+  box-shadow: 0 0 0 1px rgba(0,212,170,0.10), 0 8px 48px rgba(0,212,170,0.10);
+}
+
+.planBadge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 14px;
+  background: var(--gradient-brand);
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--bg-base);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.planHeader { display: flex; flex-direction: column; gap: 4px; }
+
+.planName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.planPrice {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.planAmount {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.planPeriod {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.planTagline {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.planDivider {
+  height: 1px;
+  background: rgba(255,255,255,0.06);
+}
+
+/* Feature list */
+.featureList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.featureItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.featureCheck {
+  color: var(--accent-teal);
+  font-size: 0.75rem;
+  margin-top: 2px;
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+/* CTA buttons */
+.ctaPrimary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: var(--gradient-brand);
+  border-radius: var(--radius-md);
+  color: var(--bg-base);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  text-decoration: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  margin-top: auto;
+}
+
+.ctaPrimary:hover { opacity: 0.9; transform: translateY(-1px); }
+
+.ctaSecondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px;
+  background: transparent;
+  border: var(--border-muted);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  margin-top: auto;
+}
+
+.ctaSecondary:hover {
+  border-color: rgba(255,255,255,0.2);
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* FAQ strip */
+.faqStrip {
+  padding: var(--space-3xl) var(--space-2xl);
+  border-top: var(--border-subtle);
+  background: var(--bg-deep);
+}
+
+.faqInner {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.faqTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: var(--space-2xl);
+}
+
+.faqGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-xl);
+}
+
+@media (max-width: 640px) {
+  .faqGrid { grid-template-columns: 1fr; }
+}
+
+.faqItem {}
+
+.faqQ {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.faqA {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-2xl);
+  border-top: var(--border-subtle);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.footerLinks {
+  display: flex;
+  gap: var(--space-xl);
+}
+
+.footerLinks a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.footerLinks a:hover { color: var(--text-primary); }

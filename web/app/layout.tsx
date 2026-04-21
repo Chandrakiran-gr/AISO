@@ -109,7 +109,10 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      {/* suppressHydrationWarning: silences mismatches caused by browser
+          extensions (Grammarly injects data-gr-*, Retriever injects rtrvr-*)
+          modifying the DOM before React hydrates. Code is correct. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
