@@ -1,0 +1,17 @@
+.shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-base);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--sidebar-width-collapsed);
+  transition: margin-left var(--transition-slow);
+  background: var(--bg-base);
+}
+
+.main.mainExpanded {
+  margin-left: var(--sidebar-width-expanded);
+}
