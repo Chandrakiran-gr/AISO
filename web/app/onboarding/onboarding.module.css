@@ -1,0 +1,435 @@
+/* ── Onboarding Wizard ──────────────────────────────────── */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl) var(--space-md);
+  background:
+    radial-gradient(ellipse 80% 40% at 50% 0%, rgba(0,212,170,0.06) 0%, transparent 60%),
+    var(--bg-base);
+}
+
+/* Top logo + step counter */
+.topBar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-xl);
+  background: rgba(15,17,23,0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: var(--border-subtle);
+  z-index: var(--z-header);
+}
+
+.topLogo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.logoMark {
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.stepCounter {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* Progress bar */
+.progressTrack {
+  position: fixed;
+  top: 57px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255,255,255,0.05);
+  z-index: var(--z-header);
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--gradient-brand);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Step pills */
+.stepPills {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 80px;
+  margin-bottom: var(--space-2xl);
+}
+
+.stepPill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: all var(--transition-base);
+}
+
+.stepPill.active {
+  background: rgba(0,212,170,0.10);
+  color: var(--accent-teal);
+}
+
+.stepPill.done {
+  color: var(--accent-teal);
+}
+
+.stepNum {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.stepPill.done .stepNum {
+  background: var(--accent-teal);
+  border-color: var(--accent-teal);
+  color: var(--text-inverse);
+}
+
+.stepConnector {
+  width: 32px;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+
+/* Main card */
+.card {
+  background: rgba(22,25,35,0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: var(--space-2xl);
+  width: 100%;
+  max-width: 580px;
+  box-shadow: var(--shadow-deep);
+}
+
+.stepBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: rgba(0,212,170,0.08);
+  border: 1px solid rgba(0,212,170,0.2);
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--accent-teal);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-md);
+}
+
+.stepTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+
+.stepSubtitle {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xl);
+  line-height: 1.6;
+}
+
+/* Form fields */
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.labelHint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Provider checkboxes */
+.providerGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+.providerOption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.providerOption:has(input:checked) {
+  border-color: rgba(0,212,170,0.3);
+  background: rgba(0,212,170,0.05);
+}
+
+.providerOption input { display: none; }
+
+.providerDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.providerName {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.checkIndicator {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  color: transparent;
+  transition: all var(--transition-fast);
+}
+
+.providerOption:has(input:checked) .checkIndicator {
+  border-color: var(--accent-teal);
+  background: var(--accent-teal);
+  color: var(--bg-base);
+}
+
+/* Group toggle tags */
+.groupTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.groupTag {
+  padding: 6px 14px;
+  border: var(--border-subtle);
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.groupTag.selected {
+  border-color: rgba(0,212,170,0.35);
+  background: rgba(0,212,170,0.08);
+  color: var(--accent-teal);
+}
+
+/* Navigation buttons */
+.navRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.backBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 10px 0;
+  transition: color var(--transition-fast);
+}
+
+.backBtn:hover { color: var(--text-primary); }
+
+.nextBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 24px;
+  background: var(--gradient-brand);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-inverse);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.nextBtn:hover { opacity: 0.9; transform: translateY(-1px); }
+.nextBtn:active { transform: translateY(0); }
+
+.nextBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Step 3 — Launch */
+.launchContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-lg) 0;
+  gap: var(--space-lg);
+}
+
+.launchIcon {
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-glow);
+  border: 1px solid rgba(0,212,170,0.2);
+  border-radius: 50%;
+  font-size: 2rem;
+}
+
+.scanSummary {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0;
+}
+
+.summaryRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+}
+
+.summaryKey { color: var(--text-muted); }
+.summaryVal { color: var(--text-primary); font-weight: 500; }
+
+/* Scan running state */
+.scanRunning {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg) 0;
+  text-align: center;
+}
+
+.scanSpinner {
+  width: 56px;
+  height: 56px;
+  border: 3px solid rgba(0,212,170,0.15);
+  border-top-color: var(--accent-teal);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.scanProgress {
+  width: 100%;
+  max-width: 320px;
+}
+
+.scanProgressTrack {
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.scanProgressFill {
+  height: 100%;
+  background: var(--gradient-brand);
+  border-radius: var(--radius-full);
+  animation: scanFill 8s ease-out forwards;
+}
+
+@keyframes scanFill {
+  0%   { width: 0%; }
+  40%  { width: 35%; }
+  70%  { width: 65%; }
+  90%  { width: 85%; }
+  100% { width: 95%; }
+}
+
+.scanStep {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
