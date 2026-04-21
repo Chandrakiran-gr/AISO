@@ -18,7 +18,7 @@ const pricingSchema = {
       item: {
         "@type": "Offer",
         name: "Free",
-        description: "1 client, 3 AI platforms, 1 scan per month",
+        description: "1 client, 3 AI platforms (ChatGPT, Gemini, Perplexity), 1 scan per month",
         price: "0",
         priceCurrency: "USD",
       },
@@ -48,7 +48,7 @@ const PLANS = [
     highlight: false,
     features: [
       "1 client / business",
-      "3 AI platforms (ChatGPT, Claude, Perplexity)",
+      "3 AI platforms (ChatGPT, Gemini, Perplexity)",
       "1 scan per month",
       "3 intent groups (G1–G3)",
       "AI Visibility Score",
