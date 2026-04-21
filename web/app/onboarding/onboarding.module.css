@@ -262,6 +262,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
+  overflow: visible;
+  padding-bottom: 2px;
 }
 
 .groupTag {
