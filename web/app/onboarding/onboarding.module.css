@@ -435,3 +435,115 @@
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.5; }
 }
+
+/* ── BYOK inline section ─────────────────────────────────── */
+
+.byokToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 10px var(--space-md);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.byokToggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.12);
+}
+
+.byokArrow {
+  font-size: 0.5625rem;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.byokArrowOpen {
+  transform: rotate(90deg);
+}
+
+.byokPanel {
+  margin-top: 8px;
+  background: var(--bg-surface);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.byokTrust {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  padding: 10px var(--space-md);
+  background: rgba(0,212,170,0.04);
+  border: 1px solid rgba(0,212,170,0.14);
+  border-radius: var(--radius-md);
+}
+
+.byokFields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.byokRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.byokProvider {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  width: 90px;
+  flex-shrink: 0;
+}
+
+.byokInput {
+  flex: 1;
+  font-size: 0.8125rem !important;
+  padding: 8px 12px !important;
+}
+
+.byokSaved {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--accent-teal);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.byokPrev {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #fbbf24;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.byokGetKey {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.byokGetKey:hover { color: var(--accent-teal); }

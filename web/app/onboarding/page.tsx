@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
+import { setKey, getKey, hadKeyPreviousSession, type Provider } from "@/lib/byok";
 
 const PROVIDERS = [
   { id: "openai",     name: "ChatGPT",    color: "#10a37f" },
@@ -113,6 +114,25 @@ function Step1({ form, set, onNext }: { form: FormState; set: (f: FormState) => 
 function Step2({ form, set, onBack, onNext }: {
   form: FormState; set: (f: FormState) => void; onBack: () => void; onNext: () => void;
 }) {
+  const [keysOpen, setKeysOpen] = useState(false);
+  // Track which providers have keys in this session
+  const [keySet, setKeySet] = useState<Partial<Record<Provider, boolean>>>({});
+
+  useEffect(() => {
+    const state: Partial<Record<Provider, boolean>> = {};
+    for (const p of PROVIDERS) {
+      state[p.id as Provider] = Boolean(getKey(p.id as Provider));
+    }
+    setKeySet(state);
+  }, []);
+
+  function handleKeyInput(provider: Provider, value: string) {
+    if (value.trim()) {
+      setKey(provider, value.trim());
+      setKeySet((prev) => ({ ...prev, [provider]: true }));
+    }
+  }
+
   const toggleProvider = (id: string) => {
     const next = form.providers.includes(id) ? form.providers.filter((p) => p !== id) : [...form.providers, id];
     if (next.length > 0) set({ ...form, providers: next });
@@ -121,6 +141,9 @@ function Step2({ form, set, onBack, onNext }: {
     const next = form.groups.includes(id) ? form.groups.filter((g) => g !== id) : [...form.groups, id];
     if (next.length > 0) set({ ...form, groups: next });
   };
+
+  const anyKeySet = PROVIDERS.some((p) => keySet[p.id as Provider]);
+
   return (
     <div>
       <span className={styles.stepBadge}>Step 2 of 3 · Configure</span>
@@ -157,6 +180,70 @@ function Step2({ form, set, onBack, onNext }: {
             ))}
           </div>
         </div>
+
+        {/* ── BYOK: collapsed by default ────────────────────────── */}
+        <div className={styles.fieldGroup}>
+          <button
+            type="button"
+            className={styles.byokToggle}
+            onClick={() => setKeysOpen((o) => !o)}
+            aria-expanded={keysOpen}
+            id="ob-byok-toggle"
+          >
+            <span className={`${styles.byokArrow} ${keysOpen ? styles.byokArrowOpen : ""}`}>▶</span>
+            {anyKeySet
+              ? `🔑 API keys added (${PROVIDERS.filter((p) => keySet[p.id as Provider]).length} of 4)`
+              : "+ Add your own API keys to run all platforms"}
+          </button>
+
+          {keysOpen && (
+            <div className={styles.byokPanel}>
+              <p className={styles.byokTrust}>
+                🔒 <strong>Never saved to our servers.</strong> Keys are stored only in your browser&apos;s session memory and cleared when you close this tab.
+                {" "}You can manage them anytime in{" "}
+                <a href="/dashboard/settings" target="_blank" style={{ color: "var(--accent-teal)" }}>Settings</a>.
+              </p>
+              <div className={styles.byokFields}>
+                {PROVIDERS.map((p) => (
+                  <div key={p.id} className={styles.byokRow}>
+                    <span className={styles.byokProvider}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, display: "inline-block", marginRight: 6 }} />
+                      {p.name}
+                    </span>
+                    {keySet[p.id as Provider]
+                      ? <span className={styles.byokSaved}>✓ Session active</span>
+                      : hadKeyPreviousSession(p.id as Provider)
+                      ? <span className={styles.byokPrev}>⟳ Re-enter key</span>
+                      : null
+                    }
+                    <input
+                      type="password"
+                      className={`input ${styles.byokInput}`}
+                      placeholder={keySet[p.id as Provider] ? "••••••••" : `Paste your ${p.name} API key`}
+                      autoComplete="off"
+                      spellCheck={false}
+                      onBlur={(e) => handleKeyInput(p.id as Provider, e.target.value)}
+                      onChange={(e) => { if (!e.target.value) setKeySet((prev) => ({ ...prev, [p.id]: false })); }}
+                    />
+                    <a
+                      href={p.id === "openai" ? "https://platform.openai.com/api-keys"
+                        : p.id === "claude" ? "https://console.anthropic.com/settings/keys"
+                        : p.id === "perplexity" ? "https://www.perplexity.ai/settings/api"
+                        : "https://aistudio.google.com/app/apikey"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.byokGetKey}
+                    >
+                      Get key →
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        {/* ── end BYOK ──────────────────────────────────────────── */}
+
       </div>
       <div className={styles.navRow}>
         <button type="button" className={styles.backBtn} onClick={onBack}>← Back</button>

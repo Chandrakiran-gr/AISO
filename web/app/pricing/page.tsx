@@ -18,7 +18,7 @@ const pricingSchema = {
       item: {
         "@type": "Offer",
         name: "Free",
-        description: "1 client, 3 AI platforms (ChatGPT, Gemini, Perplexity), 1 scan per month",
+        description: "1 client, all 4 AI platforms via BYOK (bring your own API key), 1 scan per month",
         price: "0",
         priceCurrency: "USD",
       },
@@ -29,7 +29,7 @@ const pricingSchema = {
       item: {
         "@type": "Offer",
         name: "Pro",
-        description: "Unlimited scans, 4 AI platforms, 5 clients, competitor tracking",
+        description: "Unlimited scans, all 4 AI platforms with managed keys, 5 clients, competitor tracking",
         price: "79",
         priceCurrency: "USD",
       },
@@ -46,11 +46,13 @@ const PLANS = [
     cta: "Start free",
     ctaHref: "/signup",
     highlight: false,
+    byokNote: true,
     features: [
       "1 client / business",
-      "3 AI platforms (ChatGPT, Gemini, Perplexity)",
+      "All 4 AI platforms (BYOK — bring your own key)",
+      "Any platform with a missing key is gracefully skipped",
       "1 scan per month",
-      "3 intent groups (G1–G3)",
+      "All 7 intent groups",
       "AI Visibility Score",
       "Basic competitor snapshot",
       "Email report export",
@@ -65,9 +67,10 @@ const PLANS = [
     ctaHref: "/signup?plan=pro",
     highlight: true,
     badge: "Most popular",
+    byokNote: false,
     features: [
       "5 clients",
-      "All 4 AI platforms",
+      "All 4 AI platforms — keys managed by us",
       "Unlimited scans",
       "All 7 intent groups",
       "Full competitor leaderboard",
@@ -86,6 +89,7 @@ const PLANS = [
     cta: "Contact us",
     ctaHref: "mailto:hello@sapienic.com",
     highlight: false,
+    byokNote: false,
     features: [
       "Unlimited clients",
       "White-label reports",
@@ -178,10 +182,14 @@ export default function PricingPage() {
         <div className={styles.faqInner}>
           <h2 className={styles.faqTitle}>Common questions</h2>
           <div className={styles.faqGrid}>
-            {[
+          {[
               {
                 q: "Is the free plan really free?",
-                a: "Yes — no credit card, no expiry. You get 1 client, 3 platforms, and 1 scan per month forever.",
+                a: "Yes — no credit card, no expiry. You get 1 client, all 4 AI platforms (BYOK), and 1 scan per month forever.",
+              },
+              {
+                q: "What is BYOK?",
+                a: "BYOK means Bring Your Own Key. On the free plan, you paste your own API keys for ChatGPT, Claude, Perplexity, and Gemini. Your keys are stored only in your browser session — never on our servers. Pro users get managed keys so there's nothing to set up.",
               },
               {
                 q: "Can I switch plans any time?",
