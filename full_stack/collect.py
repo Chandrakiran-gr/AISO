@@ -49,10 +49,11 @@ load_dotenv(_repo_root / ".env")
 MAX_WORKERS = 20
 
 # Default max questions per collect run (override with --limit N, or --limit 0 for all)
-DEFAULT_LIMIT = 20
+DEFAULT_LIMIT = 100
 
 # Default questions per group when user presses Enter at the interactive prompt
-DEFAULT_PER_GROUP = 10
+# 7 groups × ~14/group ≈ 100 total
+DEFAULT_PER_GROUP = 14
 
 
 # ─── Spinner ──────────────────────────────────────────────────────────────────
@@ -419,19 +420,20 @@ def main():
         client_folder, slug = _resolve_client_folder(arg)
     print(f"  -> {client_folder}")
 
-    # ── Step 3.5: Resolve follow-up question ──────────────────────────────────
-    followup_question = _load_followup(client_folder, args.followup)
-    if followup_question:
-        print(f"\n  Follow-up enabled: \"{followup_question}\"")
-        print("  (Each question will be a 2-turn conversation)")
-        # Switch to multi-turn providers
-        multiturn_providers = get_active_providers_multiturn()
-        # Apply --providers filter to multiturn too
-        if args.providers:
-            requested = [p.strip().lower() for p in args.providers.split(",") if p.strip()]
-            multiturn_providers = {k: v for k, v in multiturn_providers.items() if k in requested}
-    else:
-        multiturn_providers = None
+    # ── Step 3.5: Follow-up question (DISABLED — single-turn only for now) ──────
+    # To re-enable multi-turn: uncomment the block below and remove the two lines after.
+    # followup_question = _load_followup(client_folder, args.followup)
+    # if followup_question:
+    #     print(f"\n  Follow-up enabled: \"{followup_question}\"")
+    #     print("  (Each question will be a 2-turn conversation)")
+    #     multiturn_providers = get_active_providers_multiturn()
+    #     if args.providers:
+    #         requested = [p.strip().lower() for p in args.providers.split(",") if p.strip()]
+    #         multiturn_providers = {k: v for k, v in multiturn_providers.items() if k in requested}
+    # else:
+    #     multiturn_providers = None
+    followup_question = None   # single-turn mode
+    multiturn_providers = None  # single-turn mode
 
     # ── Step 4: Validate bank CSVs ────────────────────────────────────────────
     t_path = client_folder / "query_template_bank.csv"
@@ -587,14 +589,10 @@ def main():
         provider_names = list(active_providers.keys())
 
     total_questions = len(questions)
-    calls_per_question = 2 if followup_question else 1
     total_tasks = total_questions * len(provider_names)
-    total_api_calls = total_tasks * calls_per_question
     print(
         f"\n  {total_questions} questions × {len(provider_names)} providers "
-        f"= {total_tasks} tasks"
-        + (f" ({total_api_calls} API calls — 2-turn mode)" if followup_question else "")
-        + "."
+        f"= {total_tasks} API calls (single-turn)."
     )
 
     # ── Step 6: Determine output file path (timestamped) ──────────────────────
@@ -612,14 +610,16 @@ def main():
         + [f"error_{p}"    for p in provider_names]
     )
 
-    # Follow-up columns (only added when followup is active)
-    followup_fields = []
-    if followup_question:
-        followup_fields = (
-            ["followup_question"]
-            + [f"followup_response_{p}" for p in provider_names]
-            + [f"followup_error_{p}"    for p in provider_names]
-        )
+    # Follow-up columns — DISABLED (single-turn mode)
+    # To re-enable: uncomment the block below
+    # followup_fields = []
+    # if followup_question:
+    #     followup_fields = (
+    #         ["followup_question"]
+    #         + [f"followup_response_{p}" for p in provider_names]
+    #         + [f"followup_error_{p}"    for p in provider_names]
+    #     )
+    followup_fields = []  # single-turn mode
 
     fieldnames = base_fields + response_fields + followup_fields
 
@@ -647,28 +647,32 @@ def main():
     # ── Step 10: Worker function (closure — captures active_providers, semaphores)
     def _task_worker(q_idx: int, provider_name: str) -> tuple:
         """
-        Call one provider for one question.
+        Call one provider for one question (single-turn mode).
 
-        Single-turn mode: returns (q_idx, provider_name, ProviderResult, None)
-        Multi-turn mode:  returns (q_idx, provider_name, ProviderResult, ProviderResult)
+        Returns (q_idx, provider_name, ProviderResult, None)
+
+        Multi-turn follow-up is DISABLED. To re-enable, restore the
+        multi-turn branch from git history and uncomment follow-up logic.
         """
         question = questions[q_idx]
         with semaphores[provider_name]:
-            if followup_question and multiturn_providers:
-                # Multi-turn: query_with_followup returns (r1, r2)
-                try:
-                    r1, r2 = multiturn_providers[provider_name](question, followup_question)
-                except Exception as e:
-                    r1 = ProviderResult(error=str(e))
-                    r2 = ProviderResult(error=str(e))
-                return q_idx, provider_name, r1, r2
-            else:
-                # Single-turn: original path
-                try:
-                    result = active_providers[provider_name](question)
-                except Exception as e:
-                    result = ProviderResult(error=str(e))
-                return q_idx, provider_name, result, None
+            # Single-turn only
+            try:
+                result = active_providers[provider_name](question)
+            except Exception as e:
+                result = ProviderResult(error=str(e))
+            return q_idx, provider_name, result, None
+
+        # ── MULTI-TURN DISABLED ───────────────────────────────────────────────
+        # To re-enable follow-up questions, replace the block above with:
+        # if followup_question and multiturn_providers:
+        #     try:
+        #         r1, r2 = multiturn_providers[provider_name](question, followup_question)
+        #     except Exception as e:
+        #         r1 = ProviderResult(error=str(e))
+        #         r2 = ProviderResult(error=str(e))
+        #     return q_idx, provider_name, r1, r2
+        # ─────────────────────────────────────────────────────────────────────
 
     # ── Step 11: Open output file and run ─────────────────────────────────────
     outfile = open(out_path, "w", newline="", encoding="utf-8")
@@ -704,14 +708,14 @@ def main():
             row[f"response_{p}"] = r.response
             row[f"error_{p}"] = r.error
 
-        # Round 2 follow-up responses (if active)
-        if followup_question:
-            row["followup_question"] = followup_question
-            fu_data = pending_followup.get(q_idx, {})
-            for p in provider_names:
-                r = fu_data.get(p, ProviderResult(error="not_called"))
-                row[f"followup_response_{p}"] = r.response
-                row[f"followup_error_{p}"] = r.error
+        # Round 2 follow-up — DISABLED (single-turn mode)
+        # if followup_question:
+        #     row["followup_question"] = followup_question
+        #     fu_data = pending_followup.get(q_idx, {})
+        #     for p in provider_names:
+        #         r = fu_data.get(p, ProviderResult(error="not_called"))
+        #         row[f"followup_response_{p}"] = r.response
+        #         row[f"followup_error_{p}"] = r.error
 
         writer.writerow(row)
         outfile.flush()
