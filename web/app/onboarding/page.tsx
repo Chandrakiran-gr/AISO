@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
-import { setKey, getKey, hadKeyPreviousSession, type Provider } from "@/lib/byok";
+import { setKey, getKey, getAllKeys, hadKeyPreviousSession, type Provider } from "@/lib/byok";
 
 const PROVIDERS = [
   { id: "openai",     name: "ChatGPT",    color: "#10a37f" },
@@ -256,8 +256,10 @@ function Step2({ form, set, onBack, onNext }: {
 }
 
 // ── Step 3: Launch ────────────────────────────────────────────────────────────
-function Step3({ form, onBack, onLaunch, scanning, scanIdx }: {
-  form: FormState; onBack: () => void; onLaunch: () => void; scanning: boolean; scanIdx: number;
+function Step3({ form, onBack, onLaunch, scanning, scanIdx, error, skipped }: {
+  form: FormState; onBack: () => void; onLaunch: () => void;
+  scanning: boolean; scanIdx: number;
+  error: string | null; skipped: string[];
 }) {
   const providerNames = form.providers.map((id) => PROVIDERS.find((p) => p.id === id)?.name).join(", ");
 
@@ -283,6 +285,33 @@ function Step3({ form, onBack, onLaunch, scanning, scanIdx }: {
 
   return (
     <div>
+      {error && (
+        <div style={{
+          background: "rgba(239,68,68,0.08)",
+          border: "1px solid rgba(239,68,68,0.25)",
+          borderRadius: "var(--radius-md)",
+          padding: "10px 14px",
+          fontSize: "0.8125rem",
+          color: "#f87171",
+          marginBottom: "var(--space-md)",
+        }}>
+          ⚠ {error}
+        </div>
+      )}
+      {skipped.length > 0 && (
+        <div style={{
+          background: "rgba(251,191,36,0.06)",
+          border: "1px solid rgba(251,191,36,0.2)",
+          borderRadius: "var(--radius-md)",
+          padding: "10px 14px",
+          fontSize: "0.8125rem",
+          color: "#fbbf24",
+          marginBottom: "var(--space-md)",
+        }}>
+          ⚡ Skipped (no API key): {skipped.join(", ")}. Add keys in{" "}
+          <a href="/dashboard/settings" style={{ color: "var(--accent-teal)" }}>Settings</a>.
+        </div>
+      )}
       <div className={styles.launchContent}>
         <div className={styles.launchIcon}>🚀</div>
         <div>
@@ -317,13 +346,68 @@ function Step3({ form, onBack, onLaunch, scanning, scanIdx }: {
   );
 }
 
+// ── API helpers ───────────────────────────────────────────────────────────────
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+async function createClient(slug: string, displayName: string): Promise<string> {
+  const res = await fetch(`${API}/api/v1/clients`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: slug, display_name: displayName }),
+  });
+  if (!res.ok) {
+    // 409 = client already exists — reuse it
+    if (res.status === 409) return slug;
+    throw new Error(`Failed to create client (${res.status})`);
+  }
+  const data = await res.json();
+  return data.id as string;
+}
+
+async function createScan(
+  clientId: string,
+  providers: string[],
+  groups: string[],
+  byokKeys: Record<string, string>,
+): Promise<string> {
+  const res = await fetch(`${API}/api/v1/clients/${clientId}/scans`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: clientId,
+      providers,
+      groups,
+      byok_keys: Object.keys(byokKeys).length > 0 ? byokKeys : undefined,
+    }),
+  });
+  if (!res.ok) throw new Error(`Failed to create scan (${res.status})`);
+  const data = await res.json();
+  return data.id as string;
+}
+
+async function pollScan(clientId: string, scanId: string): Promise<{
+  status: string;
+  skipped_providers?: string[];
+}> {
+  const res = await fetch(`${API}/api/v1/clients/${clientId}/scans/${scanId}`);
+  if (!res.ok) throw new Error(`Scan poll failed (${res.status})`);
+  return res.json();
+}
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 50);
+}
+
 // ── Main Wizard ───────────────────────────────────────────────────────────────
 export default function OnboardingPage() {
   const router = useRouter();
-  const [step, setStep]         = useState(1);
-  const [form, setForm]         = useState<FormState>(DEFAULT);
-  const [scanning, setScanning] = useState(false);
-  const [scanIdx, setScanIdx]   = useState(0);
+  const [step, setStep]           = useState(1);
+  const [form, setForm]           = useState<FormState>(DEFAULT);
+  const [scanning, setScanning]   = useState(false);
+  const [scanIdx, setScanIdx]     = useState(0);
+  const [error, setError]         = useState<string | null>(null);
+  const [skipped, setSkipped]     = useState<string[]>([]);
+  const pollRef                   = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!scanning) return;
@@ -331,9 +415,46 @@ export default function OnboardingPage() {
     return () => clearInterval(id);
   }, [scanning]);
 
-  function handleLaunch() {
+  // Clean up poller on unmount
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  async function handleLaunch() {
+    setError(null);
     setScanning(true);
-    setTimeout(() => router.push("/dashboard"), 9000);
+
+    try {
+      // 1. Create / reuse client record
+      const clientId = await createClient(
+        slugify(form.businessName),
+        form.businessName,
+      );
+
+      // 2. Collect BYOK keys from sessionStorage (never logged)
+      const byokKeys = getAllKeys(); // { openai?: string, claude?: string, ... }
+
+      // 3. Fire the scan
+      const scanId = await createScan(clientId, form.providers, form.groups, byokKeys);
+
+      // 4. Poll until complete / failed
+      pollRef.current = setInterval(async () => {
+        try {
+          const result = await pollScan(clientId, scanId);
+          if (result.status === "complete" || result.status === "failed") {
+            clearInterval(pollRef.current!);
+            if (result.skipped_providers?.length) {
+              setSkipped(result.skipped_providers);
+            }
+            // Short pause so the user sees the final scan step
+            setTimeout(() => router.push("/dashboard"), 1500);
+          }
+        } catch {
+          // Poll errors are transient — keep retrying
+        }
+      }, 4000);
+    } catch (err) {
+      setScanning(false);
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    }
   }
 
   const progress = ((step - 1) / (STEPS.length - 1)) * 100;
@@ -367,7 +488,7 @@ export default function OnboardingPage() {
       <div className={styles.card}>
         {step === 1 && <Step1 form={form} set={setForm} onNext={() => setStep(2)} />}
         {step === 2 && <Step2 form={form} set={setForm} onBack={() => setStep(1)} onNext={() => setStep(3)} />}
-        {step === 3 && <Step3 form={form} onBack={() => setStep(2)} onLaunch={handleLaunch} scanning={scanning} scanIdx={scanIdx} />}
+        {step === 3 && <Step3 form={form} onBack={() => setStep(2)} onLaunch={handleLaunch} scanning={scanning} scanIdx={scanIdx} error={error} skipped={skipped} />}
       </div>
     </div>
   );
