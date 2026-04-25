@@ -7,3 +7,4 @@ google-generativeai     # Gemini provider
 pytrends         # Google Trends popularity scoring (setup2.py score_popularity)
 requests         # HTTP dependency for pytrends
 ollama           # Local LLM via Ollama  (setup2.py --llm local, optional)
+python-jose[cryptography]>=3.3.0

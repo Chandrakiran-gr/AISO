@@ -4,10 +4,9 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import styles from "./dashboard.module.css";
+import { apiFetch, clearApiToken } from "@/lib/apifetch";
 
 export const dynamic = "force-dynamic";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ScanData {
@@ -225,13 +224,13 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const clientsRes = await fetch(`${API}/api/v1/clients`);
+        const clientsRes = await apiFetch("/api/v1/clients");
         if (!clientsRes.ok) return;
         const clients: { id: string; name: string }[] = await clientsRes.json();
         if (!clients.length) return;
         const cid = clients[0].id;
         setClientId(cid);
-        const scansRes = await fetch(`${API}/api/v1/clients/${cid}/scans`);
+        const scansRes = await apiFetch(`/api/v1/clients/${cid}/scans`);
         if (!scansRes.ok) return;
         const scans: ScanData[] = await scansRes.json();
         if (scans.length) setLatestScan(scans[0]);
@@ -268,7 +267,7 @@ export default function DashboardPage() {
         <div className={styles.sidebarSpacer} />
         <div className={styles.sidebarFooter}>
           <span className={styles.userEmail}>{userEmail}</span>
-          <button className={styles.signOutBtn} onClick={() => signOut({ callbackUrl: "/" })}>
+          <button className={styles.signOutBtn} onClick={() => { clearApiToken(); signOut({ callbackUrl: "/" }); }}>
             Sign out
           </button>
         </div>

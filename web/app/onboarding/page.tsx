@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 import { setKey, getKey, getAllKeys, hadKeyPreviousSession, type Provider } from "@/lib/byok";
+import { apiFetch } from "@/lib/apifetch";
 
 const PROVIDERS = [
   { id: "openai",     name: "ChatGPT",    color: "#10a37f" },
@@ -347,16 +348,12 @@ function Step3({ form, onBack, onLaunch, scanning, scanIdx, error, skipped }: {
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
 async function createClient(slug: string, displayName: string): Promise<string> {
-  const res = await fetch(`${API}/api/v1/clients`, {
+  const res = await apiFetch("/api/v1/clients", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: slug, display_name: displayName }),
   });
   if (res.status === 409) {
-    // Client already exists — reuse the slug as ID
     return res.headers.get("X-Client-Id") ?? slug;
   }
   if (!res.ok) throw new Error(`Failed to create client (${res.status})`);
@@ -370,9 +367,8 @@ async function createScan(
   groups: string[],
   byokKeys: Record<string, string>,
 ): Promise<string> {
-  const res = await fetch(`${API}/api/v1/clients/${clientId}/scans`, {
+  const res = await apiFetch(`/api/v1/clients/${clientId}/scans`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       client_id: clientId,
       providers,
@@ -389,7 +385,7 @@ async function pollScan(clientId: string, scanId: string): Promise<{
   status: string;
   skipped_providers?: string[];
 }> {
-  const res = await fetch(`${API}/api/v1/clients/${clientId}/scans/${scanId}`);
+  const res = await apiFetch(`/api/v1/clients/${clientId}/scans/${scanId}`);
   if (!res.ok) throw new Error(`Scan poll failed (${res.status})`);
   return res.json();
 }
