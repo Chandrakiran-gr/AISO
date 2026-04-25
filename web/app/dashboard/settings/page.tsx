@@ -70,9 +70,17 @@ function ProviderKeyRow({ provider }: { provider: typeof PROVIDERS[number] }) {
   const [hadPrev, setHadPrev]   = useState(false);
 
   useEffect(() => {
-    const current = getKey(provider.id);
-    if (current) { setValue(current); setSaved(true); }
-    else setHadPrev(hadKeyPreviousSession(provider.id));
+    const timer = window.setTimeout(() => {
+      const current = getKey(provider.id);
+      if (current) {
+        setValue(current);
+        setSaved(true);
+      } else {
+        setHadPrev(hadKeyPreviousSession(provider.id));
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [provider.id]);
 
   function handleChange(v: string) {
