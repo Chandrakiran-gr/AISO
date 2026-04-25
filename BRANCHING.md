@@ -4,6 +4,21 @@ This repository uses short-lived branches named for the AISO work being done.
 Branch names must describe the product area, behavior, or operational change,
 not the person, tool, editor, or AI agent that created the branch.
 
+## Branch Lifecycle
+
+One branch is strictly for one pull request only.
+
+Rules:
+
+- Every distinct task starts on a new branch.
+- Every branch should map to exactly one PR.
+- Once that PR is merged, delete the branch.
+- Do not keep committing follow-up tasks to a branch whose PR has already been merged.
+- Do not reuse old branch names for consequent work.
+- If a task naturally grows into a second task, finish the current PR, merge it, delete the branch, then create a new branch for the next task.
+
+This keeps review history clean and makes each PR easy to reason about.
+
 ## Core Rule
 
 Branch names must not contain agent, assistant, tool, editor, or vendor names.
@@ -87,20 +102,20 @@ fix/claude-bug
 
 ## Workflow
 
-1. Start from an up-to-date `main`.
+1. For every new task, start from an up-to-date `main`.
 
    ```bash
    git switch main
    git pull --ff-only origin main
    ```
 
-2. Create a focused branch.
+2. Create a fresh branch for this task and this PR only.
 
    ```bash
    git switch -c feature/dashboard-real-metrics
    ```
 
-3. Keep the branch scoped to one logical change.
+3. Keep the branch scoped to one logical change and one PR.
 
 4. Commit in small, reviewable units using Conventional Commits.
 
@@ -116,7 +131,16 @@ fix/claude-bug
    git push -u origin feature/dashboard-real-metrics
    ```
 
-7. Delete the branch after merge.
+7. After the PR is merged, delete the branch locally and remotely.
+
+   ```bash
+   git switch main
+   git pull --ff-only origin main
+   git branch -d feature/dashboard-real-metrics
+   git push origin --delete feature/dashboard-real-metrics
+   ```
+
+8. Start the next task from a new branch.
 
 ## Branch Ownership
 
