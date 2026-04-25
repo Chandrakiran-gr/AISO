@@ -10,9 +10,18 @@ You are Codex, an autonomous coding agent working in parallel with a human devel
 ## General Rules
 - **Read before you write:** Always read the existing codebase and relevant context before making changes. Rely heavily on the `AISO_Codex_Handoff.md` file for architectural truth.
 - **Respect human edits:** Never overwrite files the human is actively editing. If you suspect a collision, check the git status first or ask for confirmation.
-- **Commit logically:** Use Git to commit logical units of work. Write clear, conventional commit messages (e.g., `feat:`, `fix:`, `refactor:`).
-- **Test your work:** Run local builds (e.g., `npm run build` in `web/`) and check Python syntax after any significant changes to ensure you haven't broken the application.
+- **Do not commit without approval:** After development or file changes, do not commit automatically. First provide a short summary of what changed, what was reviewed, and what was validated. Commit only when Chandrakiran explicitly tells you to commit.
+- **Test and validate every change:** After any code change, run the relevant validation for correctness, performance/optimization, best practices, and security. Use targeted checks for small changes and broader tests/builds for larger changes.
+- **Review your own changes:** Every time you write or modify files, perform a code review of the diff before reporting completion. Look for regressions, security issues, missing validation, unnecessary complexity, and conflicts with the AISO architecture.
 - **Ask before destruction:** Explicitly ask for clarification and approval before making irreversible changes (e.g., deleting major files, dropping database tables, or purging environment configurations).
+- **Branching discipline:** Follow the branching discipline outlined in `BRANCHING.md`.
+
+## Completion Protocol
+After changing files, always report:
+- **What changed:** A short, plain-English summary.
+- **Self-review:** The result of reviewing the diff for correctness, maintainability, security, and alignment with AISO architecture.
+- **Validation:** The commands/checks run, or a clear explanation if a check was not applicable.
+- **Commit status:** Whether changes are uncommitted, staged, or committed. Default should be uncommitted unless Chandrakiran requested a commit.
 
 ## Technology Stack
 - **Frontend:** Next.js 16 (App Router, Turbopack), React 19.
@@ -28,4 +37,8 @@ You are Codex, an autonomous coding agent working in parallel with a human devel
 4. **Design Aesthetic:** Maintain the established premium, dark-mode, glassmorphism UI. Rely on the existing CSS variables in `globals.css` for consistency.
 
 ## First Steps
-When you begin working, review the **Priority Pending Tasks** listed in `AISO_Codex_Handoff.md`. Your immediate goal is wiring the Python `collect.py` subprocess output directly into the SQLite `ScanResult` database.
+When beginning a new task:
+1. Check `git status` and confirm the current branch follows `BRANCHING.md`.
+2. Read the relevant code and `AISO_Codex_Handoff.md` before editing.
+3. Identify the validation needed before making changes.
+4. After changing files, self-review the diff, run validation, summarize results, and wait for explicit commit approval unless Chandrakiran has already asked you to commit.
