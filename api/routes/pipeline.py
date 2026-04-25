@@ -3,16 +3,16 @@ Pipeline router — triggers and monitors AISO pipeline runs.
 Wraps setup2.py → collect.py → analysis1.py → analysis2.py
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime, timezone
 import uuid
 import json
 import os
 
-from api.database import get_db, Scan, Client
+from api.database import get_db, Scan, Client, ScanResult
 from api.auth import get_current_user_id
 
 router = APIRouter(tags=["pipeline"])
@@ -60,6 +60,53 @@ class ScanResponse(BaseModel):
         from_attributes = True
 
 
+class ProviderMetric(BaseModel):
+    id: str
+    score: float
+    mention_count: int
+    total_questions: int
+    avg_position: Optional[float]
+
+
+class GroupMetric(BaseModel):
+    id: str
+    label: str
+    score: float
+    mention_count: int
+    total_questions: int
+
+
+class CompetitorMetric(BaseModel):
+    name: str
+    score: float
+    mention_count: int
+    is_you: bool = False
+
+
+class MetricsResponse(BaseModel):
+    client_id: str
+    client_name: str
+    scan_id: str
+    status: str
+    overall_score: float
+    total_questions: int
+    provider_metrics: List[ProviderMetric]
+    group_metrics: List[GroupMetric]
+    competitors: List[CompetitorMetric]
+
+
+GROUP_LABELS = {
+    "G1": "Category & local discovery",
+    "G2": "Direct brand",
+    "G3": "Competitors & alternatives",
+    "G4": "Transactional & bottom-funnel",
+    "G5": "Trust, reviews & risk",
+    "G6": "Fit: persona, occasion, constraint",
+    "G7": "Post-purchase support",
+    "all": "All questions",
+}
+
+
 async def run_pipeline(
     scan_id: str,
     client_id: str,
@@ -87,10 +134,10 @@ async def run_pipeline(
         # ── Resolve active providers via BYOK key merging ─────────────────────
         # Server env keys (Pro users). BYOK fills gaps for Free tier.
         env_key_map = {
-            "openai":     os.environ.get("OPENAI_API_KEY",     "").strip(),
-            "claude":     os.environ.get("ANTHROPIC_API_KEY",  "").strip(),
-            "perplexity": os.environ.get("PERPLEXITY_API_KEY", "").strip(),
-            "gemini":     os.environ.get("GEMINI_API_KEY",     "").strip(),
+            "openai":     os.environ.get("OPENAI_API_KEY",      "").strip(),
+            "claude":     os.environ.get("ANTHROPIC_API_KEY",   "").strip(),
+            "perplexity": os.environ.get("PERPLEXITY_API_KEY",  "").strip(),
+            "gemini":     os.environ.get("GOOGLE_AI_API_KEY",   "").strip(),
         }
         byok = byok_keys or {}
 
@@ -115,8 +162,8 @@ async def run_pipeline(
 
         # ── Run real pipeline via subprocess ─────────────────────────────────
         # Keys are passed as env var overrides — never written to disk.
-        # collect.py reads AISO_PROVIDERS to know which providers to query.
-        import asyncio, subprocess, sys, pathlib
+        # collect.py receives explicit provider/group args and matching env vars.
+        import asyncio, sys, pathlib
 
         repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
         collect_script  = repo_root / "full_stack" / "collect.py"
@@ -138,15 +185,19 @@ async def run_pipeline(
 
         # Pass which providers to actually run
         sub_env["AISO_PROVIDERS"] = ",".join(active_providers)
+        sub_env["AISO_GROUPS"]    = ",".join(groups)
         sub_env["AISO_CLIENT_ID"] = client_id
         sub_env["AISO_SCAN_ID"]   = scan_id
 
-        async def run_script(script: pathlib.Path) -> int:
+        async def run_script(script: pathlib.Path, extra_args: list[str] | None = None) -> int:
             if not script.exists():
                 print(f"[AISO Pipeline] Script not found: {script} — skipping")
                 return 0
+            command = [sys.executable, str(script), client_id]
+            if extra_args:
+                command.extend(extra_args)
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, str(script), client_id,
+                *command,
                 env=sub_env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -156,11 +207,19 @@ async def run_pipeline(
                 print(f"[AISO Pipeline] {script.name}:\n{stdout.decode(errors='replace')}")
             return proc.returncode or 0
 
-        collect_rc = await run_script(collect_script)
+        collect_args = [
+            "--providers", ",".join(active_providers),
+            "--groups", ",".join(groups),
+            "--pick-all", os.environ.get("AISO_PICK_ALL", "14"),
+            "--yes",
+        ]
+
+        collect_rc = await run_script(collect_script, collect_args)
         if collect_rc != 0:
             raise RuntimeError(f"collect.py exited with code {collect_rc}")
 
-        await run_script(analysis_script)  # best-effort — don't fail scan if analysis errors
+        if os.environ.get("AISO_RUN_LEGACY_ANALYSIS", "").strip() == "1":
+            await run_script(analysis_script)  # opt-in only: legacy CSV mutation path
 
         scan.status = "complete"
         scan.completed_at = datetime.now(timezone.utc)
@@ -249,6 +308,185 @@ async def list_scans(
         if s.groups:    s.groups    = json.loads(s.groups)
         s.skipped_providers = _parse_skipped(s.error)  # type: ignore
     return scans
+
+
+def _safe_json_dict(value: Optional[str]) -> Dict[str, int]:
+    if not value:
+        return {}
+    try:
+        data = json.loads(value)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    result: Dict[str, int] = {}
+    for key, count in data.items():
+        try:
+            result[str(key)] = int(count)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _client_competitors(client: Client) -> List[str]:
+    if not client.competitors:
+        return []
+    try:
+        data = json.loads(client.competitors)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(item) for item in data if str(item).strip()]
+
+
+def _weighted_score(mentions: int, total: int) -> float:
+    return round((mentions / total) * 100, 2) if total else 0.0
+
+
+@router.get("/clients/{client_id}/metrics", response_model=MetricsResponse)
+async def get_client_metrics(
+    client_id: str,
+    scan_id: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Return aggregated visibility metrics for a client's scan results."""
+    client = db.query(Client).filter(
+        Client.id == client_id,
+        Client.user_id == user_id,
+    ).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    if scan_id:
+        scan = db.query(Scan).filter(
+            Scan.id == scan_id,
+            Scan.client_id == client_id,
+        ).first()
+    else:
+        scan = None
+        scans = db.query(Scan).filter(
+            Scan.client_id == client_id,
+        ).order_by(Scan.created_at.desc()).all()
+        for candidate in scans:
+            has_results = db.query(ScanResult.id).filter(
+                ScanResult.scan_id == candidate.id,
+                ScanResult.client_id == client_id,
+            ).first()
+            if has_results:
+                scan = candidate
+                break
+
+    if not scan:
+        raise HTTPException(status_code=404, detail="No scan metrics found")
+
+    result_rows = db.query(ScanResult).filter(
+        ScanResult.scan_id == scan.id,
+        ScanResult.client_id == client_id,
+    ).all()
+    if not result_rows:
+        raise HTTPException(status_code=404, detail="No scan metrics found")
+
+    total_questions = sum(row.total_questions or 0 for row in result_rows)
+    total_mentions = sum(row.mention_count or 0 for row in result_rows)
+
+    provider_buckets: Dict[str, Dict[str, float]] = {}
+    group_buckets: Dict[str, Dict[str, int]] = {}
+    competitor_counts: Dict[str, int] = {
+        name: 0 for name in _client_competitors(client)
+    }
+
+    for row in result_rows:
+        provider_bucket = provider_buckets.setdefault(
+            row.provider,
+            {
+                "total": 0,
+                "mentions": 0,
+                "position_sum": 0.0,
+                "position_weight": 0,
+            },
+        )
+        provider_bucket["total"] += row.total_questions or 0
+        provider_bucket["mentions"] += row.mention_count or 0
+        if row.avg_position is not None and row.mention_count:
+            provider_bucket["position_sum"] += row.avg_position * row.mention_count
+            provider_bucket["position_weight"] += row.mention_count
+
+        group_bucket = group_buckets.setdefault(
+            row.group,
+            {"total": 0, "mentions": 0},
+        )
+        group_bucket["total"] += row.total_questions or 0
+        group_bucket["mentions"] += row.mention_count or 0
+
+        for name, count in _safe_json_dict(row.competitor_data).items():
+            competitor_counts[name] = competitor_counts.get(name, 0) + count
+
+    provider_metrics = []
+    for provider, bucket in sorted(provider_buckets.items()):
+        total = int(bucket["total"])
+        mentions = int(bucket["mentions"])
+        position_weight = int(bucket["position_weight"])
+        avg_position = (
+            round(float(bucket["position_sum"]) / position_weight, 2)
+            if position_weight
+            else None
+        )
+        provider_metrics.append(
+            ProviderMetric(
+                id=provider,
+                score=_weighted_score(mentions, total),
+                mention_count=mentions,
+                total_questions=total,
+                avg_position=avg_position,
+            )
+        )
+
+    group_metrics = []
+    for group, bucket in sorted(group_buckets.items()):
+        total = int(bucket["total"])
+        mentions = int(bucket["mentions"])
+        group_metrics.append(
+            GroupMetric(
+                id=group,
+                label=GROUP_LABELS.get(group, group),
+                score=_weighted_score(mentions, total),
+                mention_count=mentions,
+                total_questions=total,
+            )
+        )
+
+    competitors = [
+        CompetitorMetric(
+            name=client.name,
+            score=_weighted_score(total_mentions, total_questions),
+            mention_count=total_mentions,
+            is_you=True,
+        )
+    ]
+    competitors.extend(
+        CompetitorMetric(
+            name=name,
+            score=_weighted_score(count, total_questions),
+            mention_count=count,
+            is_you=False,
+        )
+        for name, count in competitor_counts.items()
+    )
+    competitors.sort(key=lambda item: item.score, reverse=True)
+
+    return MetricsResponse(
+        client_id=client.id,
+        client_name=client.name,
+        scan_id=scan.id,
+        status=scan.status,
+        overall_score=_weighted_score(total_mentions, total_questions),
+        total_questions=total_questions,
+        provider_metrics=provider_metrics,
+        group_metrics=group_metrics,
+        competitors=competitors,
+    )
 
 
 def _parse_skipped(error_field: Optional[str]) -> List[str]:

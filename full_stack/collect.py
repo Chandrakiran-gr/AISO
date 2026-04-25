@@ -20,6 +20,7 @@ Usage:
     python full_stack/collect.py <slug>                     # interactive group picker
     python full_stack/collect.py <slug> --pick-all 15       # 15 from each group (non-interactive)
     python full_stack/collect.py <slug> --providers openai,claude
+    python full_stack/collect.py <slug> --groups G1,G2 --pick-all 14 --yes
     python full_stack/collect.py <slug> --limit 20          # legacy flat limit (non-group mode)
 """
 import sys
@@ -141,6 +142,13 @@ resolve_client_folder = _resolve_client_folder
 def _timestamp() -> str:
     """Return current local time as YYYYMMDD_HHMMSS for filenames."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _split_csv_arg(value: Optional[str]) -> List[str]:
+    """Parse comma-separated CLI/env values while preserving caller ordering."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 # ─── Group-aware question picker ──────────────────────────────────────────────
@@ -362,10 +370,19 @@ def main():
         help="Comma-separated subset of providers to use, e.g. 'openai,claude'"
     )
     parser.add_argument(
+        "--groups", type=str, default=None,
+        help="Comma-separated setup2 v2 groups to collect, e.g. 'G1,G2,G3'. "
+             "Defaults to AISO_GROUPS when set."
+    )
+    parser.add_argument(
         "--pick-all", type=int, default=None, dest="pick_all",
         metavar="N",
         help="Non-interactive: take top N questions from every group (skips prompts). "
              "Only applies to setup2 v2 banks with group columns."
+    )
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="Skip confirmation prompts. Automatically enabled when AISO_SCAN_ID is set."
     )
     parser.add_argument(
         "--followup", type=str, default=None,
@@ -384,13 +401,27 @@ def main():
 
     # --limit 0 means no limit
     effective_limit = None if args.limit == 0 else args.limit
+    backend_scan_mode = bool(os.environ.get("AISO_SCAN_ID", "").strip())
+    auto_confirm = args.yes or backend_scan_mode
+
+    if backend_scan_mode and args.pick_all is None:
+        per_group = os.environ.get("AISO_PICK_ALL", str(DEFAULT_PER_GROUP)).strip()
+        try:
+            args.pick_all = int(per_group)
+        except ValueError:
+            print("AISO_PICK_ALL must be a positive integer.")
+            sys.exit(1)
+        if args.pick_all < 0:
+            print("AISO_PICK_ALL must be a positive integer.")
+            sys.exit(1)
 
     # ── Step 2: Discover active providers ─────────────────────────────────────
     active_providers = get_active_providers()
 
-    # Apply --providers filter
-    if args.providers:
-        requested = [p.strip().lower() for p in args.providers.split(",") if p.strip()]
+    # Apply --providers filter, falling back to backend orchestration env.
+    provider_filter = args.providers or os.environ.get("AISO_PROVIDERS")
+    if provider_filter:
+        requested = [p.lower() for p in _split_csv_arg(provider_filter)]
         unknown = [p for p in requested if p not in active_providers]
         if unknown:
             print(f"Unknown or unconfigured providers: {unknown}")
@@ -472,6 +503,14 @@ def main():
         print("Bank format: setup2 v2 (ranked groups — group-aware collection).\n")
 
         grouped = _load_grouped_bank(t_path)
+        group_filter = _split_csv_arg(args.groups or os.environ.get("AISO_GROUPS"))
+        if group_filter:
+            unknown_groups = [gid for gid in group_filter if gid not in grouped]
+            if unknown_groups:
+                print(f"Unknown groups: {unknown_groups}")
+                print("Available groups:", list(grouped.keys()))
+                sys.exit(1)
+            grouped = OrderedDict((gid, grouped[gid]) for gid in group_filter)
 
         # If --pick-all or interactive, use group picker
         selected_rows = _interactive_group_picker(grouped, pick_all=args.pick_all)
@@ -485,14 +524,15 @@ def main():
         _print_collection_plan(selected_rows, grouped, provider_names)
 
         # Confirm before proceeding
-        try:
-            confirm = input("\n  Proceed? [Y/n]: ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            print("\n\n  Cancelled.")
-            sys.exit(0)
-        if confirm and confirm not in ("y", "yes", ""):
-            print("  Cancelled.")
-            sys.exit(0)
+        if not auto_confirm:
+            try:
+                confirm = input("\n  Proceed? [Y/n]: ").strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                print("\n\n  Cancelled.")
+                sys.exit(0)
+            if confirm and confirm not in ("y", "yes", ""):
+                print("  Cancelled.")
+                sys.exit(0)
 
         # Save questions log
         _save_questions_log(selected_rows, client_folder, slug, ts)
@@ -795,6 +835,19 @@ def main():
     print(f"  Rows written : {rows_written} / {total_questions}")
     print(f"  API calls    : {tasks_succeeded} succeeded, {tasks_failed} failed")
     print(f"  Output       : {out_path}")
+
+    scan_id = os.environ.get("AISO_SCAN_ID", "").strip()
+    scan_client_id = os.environ.get("AISO_CLIENT_ID", "").strip() or slug
+    if scan_id:
+        from full_stack.scan_metrics import persist_collect_csv_results
+
+        persisted = persist_collect_csv_results(
+            out_path,
+            scan_id=scan_id,
+            client_id=scan_client_id,
+            client_folder=client_folder,
+        )
+        print(f"  ScanResult rows persisted : {len(persisted)}")
 
 
 if __name__ == "__main__":
