@@ -1,0 +1,127 @@
+/* ── About page ─────────────────────────────────────────────────── */
+
+.page {
+  min-height: 100vh;
+  background: var(--bg-base);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Nav ──────────────────────────────────────────────────────── */
+.nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-md) var(--space-xl);
+  border-bottom: var(--border-subtle);
+  background: rgba(15,17,23,0.80);
+  backdrop-filter: blur(16px);
+  position: sticky; top: 0; z-index: var(--z-header);
+}
+.navLogo { display: flex; align-items: center; gap: 8px; text-decoration: none; font-family: var(--font-display); font-size: 1rem; font-weight: 700; }
+.logoMark { background: var(--gradient-brand); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.navLinks { display: flex; align-items: center; gap: var(--space-md); }
+.navLink { font-size: 0.875rem; color: var(--text-secondary); text-decoration: none; transition: color var(--transition-fast); }
+.navLink:hover { color: var(--text-primary); }
+.navCta {
+  padding: 8px 18px; background: var(--gradient-brand);
+  border-radius: var(--radius-md); color: var(--bg-base);
+  font-size: 0.8125rem; font-weight: 600; text-decoration: none;
+  transition: opacity var(--transition-fast);
+}
+.navCta:hover { opacity: 0.9; }
+
+/* ── Hero ─────────────────────────────────────────────────────── */
+.hero {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; padding: var(--space-2xl) var(--space-xl);
+  max-width: 760px; margin: 0 auto;
+  gap: var(--space-md);
+}
+.heroEyebrow {
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--accent-teal);
+}
+.heroTitle {
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 700; font-family: var(--font-display);
+  letter-spacing: -0.03em; line-height: 1.15;
+}
+.heroSub { font-size: 1.125rem; color: var(--text-secondary); line-height: 1.7; max-width: 560px; }
+
+/* ── Mission ──────────────────────────────────────────────────── */
+.section { max-width: 760px; margin: 0 auto; padding: 0 var(--space-xl) var(--space-2xl); }
+
+.missionCard {
+  border: 1px solid rgba(0,212,170,0.15);
+  background: rgba(0,212,170,0.04);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  position: relative;
+  overflow: hidden;
+}
+.missionCard::before {
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,212,170,0.4), transparent);
+}
+.missionLabel { font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-teal); margin-bottom: var(--space-sm); }
+.missionText { font-size: 1.125rem; line-height: 1.75; color: var(--text-secondary); }
+.missionText strong { color: var(--text-primary); }
+
+/* ── Founder ──────────────────────────────────────────────────── */
+.founderSection { max-width: 760px; margin: 0 auto; padding: 0 var(--space-xl) var(--space-2xl); }
+
+.founderCard {
+  display: flex; gap: var(--space-xl); align-items: flex-start;
+  background: rgba(22,25,35,0.75); border: var(--border-subtle);
+  border-radius: var(--radius-xl); backdrop-filter: blur(12px);
+  padding: var(--space-xl);
+}
+.founderAvatar {
+  width: 80px; height: 80px; border-radius: var(--radius-full);
+  background: var(--gradient-brand);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2rem; flex-shrink: 0;
+}
+.founderInfo { display: flex; flex-direction: column; gap: 6px; }
+.founderName { font-size: 1.125rem; font-weight: 700; font-family: var(--font-display); }
+.founderRole { font-size: 0.8125rem; color: var(--accent-teal); font-weight: 600; }
+.founderBio { font-size: 0.9375rem; color: var(--text-secondary); line-height: 1.7; margin-top: 4px; }
+.founderLinks { display: flex; gap: var(--space-sm); margin-top: 4px; }
+.founderLink {
+  font-size: 0.8125rem; color: var(--text-muted); text-decoration: none;
+  transition: color var(--transition-fast);
+}
+.founderLink:hover { color: var(--accent-teal); }
+
+/* ── Values ───────────────────────────────────────────────────── */
+.valuesSection { max-width: 760px; margin: 0 auto; padding: 0 var(--space-xl) var(--space-2xl); }
+.sectionTitle { font-size: 1.25rem; font-weight: 700; font-family: var(--font-display); margin-bottom: var(--space-md); }
+
+.valuesGrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-sm); }
+
+.valueCard {
+  background: rgba(22,25,35,0.75); border: var(--border-subtle);
+  border-radius: var(--radius-xl); backdrop-filter: blur(12px);
+  padding: var(--space-md);
+}
+.valueIcon { font-size: 1.5rem; margin-bottom: 8px; }
+.valueTitle { font-size: 0.9375rem; font-weight: 600; margin-bottom: 4px; }
+.valueSub { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.6; }
+
+/* ── CTA ──────────────────────────────────────────────────────── */
+.ctaSection {
+  max-width: 760px; margin: 0 auto;
+  padding: 0 var(--space-xl) var(--space-2xl);
+  text-align: center; display: flex; flex-direction: column;
+  align-items: center; gap: var(--space-md);
+}
+.ctaTitle { font-size: 1.5rem; font-weight: 700; font-family: var(--font-display); }
+.ctaSub { font-size: 0.9375rem; color: var(--text-muted); }
+.ctaBtn {
+  padding: 12px 28px; background: var(--gradient-brand);
+  border: none; border-radius: var(--radius-md); color: var(--bg-base);
+  font-family: var(--font-body); font-size: 0.9375rem; font-weight: 700;
+  cursor: pointer; text-decoration: none;
+  transition: opacity var(--transition-fast);
+}
+.ctaBtn:hover { opacity: 0.9; }

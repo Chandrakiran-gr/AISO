@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -112,7 +113,9 @@ export default function RootLayout({
       {/* suppressHydrationWarning: silences mismatches caused by browser
           extensions (Grammarly injects data-gr-*, Retriever injects rtrvr-*)
           modifying the DOM before React hydrates. Code is correct. */}
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

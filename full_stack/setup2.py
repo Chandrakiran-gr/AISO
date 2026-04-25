@@ -819,6 +819,13 @@ def expand_templates_to_questions(
             if q not in seen:
                 seen.add(q)
                 unique.append(q)
+        
+        # OPTIMIZATION: Cap at 150 questions per group to speed up intent scoring
+        import random
+        random.seed(42) # Deterministic for resumability
+        if len(unique) > 150:
+            unique = random.sample(unique, 150)
+            
         all_questions[gid] = unique
 
     return all_questions
@@ -1038,22 +1045,37 @@ def _trends_fetch_batch(
     Returns {keyword: score_0_to_100} or {keyword: None} when data is unavailable.
     None = genuinely unknown, NOT zero. Callers must handle None explicitly.
     Uses exponential back-off on rate-limit / connection errors.
+    Hard 30-second timeout per attempt via concurrent.futures to prevent hanging.
     """
+    import concurrent.futures
+
+    def _do_fetch() -> Dict[str, Optional[float]]:
+        pytrends.build_payload(keywords, timeframe=timeframe, geo=geo)
+        df = pytrends.interest_over_time()
+        result: Dict[str, Optional[float]] = {}
+        for kw in keywords:
+            if not df.empty and kw in df.columns:
+                series = df[kw].dropna()
+                result[kw] = float(series.mean()) if len(series) else None
+            else:
+                result[kw] = None
+        return result
+
     for attempt in range(max_retries):
         try:
-            pytrends.build_payload(keywords, timeframe=timeframe, geo=geo)
-            df = pytrends.interest_over_time()
-            result: Dict[str, Optional[float]] = {}
-            for kw in keywords:
-                if not df.empty and kw in df.columns:
-                    series = df[kw].dropna()
-                    result[kw] = float(series.mean()) if len(series) else None
-                else:
-                    result[kw] = None  # no Trends data for this keyword/geo
-            return result
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_do_fetch)
+                try:
+                    return future.result(timeout=30)  # 30-second hard timeout
+                except concurrent.futures.TimeoutError:
+                    print(f"\n  ⚠ Trends timeout on attempt {attempt + 1} — skipping batch (will mark as None)")
+                    if attempt < max_retries - 1:
+                        time.sleep(TRENDS_SLEEP_SEC * (3 ** attempt))
+                    else:
+                        return {kw: None for kw in keywords}
         except Exception:
             if attempt < max_retries - 1:
-                time.sleep(TRENDS_SLEEP_SEC * (3 ** attempt))  # 0.8s, 2.4s, 7.2s
+                time.sleep(TRENDS_SLEEP_SEC * (3 ** attempt))  # 2.0s, 6.0s, 18.0s
             else:
                 return {kw: None for kw in keywords}  # unknown — not zero
     return {kw: None for kw in keywords}

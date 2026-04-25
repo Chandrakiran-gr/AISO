@@ -11,6 +11,7 @@ import uuid
 import json
 
 from api.database import get_db, Client
+from api.auth import get_current_user_id
 
 router = APIRouter(tags=["clients"])
 
@@ -18,37 +19,22 @@ router = APIRouter(tags=["clients"])
 # ── Schemas (Pydantic validation) ────────────────────────────────────────────
 
 class ClientCreate(BaseModel):
-    name:        str
-    url:         str
-    industry:    Optional[str] = None
-    location:    Optional[str] = None
-    competitors: Optional[List[str]] = None
+    # Onboarding sends: id (slug) + display_name
+    id:           Optional[str] = None   # optional slug; auto-generated if absent
+    display_name: Optional[str] = None   # alias for name
+    name:         Optional[str] = None   # legacy field
+    url:          Optional[str] = None
+    industry:     Optional[str] = None
+    location:     Optional[str] = None
+    competitors:  Optional[List[str]] = None
 
-    @field_validator("name")
-    @classmethod
-    def name_not_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("Name cannot be empty")
-        if len(v) > 200:
-            raise ValueError("Name too long (max 200 chars)")
-        return v
+    @property
+    def resolved_name(self) -> str:
+        return (self.display_name or self.name or "").strip()
 
-    @field_validator("url")
-    @classmethod
-    def url_valid(cls, v: str) -> str:
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
-        if len(v) > 500:
-            raise ValueError("URL too long")
-        return v.strip()
-
-    @field_validator("competitors")
-    @classmethod
-    def limit_competitors(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        if v and len(v) > 10:
-            raise ValueError("Maximum 10 competitors allowed")
-        return v
+    @property
+    def resolved_url(self) -> str:
+        return (self.url or "").strip()
 
 
 class ClientResponse(BaseModel):
@@ -63,17 +49,13 @@ class ClientResponse(BaseModel):
         from_attributes = True
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
-
-# TODO: Add real auth dependency once NextAuth + API token are wired together
-# For now: placeholder user_id
-PLACEHOLDER_USER_ID = "dev-user-001"
-
-
 @router.get("/clients", response_model=List[ClientResponse])
-async def list_clients(db: Session = Depends(get_db)):
+async def list_clients(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
     """List all clients for the current user."""
-    clients = db.query(Client).filter(Client.user_id == PLACEHOLDER_USER_ID).all()
+    clients = db.query(Client).filter(Client.user_id == user_id).all()
     for c in clients:
         if c.competitors:
             c.competitors = json.loads(c.competitors)
@@ -81,13 +63,30 @@ async def list_clients(db: Session = Depends(get_db)):
 
 
 @router.post("/clients", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
-async def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
-    """Create a new client profile."""
+async def create_client(
+    payload: ClientCreate,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Create a new client profile. Returns 409 if a client with the same id/slug already exists."""
+    resolved_name = payload.resolved_name
+    if not resolved_name:
+        raise HTTPException(status_code=422, detail="name or display_name is required")
+
+    client_id = (payload.id or str(uuid.uuid4())).strip()
+
+    # 409 if slug already exists — onboarding reuses the client
+    existing = db.query(Client).filter(Client.id == client_id).first()
+    if existing:
+        if existing.competitors:
+            existing.competitors = json.loads(existing.competitors)
+        raise HTTPException(status_code=409, detail="Client already exists", headers={"X-Client-Id": client_id})
+
     client = Client(
-        id=str(uuid.uuid4()),
-        user_id=PLACEHOLDER_USER_ID,
-        name=payload.name,
-        url=payload.url,
+        id=client_id,
+        user_id=user_id,
+        name=resolved_name,
+        url=payload.resolved_url or f"https://example.com/{client_id}",
         industry=payload.industry,
         location=payload.location,
         competitors=json.dumps(payload.competitors) if payload.competitors else None,
@@ -101,11 +100,15 @@ async def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/clients/{client_id}", response_model=ClientResponse)
-async def get_client(client_id: str, db: Session = Depends(get_db)):
-    """Get a single client by ID."""
+async def get_client(
+    client_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Get a specific client profile."""
     client = db.query(Client).filter(
         Client.id == client_id,
-        Client.user_id == PLACEHOLDER_USER_ID,
+        Client.user_id == user_id,
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -115,11 +118,15 @@ async def get_client(client_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_client(client_id: str, db: Session = Depends(get_db)):
-    """Delete a client and all associated data."""
+async def delete_client(
+    client_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Delete a client profile."""
     client = db.query(Client).filter(
         Client.id == client_id,
-        Client.user_id == PLACEHOLDER_USER_ID,
+        Client.user_id == user_id,
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")

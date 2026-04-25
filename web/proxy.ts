@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+// ── Auth guard constants ──────────────────────────────────────────────────────
+const PROTECTED_PREFIXES = ["/dashboard"];
+const AUTH_PAGES        = ["/login", "/signup"];
+// NextAuth v5 session cookie names (one for dev, one for prod)
+const SESSION_COOKIES   = ["authjs.session-token", "__Secure-authjs.session-token"];
+
+function hasSession(request: NextRequest): boolean {
+  return SESSION_COOKIES.some((name) => Boolean(request.cookies.get(name)?.value));
+}
+
 // ── In-memory rate limiter (local-dev safe, swap to Upstash Redis in prod) ──
 // Tracks: { ip -> { count, windowStart, violations, bannedUntil } }
 const store = new Map<string, {
@@ -219,7 +229,24 @@ export function proxy(request: NextRequest) {
     }
   }
 
-  // 7. Pass through — attach rate limit headers
+  // 7. Auth guard ─────────────────────────────────────────────────────────────
+  const authed = hasSession(request);
+
+  // Unauthenticated user hitting protected route → /login?callbackUrl=...
+  const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
+  if (isProtected && !authed) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // Already-authed user hitting login/signup → /dashboard
+  const isAuthPage = AUTH_PAGES.includes(pathname);
+  if (isAuthPage && authed) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  // 8. Pass through — attach rate limit headers
   const response = NextResponse.next();
   response.headers.set("X-RateLimit-Remaining", String(remaining));
   return applySecurityHeaders(response);

@@ -20,6 +20,7 @@ Usage:
     python full_stack/collect.py <slug>                     # interactive group picker
     python full_stack/collect.py <slug> --pick-all 15       # 15 from each group (non-interactive)
     python full_stack/collect.py <slug> --providers openai,claude
+    python full_stack/collect.py <slug> --groups G1,G2 --pick-all 14 --yes
     python full_stack/collect.py <slug> --limit 20          # legacy flat limit (non-group mode)
 """
 import sys
@@ -49,10 +50,11 @@ load_dotenv(_repo_root / ".env")
 MAX_WORKERS = 20
 
 # Default max questions per collect run (override with --limit N, or --limit 0 for all)
-DEFAULT_LIMIT = 20
+DEFAULT_LIMIT = 100
 
 # Default questions per group when user presses Enter at the interactive prompt
-DEFAULT_PER_GROUP = 10
+# 7 groups × ~14/group ≈ 100 total
+DEFAULT_PER_GROUP = 14
 
 
 # ─── Spinner ──────────────────────────────────────────────────────────────────
@@ -140,6 +142,13 @@ resolve_client_folder = _resolve_client_folder
 def _timestamp() -> str:
     """Return current local time as YYYYMMDD_HHMMSS for filenames."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _split_csv_arg(value: Optional[str]) -> List[str]:
+    """Parse comma-separated CLI/env values while preserving caller ordering."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 # ─── Group-aware question picker ──────────────────────────────────────────────
@@ -361,10 +370,19 @@ def main():
         help="Comma-separated subset of providers to use, e.g. 'openai,claude'"
     )
     parser.add_argument(
+        "--groups", type=str, default=None,
+        help="Comma-separated setup2 v2 groups to collect, e.g. 'G1,G2,G3'. "
+             "Defaults to AISO_GROUPS when set."
+    )
+    parser.add_argument(
         "--pick-all", type=int, default=None, dest="pick_all",
         metavar="N",
         help="Non-interactive: take top N questions from every group (skips prompts). "
              "Only applies to setup2 v2 banks with group columns."
+    )
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="Skip confirmation prompts. Automatically enabled when AISO_SCAN_ID is set."
     )
     parser.add_argument(
         "--followup", type=str, default=None,
@@ -383,13 +401,27 @@ def main():
 
     # --limit 0 means no limit
     effective_limit = None if args.limit == 0 else args.limit
+    backend_scan_mode = bool(os.environ.get("AISO_SCAN_ID", "").strip())
+    auto_confirm = args.yes or backend_scan_mode
+
+    if backend_scan_mode and args.pick_all is None:
+        per_group = os.environ.get("AISO_PICK_ALL", str(DEFAULT_PER_GROUP)).strip()
+        try:
+            args.pick_all = int(per_group)
+        except ValueError:
+            print("AISO_PICK_ALL must be a positive integer.")
+            sys.exit(1)
+        if args.pick_all < 0:
+            print("AISO_PICK_ALL must be a positive integer.")
+            sys.exit(1)
 
     # ── Step 2: Discover active providers ─────────────────────────────────────
     active_providers = get_active_providers()
 
-    # Apply --providers filter
-    if args.providers:
-        requested = [p.strip().lower() for p in args.providers.split(",") if p.strip()]
+    # Apply --providers filter, falling back to backend orchestration env.
+    provider_filter = args.providers or os.environ.get("AISO_PROVIDERS")
+    if provider_filter:
+        requested = [p.lower() for p in _split_csv_arg(provider_filter)]
         unknown = [p for p in requested if p not in active_providers]
         if unknown:
             print(f"Unknown or unconfigured providers: {unknown}")
@@ -419,19 +451,20 @@ def main():
         client_folder, slug = _resolve_client_folder(arg)
     print(f"  -> {client_folder}")
 
-    # ── Step 3.5: Resolve follow-up question ──────────────────────────────────
-    followup_question = _load_followup(client_folder, args.followup)
-    if followup_question:
-        print(f"\n  Follow-up enabled: \"{followup_question}\"")
-        print("  (Each question will be a 2-turn conversation)")
-        # Switch to multi-turn providers
-        multiturn_providers = get_active_providers_multiturn()
-        # Apply --providers filter to multiturn too
-        if args.providers:
-            requested = [p.strip().lower() for p in args.providers.split(",") if p.strip()]
-            multiturn_providers = {k: v for k, v in multiturn_providers.items() if k in requested}
-    else:
-        multiturn_providers = None
+    # ── Step 3.5: Follow-up question (DISABLED — single-turn only for now) ──────
+    # To re-enable multi-turn: uncomment the block below and remove the two lines after.
+    # followup_question = _load_followup(client_folder, args.followup)
+    # if followup_question:
+    #     print(f"\n  Follow-up enabled: \"{followup_question}\"")
+    #     print("  (Each question will be a 2-turn conversation)")
+    #     multiturn_providers = get_active_providers_multiturn()
+    #     if args.providers:
+    #         requested = [p.strip().lower() for p in args.providers.split(",") if p.strip()]
+    #         multiturn_providers = {k: v for k, v in multiturn_providers.items() if k in requested}
+    # else:
+    #     multiturn_providers = None
+    followup_question = None   # single-turn mode
+    multiturn_providers = None  # single-turn mode
 
     # ── Step 4: Validate bank CSVs ────────────────────────────────────────────
     t_path = client_folder / "query_template_bank.csv"
@@ -470,6 +503,14 @@ def main():
         print("Bank format: setup2 v2 (ranked groups — group-aware collection).\n")
 
         grouped = _load_grouped_bank(t_path)
+        group_filter = _split_csv_arg(args.groups or os.environ.get("AISO_GROUPS"))
+        if group_filter:
+            unknown_groups = [gid for gid in group_filter if gid not in grouped]
+            if unknown_groups:
+                print(f"Unknown groups: {unknown_groups}")
+                print("Available groups:", list(grouped.keys()))
+                sys.exit(1)
+            grouped = OrderedDict((gid, grouped[gid]) for gid in group_filter)
 
         # If --pick-all or interactive, use group picker
         selected_rows = _interactive_group_picker(grouped, pick_all=args.pick_all)
@@ -483,14 +524,15 @@ def main():
         _print_collection_plan(selected_rows, grouped, provider_names)
 
         # Confirm before proceeding
-        try:
-            confirm = input("\n  Proceed? [Y/n]: ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            print("\n\n  Cancelled.")
-            sys.exit(0)
-        if confirm and confirm not in ("y", "yes", ""):
-            print("  Cancelled.")
-            sys.exit(0)
+        if not auto_confirm:
+            try:
+                confirm = input("\n  Proceed? [Y/n]: ").strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                print("\n\n  Cancelled.")
+                sys.exit(0)
+            if confirm and confirm not in ("y", "yes", ""):
+                print("  Cancelled.")
+                sys.exit(0)
 
         # Save questions log
         _save_questions_log(selected_rows, client_folder, slug, ts)
@@ -587,14 +629,10 @@ def main():
         provider_names = list(active_providers.keys())
 
     total_questions = len(questions)
-    calls_per_question = 2 if followup_question else 1
     total_tasks = total_questions * len(provider_names)
-    total_api_calls = total_tasks * calls_per_question
     print(
         f"\n  {total_questions} questions × {len(provider_names)} providers "
-        f"= {total_tasks} tasks"
-        + (f" ({total_api_calls} API calls — 2-turn mode)" if followup_question else "")
-        + "."
+        f"= {total_tasks} API calls (single-turn)."
     )
 
     # ── Step 6: Determine output file path (timestamped) ──────────────────────
@@ -612,14 +650,16 @@ def main():
         + [f"error_{p}"    for p in provider_names]
     )
 
-    # Follow-up columns (only added when followup is active)
-    followup_fields = []
-    if followup_question:
-        followup_fields = (
-            ["followup_question"]
-            + [f"followup_response_{p}" for p in provider_names]
-            + [f"followup_error_{p}"    for p in provider_names]
-        )
+    # Follow-up columns — DISABLED (single-turn mode)
+    # To re-enable: uncomment the block below
+    # followup_fields = []
+    # if followup_question:
+    #     followup_fields = (
+    #         ["followup_question"]
+    #         + [f"followup_response_{p}" for p in provider_names]
+    #         + [f"followup_error_{p}"    for p in provider_names]
+    #     )
+    followup_fields = []  # single-turn mode
 
     fieldnames = base_fields + response_fields + followup_fields
 
@@ -647,28 +687,32 @@ def main():
     # ── Step 10: Worker function (closure — captures active_providers, semaphores)
     def _task_worker(q_idx: int, provider_name: str) -> tuple:
         """
-        Call one provider for one question.
+        Call one provider for one question (single-turn mode).
 
-        Single-turn mode: returns (q_idx, provider_name, ProviderResult, None)
-        Multi-turn mode:  returns (q_idx, provider_name, ProviderResult, ProviderResult)
+        Returns (q_idx, provider_name, ProviderResult, None)
+
+        Multi-turn follow-up is DISABLED. To re-enable, restore the
+        multi-turn branch from git history and uncomment follow-up logic.
         """
         question = questions[q_idx]
         with semaphores[provider_name]:
-            if followup_question and multiturn_providers:
-                # Multi-turn: query_with_followup returns (r1, r2)
-                try:
-                    r1, r2 = multiturn_providers[provider_name](question, followup_question)
-                except Exception as e:
-                    r1 = ProviderResult(error=str(e))
-                    r2 = ProviderResult(error=str(e))
-                return q_idx, provider_name, r1, r2
-            else:
-                # Single-turn: original path
-                try:
-                    result = active_providers[provider_name](question)
-                except Exception as e:
-                    result = ProviderResult(error=str(e))
-                return q_idx, provider_name, result, None
+            # Single-turn only
+            try:
+                result = active_providers[provider_name](question)
+            except Exception as e:
+                result = ProviderResult(error=str(e))
+            return q_idx, provider_name, result, None
+
+        # ── MULTI-TURN DISABLED ───────────────────────────────────────────────
+        # To re-enable follow-up questions, replace the block above with:
+        # if followup_question and multiturn_providers:
+        #     try:
+        #         r1, r2 = multiturn_providers[provider_name](question, followup_question)
+        #     except Exception as e:
+        #         r1 = ProviderResult(error=str(e))
+        #         r2 = ProviderResult(error=str(e))
+        #     return q_idx, provider_name, r1, r2
+        # ─────────────────────────────────────────────────────────────────────
 
     # ── Step 11: Open output file and run ─────────────────────────────────────
     outfile = open(out_path, "w", newline="", encoding="utf-8")
@@ -704,14 +748,14 @@ def main():
             row[f"response_{p}"] = r.response
             row[f"error_{p}"] = r.error
 
-        # Round 2 follow-up responses (if active)
-        if followup_question:
-            row["followup_question"] = followup_question
-            fu_data = pending_followup.get(q_idx, {})
-            for p in provider_names:
-                r = fu_data.get(p, ProviderResult(error="not_called"))
-                row[f"followup_response_{p}"] = r.response
-                row[f"followup_error_{p}"] = r.error
+        # Round 2 follow-up — DISABLED (single-turn mode)
+        # if followup_question:
+        #     row["followup_question"] = followup_question
+        #     fu_data = pending_followup.get(q_idx, {})
+        #     for p in provider_names:
+        #         r = fu_data.get(p, ProviderResult(error="not_called"))
+        #         row[f"followup_response_{p}"] = r.response
+        #         row[f"followup_error_{p}"] = r.error
 
         writer.writerow(row)
         outfile.flush()
@@ -791,6 +835,19 @@ def main():
     print(f"  Rows written : {rows_written} / {total_questions}")
     print(f"  API calls    : {tasks_succeeded} succeeded, {tasks_failed} failed")
     print(f"  Output       : {out_path}")
+
+    scan_id = os.environ.get("AISO_SCAN_ID", "").strip()
+    scan_client_id = os.environ.get("AISO_CLIENT_ID", "").strip() or slug
+    if scan_id:
+        from full_stack.scan_metrics import persist_collect_csv_results
+
+        persisted = persist_collect_csv_results(
+            out_path,
+            scan_id=scan_id,
+            client_id=scan_client_id,
+            client_folder=client_folder,
+        )
+        print(f"  ScanResult rows persisted : {len(persisted)}")
 
 
 if __name__ == "__main__":
