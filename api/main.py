@@ -11,7 +11,8 @@ from fastapi.responses import JSONResponse
 import time
 import os
 
-from api.routes import health, clients, pipeline
+from api.routes import auth as auth_routes
+from api.routes import clients, health, pipeline
 
 # ── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -74,5 +75,6 @@ def on_startup():
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(health.router,   prefix="/api/v1")
+app.include_router(auth_routes.router, prefix="/api/v1")
 app.include_router(clients.router,  prefix="/api/v1")
 app.include_router(pipeline.router, prefix="/api/v1")

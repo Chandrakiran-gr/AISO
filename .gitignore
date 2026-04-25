@@ -9,6 +9,7 @@
 
 # ─── Client Data (sensitive — stays local only) ──────────────────────────────
 clients/
+storage/
 
 # ─── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
