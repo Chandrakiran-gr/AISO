@@ -4,7 +4,19 @@ SQLAlchemy ORM setup with all core models.
 Swap DATABASE_URL env var to switch backends.
 """
 
-from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, Boolean, ForeignKey
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    create_engine,
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timezone
@@ -83,6 +95,79 @@ class ScanResult(Base):
     visibility_score  = Column(Float, nullable=True)           # 0.0 – 100.0
     competitor_data   = Column(Text, nullable=True)            # JSON: {competitor: mention_count}
     created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ScanArtifact(Base):
+    """Metadata for generated or uploaded scan files.
+
+    Raw CSV/XLSX/PDF/JSON files live in local storage today and can move to S3
+    later. The database stores only metadata and an addressable storage path.
+    """
+    __tablename__ = "scan_artifacts"
+    __table_args__ = (
+        Index("ix_scan_artifacts_client_scan", "client_id", "scan_id"),
+        Index("ix_scan_artifacts_type", "artifact_type"),
+    )
+
+    id                = Column(String, primary_key=True)       # UUID
+    client_id         = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    scan_id           = Column(String, ForeignKey("scans.id"), nullable=True, index=True)
+    artifact_type     = Column(String, nullable=False)          # collect_csv | report
+    file_format       = Column(String, nullable=True)           # csv | xlsx | json | pdf
+    storage_backend   = Column(String, default="local", nullable=False)  # local | s3
+    storage_path      = Column(Text, nullable=False)            # repo-relative path or object key
+    original_filename = Column(String, nullable=True)
+    mime_type         = Column(String, nullable=True)
+    size_bytes        = Column(BigInteger, nullable=True)
+    sha256            = Column(String, nullable=True)
+    metadata_json     = Column(Text, nullable=True)             # JSON for non-query metadata
+    created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ScanAnalysis(Base):
+    """Structured analysis generated from scan results."""
+    __tablename__ = "scan_analysis"
+    __table_args__ = (
+        Index("ix_scan_analysis_client_scan", "client_id", "scan_id"),
+        Index("ix_scan_analysis_scope", "provider", "group"),
+    )
+
+    id                   = Column(String, primary_key=True)    # UUID
+    client_id            = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    scan_id              = Column(String, ForeignKey("scans.id"), nullable=False, index=True)
+    provider             = Column(String, nullable=True)        # null for cross-provider analysis
+    group                = Column(String, nullable=True)        # null for cross-group analysis
+    analysis_type        = Column(String, default="visibility_summary", nullable=False)
+    summary              = Column(Text, nullable=True)
+    strengths_json       = Column(Text, nullable=True)          # JSON array
+    weaknesses_json      = Column(Text, nullable=True)          # JSON array
+    recommendations_json = Column(Text, nullable=True)          # JSON array
+    raw_json             = Column(Text, nullable=True)          # source model/tool output
+    created_at           = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ScanCitation(Base):
+    """Source-level evidence cited by provider answers."""
+    __tablename__ = "scan_citations"
+    __table_args__ = (
+        Index("ix_scan_citations_client_scan", "client_id", "scan_id"),
+        Index("ix_scan_citations_provider_group", "provider", "group"),
+        Index("ix_scan_citations_domain", "source_domain"),
+    )
+
+    id             = Column(String, primary_key=True)           # UUID
+    client_id      = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    scan_id        = Column(String, ForeignKey("scans.id"), nullable=False, index=True)
+    provider       = Column(String, nullable=False)             # LLM provider id
+    group          = Column(String, nullable=True)
+    question       = Column(Text, nullable=True)
+    answer_excerpt = Column(Text, nullable=True)
+    citation_url   = Column(Text, nullable=False)
+    citation_title = Column(Text, nullable=True)
+    source_domain  = Column(String, nullable=True)
+    source_rank    = Column(Integer, nullable=True)
+    metadata_json  = Column(Text, nullable=True)                # JSON provider citation metadata
+    created_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Action(Base):

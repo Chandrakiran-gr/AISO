@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
+import { upsertOAuthUser, verifyCredentialsUser } from "@/lib/auth-api";
 
 // ── Validation schemas ───────────────────────────────────────────────────────
 const loginSchema = z.object({
@@ -30,17 +31,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
-
-        // TODO Phase 3: query SQLite/PostgreSQL with bcrypt compare
-        // For now — placeholder that always fails (forces Google OAuth in dev)
-        // Replace with:
-        //   const user = await db.getUserByEmail(email);
-        //   if (!user) return null;
-        //   const valid = await bcrypt.compare(password, user.passwordHash);
-        //   if (!valid) return null;
-        //   return { id: user.id, email: user.email, name: user.name };
-        void email; void password;
-        return null;
+        const user = await verifyCredentialsUser({ email, password });
+        return { id: user.id, email: user.email, name: user.name };
       },
     }),
   ],
@@ -55,9 +47,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
 
   callbacks: {
-    // Attach user id to JWT
-    async jwt({ token, user }) {
-      if (user) token.id = user.id;
+    // Attach durable database user id to JWT
+    async jwt({ token, user, account }) {
+      if (user?.email && account?.provider === "google") {
+        const persisted = await upsertOAuthUser({
+          email: user.email,
+          name: user.name,
+          provider: "google",
+        });
+        token.id = persisted.id;
+        token.email = persisted.email;
+        token.name = persisted.name;
+      } else if (user) {
+        token.id = user.id;
+      }
       return token;
     },
     // Expose id in session

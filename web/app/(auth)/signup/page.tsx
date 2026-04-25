@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import styles from "../auth.module.css";
-import { signInWithGoogle, signInWithCredentials } from "../actions";
+import { signInWithGoogle, signUpWithCredentials } from "../actions";
 
 export const metadata: Metadata = {
   title: "Sign up free — AISO by Sapienic",
@@ -24,7 +24,22 @@ const GoogleIcon = () => (
   </svg>
 );
 
-export default function SignupPage() {
+export default function SignupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  return <SignupContent searchParams={searchParams} />;
+}
+
+async function SignupContent({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const params = await searchParams;
+  const errorMessage = getSignupErrorMessage(params.error);
+
   return (
     <div className={styles.page}>
       <Link href="/" className={styles.backNav}>← Back to home</Link>
@@ -65,6 +80,12 @@ export default function SignupPage() {
             <p className={styles.formSubtitle}>AI visibility report in ~8 minutes</p>
           </div>
 
+          {errorMessage && (
+            <div className={styles.authAlert} role="alert" aria-live="polite">
+              {errorMessage}
+            </div>
+          )}
+
           {/* Google OAuth — primary CTA, Server Action */}
           <form
             action={async () => {
@@ -89,7 +110,7 @@ export default function SignupPage() {
             className={styles.fields}
             action={async (formData: FormData) => {
               "use server";
-              await signInWithCredentials("/onboarding", formData);
+              await signUpWithCredentials("/onboarding", formData);
             }}
           >
             <div className={styles.fieldGroup}>
@@ -125,4 +146,18 @@ export default function SignupPage() {
       </div>
     </div>
   );
+}
+
+function getSignupErrorMessage(error?: string): string | null {
+  if (!error) return null;
+
+  const messages: Record<string, string> = {
+    invalid: "We could not create your account. Please check your details and try again.",
+    email_exists: "An account already exists for this email. Log in instead.",
+    CredentialsSignin: "Your account was created, but sign-in failed. Try logging in.",
+    OAuthSignin: "Google sign-up could not be started. Please try again.",
+    OAuthCallback: "Google sign-up could not be completed. Please try again.",
+  };
+
+  return messages[error] ?? "We could not create your account. Please try again.";
 }

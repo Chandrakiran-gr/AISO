@@ -315,11 +315,16 @@ def persist_collect_csv_results(
     if not results:
         return []
 
-    from api.database import ScanResult, SessionLocal
+    from api.database import ScanArtifact, ScanResult, SessionLocal
+    from api.storage import describe_local_artifact
 
     db = SessionLocal()
     try:
         db.query(ScanResult).filter(ScanResult.scan_id == scan_id).delete()
+        db.query(ScanArtifact).filter(
+            ScanArtifact.scan_id == scan_id,
+            ScanArtifact.artifact_type == "collect_csv",
+        ).delete()
         for result in results:
             db.add(
                 ScanResult(
@@ -335,6 +340,22 @@ def persist_collect_csv_results(
                     competitor_data=json.dumps(result.competitor_data),
                 )
             )
+        artifact = describe_local_artifact(
+            csv_path,
+            artifact_type="collect_csv",
+            metadata={
+                "source": "full_stack.collect",
+                "description": "Raw provider responses used to aggregate scan metrics.",
+            },
+        )
+        db.add(
+            ScanArtifact(
+                id=str(uuid.uuid4()),
+                scan_id=scan_id,
+                client_id=client_id,
+                **artifact,
+            )
+        )
         db.commit()
     except Exception:
         db.rollback()
