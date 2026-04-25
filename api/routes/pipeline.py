@@ -115,12 +115,54 @@ async def run_pipeline(
         if not active_providers:
             raise RuntimeError("No providers available — please add at least one API key in Settings.")
 
-        # TODO Phase 4: Replace simulation with actual pipeline calls:
-        # from full_stack.collect import main as collect_main
-        # Pass resolved keys as env overrides to the collect subprocess
+        # ── Run real pipeline via subprocess ─────────────────────────────────
+        # Keys are passed as env var overrides — never written to disk.
+        # collect.py reads AISO_PROVIDERS to know which providers to query.
+        import asyncio, subprocess, sys, pathlib
 
-        import asyncio
-        await asyncio.sleep(2)
+        repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
+        collect_script  = repo_root / "full_stack" / "collect.py"
+        analysis_script = repo_root / "full_stack" / "analysis1.py"
+
+        # Build subprocess environment: inherit current env + add resolved keys
+        sub_env = os.environ.copy()
+        if byok_keys:
+            for provider, key in (byok_keys or {}).items():
+                if key:
+                    env_var = {
+                        "openai":     "OPENAI_API_KEY",
+                        "claude":     "ANTHROPIC_API_KEY",
+                        "perplexity": "PERPLEXITY_API_KEY",
+                        "gemini":     "GOOGLE_AI_API_KEY",
+                    }.get(provider)
+                    if env_var:
+                        sub_env[env_var] = key
+
+        # Pass which providers to actually run
+        sub_env["AISO_PROVIDERS"] = ",".join(active_providers)
+        sub_env["AISO_CLIENT_ID"] = client_id
+        sub_env["AISO_SCAN_ID"]   = scan_id
+
+        async def run_script(script: pathlib.Path) -> int:
+            if not script.exists():
+                print(f"[AISO Pipeline] Script not found: {script} — skipping")
+                return 0
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, str(script), client_id,
+                env=sub_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            stdout, _ = await proc.communicate()
+            if stdout:
+                print(f"[AISO Pipeline] {script.name}:\n{stdout.decode(errors='replace')}")
+            return proc.returncode or 0
+
+        collect_rc = await run_script(collect_script)
+        if collect_rc != 0:
+            raise RuntimeError(f"collect.py exited with code {collect_rc}")
+
+        await run_script(analysis_script)  # best-effort — don't fail scan if analysis errors
 
         scan.status = "complete"
         scan.completed_at = datetime.now(timezone.utc)
