@@ -349,7 +349,6 @@ def _load_followup(client_folder: Path, cli_followup: Optional[str]) -> Optional
 def main():
     from webish.providers import (
         get_active_providers,
-        get_active_providers_multiturn,
         list_provider_status,
         PROVIDER_CONCURRENCY,
     )
