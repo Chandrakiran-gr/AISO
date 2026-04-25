@@ -6,6 +6,7 @@ const PROTECTED_PREFIXES = ["/dashboard"];
 const AUTH_PAGES        = ["/login", "/signup"];
 // NextAuth v5 session cookie names (one for dev, one for prod)
 const SESSION_COOKIES   = ["authjs.session-token", "__Secure-authjs.session-token"];
+const RATE_LIMITING_DISABLED = true;
 
 function hasSession(request: NextRequest): boolean {
   return SESSION_COOKIES.some((name) => Boolean(request.cookies.get(name)?.value));
@@ -197,22 +198,28 @@ export function proxy(request: NextRequest) {
   }
 
   // 5. Rate limiting + IP banning
-  const { allowed, remaining, retryAfter, banned } = checkRateLimit(ip, pathname);
+  // Temporarily disabled: the current in-memory limiter is too aggressive for
+  // NextAuth session polling and returns plain-text 429/403 responses where
+  // NextAuth expects JSON. Keep this disabled until rate limiting is moved to
+  // route-specific handlers that preserve each endpoint's response contract.
+  if (!RATE_LIMITING_DISABLED) {
+    const { allowed, retryAfter, banned } = checkRateLimit(ip, pathname);
 
-  if (!allowed) {
-    const status = banned ? 403 : 429;
-    const message = banned ? "Access Denied — IP temporarily blocked" : "Too Many Requests";
-    console.warn(`[AISO Security] ${banned ? "BANNED" : "Rate limited"}: ${ip} on ${pathname}`);
+    if (!allowed) {
+      const status = banned ? 403 : 429;
+      const message = banned ? "Access Denied — IP temporarily blocked" : "Too Many Requests";
+      console.warn(`[AISO Security] ${banned ? "BANNED" : "Rate limited"}: ${ip} on ${pathname}`);
 
-    const resp = new NextResponse(message, {
-      status,
-      headers: {
-        "Retry-After": String(retryAfter),
-        "X-RateLimit-Remaining": "0",
-        "Content-Type": "text/plain",
-      },
-    });
-    return applySecurityHeaders(resp);
+      const resp = new NextResponse(message, {
+        status,
+        headers: {
+          "Retry-After": String(retryAfter),
+          "X-RateLimit-Remaining": "0",
+          "Content-Type": "text/plain",
+        },
+      });
+      return applySecurityHeaders(resp);
+    }
   }
 
   // 6. CSRF check for state-changing API routes
@@ -246,9 +253,8 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // 8. Pass through — attach rate limit headers
+  // 8. Pass through
   const response = NextResponse.next();
-  response.headers.set("X-RateLimit-Remaining", String(remaining));
   return applySecurityHeaders(response);
 }
 

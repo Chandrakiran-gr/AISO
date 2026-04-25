@@ -29,6 +29,17 @@ export default function LoginPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  return <LoginContent searchParams={searchParams} />;
+}
+
+async function LoginContent({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const params = await searchParams;
+  const errorMessage = getLoginErrorMessage(params.error);
+
   return (
     <div className={styles.page}>
       <Link href="/" className={styles.backNav}>← Back to home</Link>
@@ -68,6 +79,12 @@ export default function LoginPage({
             <h2 className={styles.formTitle}>Welcome back</h2>
             <p className={styles.formSubtitle}>Log in to your AISO dashboard</p>
           </div>
+
+          {errorMessage && (
+            <div className={styles.authAlert} role="alert" aria-live="polite">
+              {errorMessage}
+            </div>
+          )}
 
           {/* Google OAuth — Server Action */}
           <form
@@ -119,4 +136,18 @@ export default function LoginPage({
       </div>
     </div>
   );
+}
+
+function getLoginErrorMessage(error?: string): string | null {
+  if (!error) return null;
+
+  const messages: Record<string, string> = {
+    invalid: "Invalid email or password. Please check your details and try again.",
+    CredentialsSignin: "Invalid email or password. Please check your details and try again.",
+    OAuthAccountNotLinked: "This email is already linked to another sign-in method. Try the method you used before.",
+    OAuthSignin: "Google sign-in could not be started. Please try again.",
+    OAuthCallback: "Google sign-in could not be completed. Please try again.",
+  };
+
+  return messages[error] ?? "We could not sign you in. Please try again.";
 }
