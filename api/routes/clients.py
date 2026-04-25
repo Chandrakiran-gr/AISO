@@ -5,13 +5,13 @@ Each user can have multiple clients (businesses being tracked).
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl, field_validator
 from typing import Optional, List
 import uuid
 import json
 
 from api.database import get_db, Client
-from api.auth import get_current_user, TokenUser
+from api.auth import get_current_user_id
 
 router = APIRouter(tags=["clients"])
 
@@ -49,17 +49,13 @@ class ClientResponse(BaseModel):
         from_attributes = True
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
-
-# TODO: Add real auth dependency once NextAuth + API token are wired together
-
 @router.get("/clients", response_model=List[ClientResponse])
 async def list_clients(
-    db:   Session   = Depends(get_db),
-    user: TokenUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
 ):
     """List all clients for the current user."""
-    clients = db.query(Client).filter(Client.user_id == user.id).all()
+    clients = db.query(Client).filter(Client.user_id == user_id).all()
     for c in clients:
         if c.competitors:
             c.competitors = json.loads(c.competitors)
@@ -69,21 +65,18 @@ async def list_clients(
 @router.post("/clients", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(
     payload: ClientCreate,
-    db:      Session   = Depends(get_db),
-    user:    TokenUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
 ):
-    """Create a new client profile. Returns 409 if slug already exists for this user."""
+    """Create a new client profile. Returns 409 if a client with the same id/slug already exists."""
     resolved_name = payload.resolved_name
     if not resolved_name:
         raise HTTPException(status_code=422, detail="name or display_name is required")
 
     client_id = (payload.id or str(uuid.uuid4())).strip()
 
-    # 409 if slug already exists for this user — onboarding can safely retry
-    existing = db.query(Client).filter(
-        Client.id == client_id,
-        Client.user_id == user.id,
-    ).first()
+    # 409 if slug already exists — onboarding reuses the client
+    existing = db.query(Client).filter(Client.id == client_id).first()
     if existing:
         if existing.competitors:
             existing.competitors = json.loads(existing.competitors)
@@ -91,7 +84,7 @@ async def create_client(
 
     client = Client(
         id=client_id,
-        user_id=user.id,
+        user_id=user_id,
         name=resolved_name,
         url=payload.resolved_url or f"https://example.com/{client_id}",
         industry=payload.industry,
@@ -109,13 +102,13 @@ async def create_client(
 @router.get("/clients/{client_id}", response_model=ClientResponse)
 async def get_client(
     client_id: str,
-    db:        Session   = Depends(get_db),
-    user:      TokenUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
 ):
-    """Get a single client by ID."""
+    """Get a specific client profile."""
     client = db.query(Client).filter(
         Client.id == client_id,
-        Client.user_id == user.id,
+        Client.user_id == user_id,
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -127,13 +120,13 @@ async def get_client(
 @router.delete("/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_client(
     client_id: str,
-    db:        Session   = Depends(get_db),
-    user:      TokenUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
 ):
-    """Delete a client and all associated data."""
+    """Delete a client profile."""
     client = db.query(Client).filter(
         Client.id == client_id,
-        Client.user_id == user.id,
+        Client.user_id == user_id,
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")

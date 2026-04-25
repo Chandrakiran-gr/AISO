@@ -13,7 +13,7 @@ import json
 import os
 
 from api.database import get_db, Scan, Client
-from api.auth import get_current_user, TokenUser
+from api.auth import get_current_user_id
 
 router = APIRouter(tags=["pipeline"])
 
@@ -58,7 +58,6 @@ class ScanResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
 
 
 async def run_pipeline(
@@ -186,17 +185,17 @@ async def run_pipeline(
 
 @router.post("/clients/{client_id}/scans", response_model=ScanResponse, status_code=status.HTTP_202_ACCEPTED)
 async def start_scan(
-    client_id:        str,
-    payload:          ScanCreate,
+    client_id: str,
+    payload: ScanCreate,
     background_tasks: BackgroundTasks,
-    db:               Session   = Depends(get_db),
-    user:             TokenUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
 ):
     """Trigger a new pipeline scan for a client. Returns immediately; runs in background."""
-    # BOLA check — ensure client belongs to authenticated user
+    # BOLA check — ensure client belongs to user
     client = db.query(Client).filter(
         Client.id == client_id,
-        Client.user_id == user.id,
+        Client.user_id == user_id,
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -233,13 +232,13 @@ async def start_scan(
 @router.get("/clients/{client_id}/scans", response_model=List[ScanResponse])
 async def list_scans(
     client_id: str,
-    db:        Session   = Depends(get_db),
-    user:      TokenUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
 ):
     """List all scans for a client."""
     client = db.query(Client).filter(
         Client.id == client_id,
-        Client.user_id == user.id,
+        Client.user_id == user_id,
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -266,8 +265,21 @@ def _parse_skipped(error_field: Optional[str]) -> List[str]:
 
 
 @router.get("/clients/{client_id}/scans/{scan_id}", response_model=ScanResponse)
-async def get_scan(client_id: str, scan_id: str, db: Session = Depends(get_db)):
+async def get_scan(
+    client_id: str,
+    scan_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
     """Get a single scan — used by onboarding to poll status."""
+    # Ensure client belongs to user first
+    client = db.query(Client).filter(
+        Client.id == client_id,
+        Client.user_id == user_id,
+    ).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
     scan = db.query(Scan).filter(
         Scan.id == scan_id,
         Scan.client_id == client_id,

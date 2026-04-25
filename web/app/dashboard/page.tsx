@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import styles from "./dashboard.module.css";
-import { apiFetch, clearApiToken } from "@/lib/apifetch";
 
 export const dynamic = "force-dynamic";
+
+const API = "/api/proxy";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ScanData {
@@ -16,6 +17,8 @@ interface ScanData {
   created_at: string;
   skipped_providers?: string[];
 }
+
+interface ClientData { id: string; name: string; }
 
 // ── Defaults shown while loading / when no real scan exists ───────────────────
 const PLACEHOLDER_PROVIDERS = [
@@ -199,7 +202,7 @@ function ActionItems() {
       <div className={styles.actionList}>
         {MOCK_ACTIONS.map((a, i) => (
           <div key={i} className={styles.actionItem}>
-            <div className={`${styles.actionPriority} ${styles[a.priority]}`}>
+            <div className={`${styles.actionPriority} ${styles[a.priority as keyof typeof styles]}`}>
               {a.priority === "high" ? "!" : a.priority === "medium" ? "~" : "·"}
             </div>
             <div className={styles.actionContent}>
@@ -224,13 +227,13 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const clientsRes = await apiFetch("/api/v1/clients");
+        const clientsRes = await fetch(`${API}/v1/clients`);
         if (!clientsRes.ok) return;
-        const clients: { id: string; name: string }[] = await clientsRes.json();
+        const clients: ClientData[] = await clientsRes.json();
         if (!clients.length) return;
         const cid = clients[0].id;
         setClientId(cid);
-        const scansRes = await apiFetch(`/api/v1/clients/${cid}/scans`);
+        const scansRes = await fetch(`${API}/api/v1/clients/${cid}/scans`);
         if (!scansRes.ok) return;
         const scans: ScanData[] = await scansRes.json();
         if (scans.length) setLatestScan(scans[0]);
@@ -267,7 +270,7 @@ export default function DashboardPage() {
         <div className={styles.sidebarSpacer} />
         <div className={styles.sidebarFooter}>
           <span className={styles.userEmail}>{userEmail}</span>
-          <button className={styles.signOutBtn} onClick={() => { clearApiToken(); signOut({ callbackUrl: "/" }); }}>
+          <button className={styles.signOutBtn} onClick={() => signOut({ callbackUrl: "/" })}>
             Sign out
           </button>
         </div>

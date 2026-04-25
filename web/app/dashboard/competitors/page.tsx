@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import styles from "./competitors.module.css";
-import { clearApiToken } from "@/lib/apifetch";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +110,7 @@ export default function CompetitorsPage() {
         <div className={styles.sidebarSpacer} />
         <div className={styles.sidebarFooter}>
           <span className={styles.userEmail}>{userEmail}</span>
-          <button className={styles.signOutBtn} onClick={() => { clearApiToken(); signOut({ callbackUrl: "/" }); }}>Sign out</button>
+          <button className={styles.signOutBtn} onClick={() => signOut({ callbackUrl: "/" })}>Sign out</button>
         </div>
       </aside>
 
