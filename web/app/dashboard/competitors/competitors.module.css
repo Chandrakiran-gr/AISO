@@ -3,21 +3,12 @@
 .shell {
   display: flex;
   min-height: 100vh;
-  background: var(--bg-base);
+  background: transparent;
 }
 
 /* ── Sidebar (shared pattern) ─────────────────────────────────── */
 .sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  border-right: var(--border-subtle);
-  background: var(--bg-deep);
-  display: flex;
-  flex-direction: column;
-  padding: var(--space-md) 0;
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  display: none;
 }
 .sidebarLogo {
   display: flex; align-items: center; gap: 8px;

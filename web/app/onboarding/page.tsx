@@ -119,11 +119,15 @@ function Step2({ form, set, onBack, onNext }: {
   const [keySet, setKeySet] = useState<Partial<Record<Provider, boolean>>>({});
 
   useEffect(() => {
-    const state: Partial<Record<Provider, boolean>> = {};
-    for (const p of PROVIDERS) {
-      state[p.id as Provider] = Boolean(getKey(p.id as Provider));
-    }
-    setKeySet(state);
+    const timer = window.setTimeout(() => {
+      const state: Partial<Record<Provider, boolean>> = {};
+      for (const p of PROVIDERS) {
+        state[p.id as Provider] = Boolean(getKey(p.id as Provider));
+      }
+      setKeySet(state);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   function handleKeyInput(provider: Provider, value: string) {
