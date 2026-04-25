@@ -355,11 +355,11 @@ async function createClient(slug: string, displayName: string): Promise<string> 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: slug, display_name: displayName }),
   });
-  if (!res.ok) {
-    // 409 = client already exists — reuse it
-    if (res.status === 409) return slug;
-    throw new Error(`Failed to create client (${res.status})`);
+  if (res.status === 409) {
+    // Client already exists — reuse the slug as ID
+    return res.headers.get("X-Client-Id") ?? slug;
   }
+  if (!res.ok) throw new Error(`Failed to create client (${res.status})`);
   const data = await res.json();
   return data.id as string;
 }

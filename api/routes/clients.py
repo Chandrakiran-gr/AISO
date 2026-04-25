@@ -18,37 +18,22 @@ router = APIRouter(tags=["clients"])
 # ── Schemas (Pydantic validation) ────────────────────────────────────────────
 
 class ClientCreate(BaseModel):
-    name:        str
-    url:         str
-    industry:    Optional[str] = None
-    location:    Optional[str] = None
-    competitors: Optional[List[str]] = None
+    # Onboarding sends: id (slug) + display_name
+    id:           Optional[str] = None   # optional slug; auto-generated if absent
+    display_name: Optional[str] = None   # alias for name
+    name:         Optional[str] = None   # legacy field
+    url:          Optional[str] = None
+    industry:     Optional[str] = None
+    location:     Optional[str] = None
+    competitors:  Optional[List[str]] = None
 
-    @field_validator("name")
-    @classmethod
-    def name_not_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("Name cannot be empty")
-        if len(v) > 200:
-            raise ValueError("Name too long (max 200 chars)")
-        return v
+    @property
+    def resolved_name(self) -> str:
+        return (self.display_name or self.name or "").strip()
 
-    @field_validator("url")
-    @classmethod
-    def url_valid(cls, v: str) -> str:
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
-        if len(v) > 500:
-            raise ValueError("URL too long")
-        return v.strip()
-
-    @field_validator("competitors")
-    @classmethod
-    def limit_competitors(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        if v and len(v) > 10:
-            raise ValueError("Maximum 10 competitors allowed")
-        return v
+    @property
+    def resolved_url(self) -> str:
+        return (self.url or "").strip()
 
 
 class ClientResponse(BaseModel):
@@ -82,12 +67,25 @@ async def list_clients(db: Session = Depends(get_db)):
 
 @router.post("/clients", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
-    """Create a new client profile."""
+    """Create a new client profile. Returns 409 if a client with the same id/slug already exists."""
+    resolved_name = payload.resolved_name
+    if not resolved_name:
+        raise HTTPException(status_code=422, detail="name or display_name is required")
+
+    client_id = (payload.id or str(uuid.uuid4())).strip()
+
+    # 409 if slug already exists — onboarding reuses the client
+    existing = db.query(Client).filter(Client.id == client_id).first()
+    if existing:
+        if existing.competitors:
+            existing.competitors = json.loads(existing.competitors)
+        raise HTTPException(status_code=409, detail="Client already exists", headers={"X-Client-Id": client_id})
+
     client = Client(
-        id=str(uuid.uuid4()),
+        id=client_id,
         user_id=PLACEHOLDER_USER_ID,
-        name=payload.name,
-        url=payload.url,
+        name=resolved_name,
+        url=payload.resolved_url or f"https://example.com/{client_id}",
         industry=payload.industry,
         location=payload.location,
         competitors=json.dumps(payload.competitors) if payload.competitors else None,

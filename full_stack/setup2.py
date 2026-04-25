@@ -819,6 +819,13 @@ def expand_templates_to_questions(
             if q not in seen:
                 seen.add(q)
                 unique.append(q)
+        
+        # OPTIMIZATION: Cap at 150 questions per group to speed up intent scoring
+        import random
+        random.seed(42) # Deterministic for resumability
+        if len(unique) > 150:
+            unique = random.sample(unique, 150)
+            
         all_questions[gid] = unique
 
     return all_questions

@@ -10,6 +10,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 import uuid
 import json
+import os
 
 from api.database import get_db, Scan, Client
 
@@ -201,18 +202,33 @@ async def list_scans(client_id: str, db: Session = Depends(get_db)):
     for s in scans:
         if s.providers: s.providers = json.loads(s.providers)
         if s.groups:    s.groups    = json.loads(s.groups)
+        s.skipped_providers = _parse_skipped(s.error)  # type: ignore
     return scans
+
+
+def _parse_skipped(error_field: Optional[str]) -> List[str]:
+    """Extract skipped_providers from the error JSON field (never raises)."""
+    if not error_field:
+        return []
+    try:
+        data = json.loads(error_field)
+        if isinstance(data, dict):
+            return data.get("skipped_providers", [])
+    except Exception:
+        pass
+    return []
 
 
 @router.get("/clients/{client_id}/scans/{scan_id}", response_model=ScanResponse)
 async def get_scan(client_id: str, scan_id: str, db: Session = Depends(get_db)):
-    """Get a single scan status."""
+    """Get a single scan — used by onboarding to poll status."""
     scan = db.query(Scan).filter(
         Scan.id == scan_id,
         Scan.client_id == client_id,
     ).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    if scan.providers: scan.providers = json.loads(scan.providers)
-    if scan.groups:    scan.groups    = json.loads(scan.groups)
+    if scan.providers: scan.providers = json.loads(scan.providers)  # type: ignore
+    if scan.groups:    scan.groups    = json.loads(scan.groups)      # type: ignore
+    scan.skipped_providers = _parse_skipped(scan.error)             # type: ignore
     return scan
