@@ -10,7 +10,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from api.auth import get_current_user_id
-from api.database import Action, Client, get_db
+from api.database import Action, Client, Scan, get_db
 
 router = APIRouter(tags=["actions"])
 
@@ -21,12 +21,16 @@ class ActionResponse(BaseModel):
     id: str
     client_id: str
     scan_id: Optional[str]
+    action_key: Optional[str]
     title: str
     description: Optional[str]
     priority: Optional[str]
     category: Optional[str]
     impact_pts: Optional[str]
     effort: Optional[str]
+    score: Optional[float]
+    sort_order: Optional[int]
+    evidence_json: Optional[str]
     status: Optional[str]
     created_at: datetime
     completed_at: Optional[datetime]
@@ -60,14 +64,45 @@ def _ensure_client(db: Session, client_id: str, user_id: str) -> Client:
 @router.get("/clients/{client_id}/actions", response_model=List[ActionResponse])
 async def list_actions(
     client_id: str,
+    scan_id: Optional[str] = None,
+    status: Optional[str] = None,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ):
-    """List recommendation actions for a client."""
+    """List recommendation actions for the latest scan by default."""
     _ensure_client(db, client_id, user_id)
-    return db.query(Action).filter(
+
+    clean_status = str(status or "").strip().lower() or None
+    if clean_status and clean_status not in VALID_STATUSES:
+        raise HTTPException(status_code=422, detail="Unsupported action status")
+
+    selected_scan_id = scan_id
+    if not selected_scan_id:
+        latest = db.query(Scan.id).filter(
+            Scan.client_id == client_id,
+            Scan.status == "complete",
+        ).order_by(
+            Scan.created_at.desc(),
+        ).first()
+        selected_scan_id = latest[0] if latest else None
+
+    if not selected_scan_id:
+        return []
+
+    query = db.query(Action).filter(
         Action.client_id == client_id,
-    ).order_by(Action.created_at.desc()).all()
+        Action.scan_id == selected_scan_id,
+    )
+    if clean_status:
+        query = query.filter(Action.status == clean_status)
+
+    return query.order_by(
+        Action.sort_order.is_(None).asc(),
+        Action.sort_order.asc(),
+        Action.score.is_(None).asc(),
+        Action.score.desc(),
+        Action.created_at.desc(),
+    ).all()
 
 
 @router.patch("/clients/{client_id}/actions/{action_id}", response_model=ActionResponse)

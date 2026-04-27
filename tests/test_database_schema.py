@@ -34,38 +34,54 @@ class DatabaseSchemaTests(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
+    def tearDown(self):
+        self.engine.dispose()
+
     def test_schema_contains_artifacts_analysis_and_citations(self):
-        inspector = inspect(self.engine)
+        with self.engine.connect() as connection:
+            inspector = inspect(connection)
 
-        self.assertIn("scan_artifacts", inspector.get_table_names())
-        self.assertIn("scan_analysis", inspector.get_table_names())
-        self.assertIn("scan_citations", inspector.get_table_names())
+            self.assertIn("scan_artifacts", inspector.get_table_names())
+            self.assertIn("scan_analysis", inspector.get_table_names())
+            self.assertIn("scan_citations", inspector.get_table_names())
 
-        artifact_columns = {
-            column["name"] for column in inspector.get_columns("scan_artifacts")
-        }
-        self.assertTrue(
-            {
-                "artifact_type",
-                "file_format",
-                "storage_backend",
-                "storage_path",
-                "sha256",
-            }.issubset(artifact_columns)
-        )
+            artifact_columns = {
+                column["name"] for column in inspector.get_columns("scan_artifacts")
+            }
+            self.assertTrue(
+                {
+                    "artifact_type",
+                    "file_format",
+                    "storage_backend",
+                    "storage_path",
+                    "sha256",
+                }.issubset(artifact_columns)
+            )
 
-        citation_columns = {
-            column["name"] for column in inspector.get_columns("scan_citations")
-        }
-        self.assertTrue(
-            {
-                "provider",
-                "question",
-                "answer_excerpt",
-                "citation_url",
-                "source_domain",
-            }.issubset(citation_columns)
-        )
+            citation_columns = {
+                column["name"] for column in inspector.get_columns("scan_citations")
+            }
+            self.assertTrue(
+                {
+                    "provider",
+                    "question",
+                    "answer_excerpt",
+                    "citation_url",
+                    "source_domain",
+                }.issubset(citation_columns)
+            )
+
+            action_columns = {
+                column["name"] for column in inspector.get_columns("actions")
+            }
+            self.assertTrue(
+                {
+                    "action_key",
+                    "score",
+                    "sort_order",
+                    "evidence_json",
+                }.issubset(action_columns)
+            )
 
     def test_persists_scan_artifact_analysis_and_citation_rows(self):
         session = self.Session()
@@ -192,6 +208,11 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertEqual(session.query(ScanResult).count(), 1)
             self.assertEqual(session.query(ScanCitation).count(), 1)
             self.assertGreaterEqual(session.query(Action).count(), 1)
+            action = session.query(Action).order_by(Action.sort_order.asc()).first()
+            self.assertIsNotNone(action)
+            self.assertIsNotNone(action.action_key)
+            self.assertIsNotNone(action.score)
+            self.assertIsNotNone(action.evidence_json)
             citation = session.query(ScanCitation).one()
             self.assertEqual(citation.citation_url, "https://example.com/source")
             self.assertEqual(citation.citation_title, "Example Source")

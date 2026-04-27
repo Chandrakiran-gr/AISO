@@ -833,3 +833,241 @@
     justify-self: flex-start;
   }
 }
+
+.actionStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.actionStatCard {
+  display: flex;
+  min-height: 104px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  background: rgba(22, 25, 35, 0.78);
+  padding: 18px 20px;
+}
+
+.actionStatCard span {
+  color: var(--accent-teal);
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.actionStatCard strong {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.actionWorkspace {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.actionSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.actionSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.actionSectionHeader h2 {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.actionSectionHeader span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.actionPlanGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.actionPlanCard {
+  display: flex;
+  min-height: 312px;
+  flex-direction: column;
+  gap: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  background: rgba(22, 25, 35, 0.82);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+  padding: 20px;
+}
+
+.actionPlanHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.priorityBadge,
+.statusBadgeAction {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: var(--radius-full);
+  padding: 0 10px;
+  font-size: 0.6875rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.priorityHigh {
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+}
+
+.priorityMedium {
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  background: rgba(251, 191, 36, 0.09);
+  color: #fbbf24;
+}
+
+.priorityLow {
+  border: 1px solid rgba(0, 212, 170, 0.18);
+  background: rgba(0, 212, 170, 0.08);
+  color: var(--accent-teal);
+}
+
+.statusBadgeAction {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 34, 49, 0.72);
+  color: var(--text-secondary);
+}
+
+.actionPlanTitle {
+  color: var(--text-primary);
+  font-size: 1.0625rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.actionPlanDescription {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.evidenceChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.evidenceChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid rgba(0, 212, 170, 0.14);
+  border-radius: var(--radius-full);
+  background: rgba(0, 212, 170, 0.06);
+  color: var(--text-secondary);
+  padding: 0 10px;
+  font-size: 0.6875rem;
+  font-weight: 800;
+}
+
+.actionMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: auto;
+}
+
+.actionMetaGrid span {
+  display: flex;
+  min-height: 58px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 12px;
+  background: rgba(15, 17, 23, 0.4);
+  padding: 10px 12px;
+}
+
+.actionMetaGrid small {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 800;
+}
+
+.actionMetaGrid strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actionStatusControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.statusButton,
+.statusButtonActive {
+  min-height: 34px;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.statusButton {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 34, 49, 0.72);
+  color: var(--text-secondary);
+}
+
+.statusButtonActive {
+  border: 1px solid rgba(0, 212, 170, 0.18);
+  background: rgba(0, 212, 170, 0.1);
+  color: var(--accent-teal);
+}
+
+@media (max-width: 980px) {
+  .actionStatsGrid,
+  .actionPlanGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .actionStatsGrid,
+  .actionPlanGrid,
+  .actionMetaGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .actionSectionHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

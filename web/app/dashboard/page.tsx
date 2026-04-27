@@ -236,7 +236,7 @@ export default function DashboardPage() {
         const [scansRes, metricsRes, actionsRes] = await Promise.all([
           fetch(`${API}/v1/clients/${client.id}/scans`, { cache: "no-store" }),
           fetch(`${API}/v1/clients/${client.id}/metrics`, { cache: "no-store" }),
-          fetch(`${API}/v1/clients/${client.id}/actions`, { cache: "no-store" }),
+          fetch(`${API}/v1/clients/${client.id}/actions?status=open`, { cache: "no-store" }),
         ]);
 
         if (!scansRes.ok) throw new Error("Unable to load scans");
@@ -280,7 +280,7 @@ export default function DashboardPage() {
     return map;
   }, [state.metrics]);
   const topCompetitors = state.metrics?.competitors.slice(0, 4) ?? [];
-  const topActions = state.actions.filter((action) => action.status !== "done").slice(0, 3);
+  const topActions = state.actions.filter((action) => (action.status ?? "open") === "open").slice(0, 3);
   const visibleProviders = state.metrics
     ? state.metrics.provider_metrics
         .slice()

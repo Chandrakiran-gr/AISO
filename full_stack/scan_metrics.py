@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Iterable, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from full_stack.action_recommendations import build_action_recommendations
+
 
 @dataclass(frozen=True)
 class ClientIdentity:
@@ -549,7 +551,7 @@ def persist_collect_csv_results(
                     metadata_json=json.dumps(citation.metadata),
                 )
             )
-        for action in _recommend_actions(results):
+        for action in build_action_recommendations(results, citations):
             db.add(
                 Action(
                     id=str(uuid.uuid4()),
@@ -566,95 +568,3 @@ def persist_collect_csv_results(
         db.close()
 
     return results
-
-
-def _recommend_actions(
-    results: list[AggregatedScanResult],
-) -> list[dict[str, str]]:
-    """Create deterministic action recommendations from scan aggregates."""
-    if not results:
-        return []
-
-    total_questions = sum(result.total_questions for result in results)
-    total_mentions = sum(result.mention_count for result in results)
-    overall = round((total_mentions / total_questions) * 100, 2) if total_questions else 0
-    actions: list[dict[str, str]] = []
-
-    if overall < 35:
-        actions.append(
-            {
-                "title": "Strengthen entity signals on your homepage",
-                "description": (
-                    "AI providers are rarely naming the business. Add clear brand, "
-                    "category, location, services, and FAQ copy to the homepage."
-                ),
-                "priority": "high",
-                "category": "entity",
-                "impact_pts": "+8-12 pts",
-                "effort": "2-4 hours",
-                "status": "open",
-            }
-        )
-    elif overall < 60:
-        actions.append(
-            {
-                "title": "Improve comparison and trust content",
-                "description": (
-                    "The business is visible but not dominant. Add pages that answer "
-                    "comparison, review, risk, and fit questions directly."
-                ),
-                "priority": "medium",
-                "category": "content",
-                "impact_pts": "+5-8 pts",
-                "effort": "3-5 hours",
-                "status": "open",
-            }
-        )
-
-    weak_groups = sorted(
-        results,
-        key=lambda item: (item.visibility_score, -item.total_questions),
-    )[:3]
-    for result in weak_groups:
-        if result.visibility_score >= 70:
-            continue
-        actions.append(
-            {
-                "title": f"Create answers for {result.group} intent questions",
-                "description": (
-                    f"{result.provider} mentioned the business in "
-                    f"{result.mention_count}/{result.total_questions} questions for "
-                    f"{result.group}. Publish concise answer-first content for this intent."
-                ),
-                "priority": "high" if result.visibility_score < 35 else "medium",
-                "category": "content",
-                "impact_pts": "+3-6 pts",
-                "effort": "1-3 hours",
-                "status": "open",
-            }
-        )
-
-    if not actions:
-        actions.append(
-            {
-                "title": "Maintain current AI visibility coverage",
-                "description": (
-                    "The latest scan shows strong visibility. Keep content fresh and "
-                    "monitor competitor movement with the next scan."
-                ),
-                "priority": "low",
-                "category": "monitoring",
-                "impact_pts": "+1-2 pts",
-                "effort": "30 minutes",
-                "status": "open",
-            }
-        )
-
-    deduped: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for action in actions:
-        if action["title"] in seen:
-            continue
-        seen.add(action["title"])
-        deduped.append(action)
-    return deduped[:5]
