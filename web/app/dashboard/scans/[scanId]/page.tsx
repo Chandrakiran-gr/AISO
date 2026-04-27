@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { CURRENT_PLAN, PRO_UPGRADE_HREF, canAccessRawArtifacts } from "@/lib/plan";
 import styles from "../scans.module.css";
 
 const API = "/api/proxy";
@@ -21,6 +22,7 @@ type ArtifactData = {
   original_filename: string | null;
   size_bytes: number | null;
   sha256: string | null;
+  created_at?: string | null;
 };
 
 type ScanDetail = {
@@ -55,9 +57,29 @@ function formatBytes(value: number | null): string {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatStatus(value: string): string {
+  return value ? `${value.charAt(0).toUpperCase()}${value.slice(1)}` : "Unknown";
+}
+
+function artifactTitle(artifact: ArtifactData): string {
+  const labels: Record<string, string> = {
+    collect_csv: "Scan results export",
+    report: "Visibility report",
+    question_log: "Question set export",
+  };
+  return labels[artifact.artifact_type] ?? "Scan export";
+}
+
+function artifactMeta(artifact: ArtifactData, scan: ScanDetail): string {
+  const format = artifact.file_format?.toUpperCase() ?? "FILE";
+  const generatedAt = artifact.created_at ?? scan.completed_at ?? scan.created_at;
+  return `${format} • ${formatBytes(artifact.size_bytes)} • Generated ${formatDate(generatedAt)}`;
+}
+
 export default function ScanDetailPage() {
   const params = useParams<{ scanId: string }>();
   const scanId = params.scanId;
+  const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN);
   const [client, setClient] = useState<ClientData | null>(null);
   const [scan, setScan] = useState<ScanDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,7 +127,9 @@ export default function ScanDetailPage() {
         <div className={styles.topBarLeft}>
           <span className={styles.pageTitle}>Scan Detail</span>
           <span className={styles.pageSub}>
-            {client ? `${client.name} · ${scanId}` : scanId}
+            {client && scan
+              ? `${client.name} · ${formatStatus(scan.status)} ${formatDate(scan.completed_at ?? scan.created_at)}`
+              : client?.name ?? "Loading scan"}
           </span>
         </div>
         <Link href="/dashboard/scans" className={styles.newScanBtn}>
@@ -121,7 +145,7 @@ export default function ScanDetailPage() {
           <>
             <div className={styles.statsRow}>
               <div className={styles.statCard}>
-                <span className={styles.statValue}>{scan.status}</span>
+                <span className={styles.statValue}>{formatStatus(scan.status)}</span>
                 <span className={styles.statLabel}>Status</span>
               </div>
               <div className={styles.statCard}>
@@ -134,7 +158,7 @@ export default function ScanDetailPage() {
               </div>
               <div className={styles.statCard}>
                 <span className={styles.statValue}>{scan.artifacts.length}</span>
-                <span className={styles.statLabel}>Artifacts</span>
+                <span className={styles.statLabel}>Exports</span>
               </div>
             </div>
 
@@ -167,26 +191,50 @@ export default function ScanDetailPage() {
               </div>
             </div>
 
-            <div className={styles.detailCard}>
-              <h2 className={styles.sectionTitle}>Artifacts</h2>
+            <div className={`${styles.detailCard} ${styles.exportsCard}`}>
+              <div className={styles.exportsHeader}>
+                <div>
+                  <h2 className={styles.sectionTitle}>Exports</h2>
+                  <p className={styles.exportsSub}>
+                    Downloadable scan files are available with Pro.
+                  </p>
+                </div>
+                {!rawArtifactsUnlocked && (
+                  <span className={styles.exportsPlanBadge}>Pro feature</span>
+                )}
+              </div>
               {scan.artifacts.length ? (
                 <div className={styles.scanList}>
                   {scan.artifacts.map((artifact) => (
-                    <div key={artifact.id} className={styles.artifactRow}>
-                      <div className={styles.scanMeta}>
-                        <span className={styles.scanDate}>
-                          {artifact.original_filename ?? artifact.storage_path}
+                    <div
+                      key={artifact.id}
+                      className={`${styles.artifactRow} ${rawArtifactsUnlocked ? "" : styles.artifactLocked}`}
+                    >
+                      <div className={styles.artifactInfo}>
+                        <span className={styles.artifactIcon}>
+                          {(artifact.file_format ?? "file").slice(0, 3).toUpperCase()}
                         </span>
-                        <span className={styles.scanProviders}>
-                          {artifact.artifact_type} · {artifact.file_format ?? "file"} · {formatBytes(artifact.size_bytes)}
+                        <span className={styles.artifactText}>
+                          <span className={styles.scanDate}>{artifactTitle(artifact)}</span>
+                          <span className={styles.scanProviders}>
+                            {artifactMeta(artifact, scan)}
+                          </span>
                         </span>
                       </div>
-                      <code className={styles.artifactPath}>{artifact.storage_path}</code>
+                      {rawArtifactsUnlocked ? (
+                        <span className={styles.artifactReadyBadge}>Ready</span>
+                      ) : (
+                        <div className={styles.artifactLockAction}>
+                          <Link href={PRO_UPGRADE_HREF} className={styles.artifactUpgradeBtn}>
+                            Get it
+                          </Link>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className={styles.emptySub}>No raw scan artifacts have been saved for this scan yet.</p>
+                <p className={styles.emptySub}>No exports have been saved for this scan yet.</p>
               )}
             </div>
           </>

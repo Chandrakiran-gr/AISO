@@ -77,12 +77,29 @@ type DashboardState = {
   error: string | null;
 };
 
+type ProviderMeta = {
+  id: string;
+  name: string;
+  color: string;
+};
+
 const PROVIDERS = [
   { id: "openai", name: "ChatGPT", color: "#10a37f" },
   { id: "claude", name: "Claude", color: "#d4a27f" },
   { id: "perplexity", name: "Perplexity", color: "#1fb8cd" },
   { id: "gemini", name: "Gemini", color: "#4285f4" },
 ];
+
+const PROVIDER_META = PROVIDERS.reduce<Record<string, ProviderMeta>>((map, provider) => {
+  map[provider.id] = provider;
+  return map;
+}, {});
+const PROVIDER_ORDER = PROVIDERS.map((provider) => provider.id);
+
+function providerOrder(id: string): number {
+  const index = PROVIDER_ORDER.indexOf(id);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
 
 function providerStyle(color: string, score: number): CSSProperties {
   return {
@@ -139,7 +156,7 @@ function ProviderCard({
   metric,
   selected = false,
 }: {
-  provider: (typeof PROVIDERS)[number];
+  provider: ProviderMeta;
   metric?: ProviderMetric;
   selected?: boolean;
 }) {
@@ -264,6 +281,18 @@ export default function DashboardPage() {
   }, [state.metrics]);
   const topCompetitors = state.metrics?.competitors.slice(0, 4) ?? [];
   const topActions = state.actions.filter((action) => action.status !== "done").slice(0, 3);
+  const visibleProviders = state.metrics
+    ? state.metrics.provider_metrics
+        .slice()
+        .sort((a, b) => providerOrder(a.id) - providerOrder(b.id))
+        .map((metric) => (
+          PROVIDER_META[metric.id] ?? {
+            id: metric.id,
+            name: metric.id,
+            color: "#8b94a7",
+          }
+        ))
+    : PROVIDERS;
 
   return (
     <div className={styles.page}>
@@ -369,7 +398,7 @@ export default function DashboardPage() {
         <section aria-labelledby="providers-heading">
           <h2 id="providers-heading" className={styles.sectionLabel}>Provider breakdown</h2>
           <div className={styles.providerGrid}>
-            {PROVIDERS.map((provider, index) => (
+            {visibleProviders.map((provider, index) => (
               <ProviderCard
                 key={provider.id}
                 provider={provider}

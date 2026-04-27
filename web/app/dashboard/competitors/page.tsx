@@ -17,6 +17,8 @@ type CompetitorMetric = {
   name: string;
   score: number;
   mention_count: number;
+  provider_scores?: Record<string, number>;
+  provider_mentions?: Record<string, number>;
   is_you: boolean;
 };
 
@@ -37,12 +39,18 @@ type MetricsData = {
   competitors: CompetitorMetric[];
 };
 
-const PROVIDERS = [
-  { id: "openai", name: "ChatGPT", color: "#10a37f" },
-  { id: "claude", name: "Claude", color: "#e8b68a" },
-  { id: "perplexity", name: "Perplexity", color: "#1fb8cd" },
-  { id: "gemini", name: "Gemini", color: "#4285f4" },
-];
+const PROVIDER_META: Record<string, { name: string; color: string }> = {
+  openai: { name: "ChatGPT", color: "#10a37f" },
+  claude: { name: "Claude", color: "#e8b68a" },
+  perplexity: { name: "Perplexity", color: "#1fb8cd" },
+  gemini: { name: "Gemini", color: "#4285f4" },
+};
+const PROVIDER_ORDER = ["openai", "claude", "perplexity", "gemini"];
+
+function providerOrder(id: string): number {
+  const index = PROVIDER_ORDER.indexOf(id);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
 
 function scoreColor(s: number) {
   if (s >= 60) return "var(--accent-teal)";
@@ -107,6 +115,20 @@ export default function CompetitorsPage() {
 
   const sorted = [...(metrics?.competitors ?? [])].sort((a, b) => b.score - a.score);
   const top3 = sorted.slice(0, 3);
+  const activeProviders = (metrics?.provider_metrics ?? [])
+    .slice()
+    .sort((a, b) => providerOrder(a.id) - providerOrder(b.id))
+    .map((provider) => ({
+      id: provider.id,
+      name: PROVIDER_META[provider.id]?.name ?? provider.id,
+      color: PROVIDER_META[provider.id]?.color ?? "var(--text-secondary)",
+    }));
+  const leaderboardColumns = [
+    "32px",
+    "minmax(160px, 1fr)",
+    ...activeProviders.map(() => "minmax(72px, 92px)"),
+    "80px",
+  ].join(" ");
 
   return (
     <div className={styles.main}>
@@ -159,10 +181,13 @@ export default function CompetitorsPage() {
 
             <h2 className={styles.sectionTitle}>Full Rankings</h2>
             <div className={styles.leaderboardCard}>
-              <div className={styles.leaderboardHeader}>
+              <div
+                className={styles.leaderboardHeader}
+                style={{ gridTemplateColumns: leaderboardColumns }}
+              >
                 <span>#</span>
                 <span>Business</span>
-                {PROVIDERS.map((p) => (
+                {activeProviders.map((p) => (
                   <span key={p.id} style={{ color: p.color, textAlign: "center" }}>{p.name}</span>
                 ))}
                 <span style={{ textAlign: "right" }}>Overall</span>
@@ -171,6 +196,7 @@ export default function CompetitorsPage() {
                 <div
                   key={`${c.name}-${c.is_you}`}
                   className={`${styles.leaderboardRow} ${c.is_you ? styles.isYouRow : ""}`}
+                  style={{ gridTemplateColumns: leaderboardColumns }}
                 >
                   <span className={`${styles.rank} ${i < 3 ? styles.top : ""}`}>
                     {i < 3 ? medal(i) : i + 1}
@@ -179,13 +205,9 @@ export default function CompetitorsPage() {
                     {c.is_you ? metrics.client_name : c.name}
                     {c.is_you && <span className={styles.youTag}>you</span>}
                   </span>
-                  {PROVIDERS.map((p) => {
+                  {activeProviders.map((p) => {
                     const providerMetric = metrics.provider_metrics.find((item) => item.id === p.id);
-                    const providerShare = c.is_you && providerMetric
-                      ? providerMetric.score
-                      : metrics.total_questions
-                        ? (c.mention_count / metrics.total_questions) * 100
-                        : 0;
+                    const providerShare = c.provider_scores?.[p.id] ?? (c.is_you ? providerMetric?.score ?? 0 : 0);
                     return (
                       <span key={p.id} className={styles.providerScore} style={{ color: scoreColor(providerShare) }}>
                         {Math.round(providerShare)}
