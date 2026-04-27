@@ -75,6 +75,44 @@ class ClientProfileTests(unittest.TestCase):
         finally:
             session.close()
 
+    def test_create_client_updates_existing_user_business_when_new_slug_is_sent(self):
+        session = self.Session()
+        try:
+            session.add(User(id="user-1", email="founder@example.com"))
+            session.add(
+                Client(
+                    id="first_business",
+                    user_id="user-1",
+                    name="First Business",
+                    url="https://first.example",
+                )
+            )
+            session.commit()
+
+            updated = asyncio.run(
+                create_client(
+                    ClientCreate(
+                        id="second_business",
+                        display_name="Second Business",
+                        url="https://second.example",
+                        industry="Local services",
+                        competitors=["Rival A"],
+                    ),
+                    response=Response(),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+
+            self.assertEqual(updated.id, "first_business")
+            self.assertEqual(updated.name, "Second Business")
+            self.assertEqual(updated.url, "https://second.example")
+            self.assertEqual(updated.industry, "Local services")
+            self.assertEqual(updated.competitors, ["Rival A"])
+            self.assertEqual(session.query(Client).filter(Client.user_id == "user-1").count(), 1)
+        finally:
+            session.close()
+
 
 class ScanWorkspaceTests(unittest.TestCase):
     def test_prepare_scan_workspace_creates_collect_inputs(self):

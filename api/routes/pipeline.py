@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import uuid
 import json
 import os
+import csv
 
 from api.database import get_db, Scan, Client, ScanArtifact, ScanCitation, ScanResult
 from api.auth import get_current_user_id
@@ -122,6 +123,8 @@ class CompetitorMetric(BaseModel):
     name: str
     score: float
     mention_count: int
+    provider_scores: Dict[str, float] = Field(default_factory=dict)
+    provider_mentions: Dict[str, int] = Field(default_factory=dict)
     is_you: bool = False
 
 
@@ -186,6 +189,47 @@ def _extract_script_failure(script_name: str, return_code: int, output: str) -> 
             return f"{script_name} failed: {line}"
 
     return f"{script_name} failed with exit code {return_code}"
+
+
+def _estimate_api_calls(
+    query_bank_path,
+    groups: List[str],
+    providers: List[str],
+    pick_all: int,
+) -> tuple[int, int, int]:
+    """Estimate collect.py calls from the local query bank for terminal logs."""
+    if not query_bank_path.exists():
+        return 0, len(providers), 0
+
+    group_counts: dict[str, int] = {}
+    with query_bank_path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            group = str(row.get("group") or "all")
+            group_counts[group] = group_counts.get(group, 0) + 1
+
+    selected_groups = groups or list(group_counts)
+    question_count = sum(
+        min(group_counts.get(group, 0), pick_all)
+        for group in selected_groups
+    )
+    provider_count = len(providers)
+    return question_count, provider_count, question_count * provider_count
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        print(f"[AISO Pipeline] {name} must be an integer; using {default}.")
+        return default
+    if value <= 0:
+        print(f"[AISO Pipeline] {name} must be positive; using {default}.")
+        return default
+    return value
 
 
 async def run_pipeline(
@@ -296,10 +340,22 @@ async def run_pipeline(
                 print(f"[AISO Pipeline] {script.name}:\n{output}")
             return proc.returncode or 0, output
 
+        pick_all = _env_positive_int("AISO_PICK_ALL", 14)
+        estimated_questions, estimated_providers, estimated_calls = _estimate_api_calls(
+            client_folder / "query_template_bank.csv",
+            groups,
+            active_providers,
+            pick_all,
+        )
+        print(
+            "[AISO Pipeline] Estimated API calls: "
+            f"{estimated_questions} questions × {estimated_providers} providers = {estimated_calls}"
+        )
+
         collect_args = [
             "--providers", ",".join(active_providers),
             "--groups", ",".join(groups),
-            "--pick-all", os.environ.get("AISO_PICK_ALL", "14"),
+            "--pick-all", str(pick_all),
             "--yes",
         ]
 
@@ -475,8 +531,12 @@ async def get_client_metrics(
 
     provider_buckets: Dict[str, Dict[str, float]] = {}
     group_buckets: Dict[str, Dict[str, int]] = {}
+    client_competitors = _client_competitors(client)
     competitor_counts: Dict[str, int] = {
-        name: 0 for name in _client_competitors(client)
+        name: 0 for name in client_competitors
+    }
+    competitor_provider_counts: Dict[str, Dict[str, int]] = {
+        name: {} for name in client_competitors
     }
 
     for row in result_rows:
@@ -504,6 +564,8 @@ async def get_client_metrics(
 
         for name, count in _safe_json_dict(row.competitor_data).items():
             competitor_counts[name] = competitor_counts.get(name, 0) + count
+            provider_counts = competitor_provider_counts.setdefault(name, {})
+            provider_counts[row.provider] = provider_counts.get(row.provider, 0) + count
 
     provider_metrics = []
     for provider, bucket in sorted(provider_buckets.items()):
@@ -539,11 +601,23 @@ async def get_client_metrics(
             )
         )
 
+    provider_totals = {
+        item.id: item.total_questions for item in provider_metrics
+    }
+    user_provider_mentions = {
+        item.id: item.mention_count for item in provider_metrics
+    }
+    user_provider_scores = {
+        item.id: item.score for item in provider_metrics
+    }
+
     competitors = [
         CompetitorMetric(
             name=client.name,
             score=_weighted_score(total_mentions, total_questions),
             mention_count=total_mentions,
+            provider_scores=user_provider_scores,
+            provider_mentions=user_provider_mentions,
             is_you=True,
         )
     ]
@@ -552,6 +626,17 @@ async def get_client_metrics(
             name=name,
             score=_weighted_score(count, total_questions),
             mention_count=count,
+            provider_scores={
+                provider: _weighted_score(
+                    competitor_provider_counts.get(name, {}).get(provider, 0),
+                    provider_total,
+                )
+                for provider, provider_total in provider_totals.items()
+            },
+            provider_mentions={
+                provider: competitor_provider_counts.get(name, {}).get(provider, 0)
+                for provider in provider_totals
+            },
             is_you=False,
         )
         for name, count in competitor_counts.items()
@@ -584,6 +669,19 @@ def _parse_skipped(error_field: Optional[str]) -> List[str]:
     return []
 
 
+def _friendly_scan_error(message: str) -> str:
+    generic_collect_failures = (
+        "collect.py exited with code",
+        "collect.py failed with exit code",
+    )
+    if any(marker in message for marker in generic_collect_failures):
+        return (
+            "Scan collection failed. Check the selected provider API keys, quota, "
+            "and rate limits, then run a new scan."
+        )
+    return message
+
+
 def _public_error(error_field: Optional[str]) -> Optional[str]:
     """Return a user-facing scan error while hiding skipped-provider metadata."""
     if not error_field:
@@ -592,10 +690,10 @@ def _public_error(error_field: Optional[str]) -> Optional[str]:
         data = json.loads(error_field)
         if isinstance(data, dict):
             message = data.get("error") or data.get("message")
-            return str(message) if message else None
+            return _friendly_scan_error(str(message)) if message else None
     except Exception:
         pass
-    return error_field
+    return _friendly_scan_error(error_field)
 
 
 def _json_list(value: Optional[str]) -> Optional[List[str]]:
@@ -682,4 +780,9 @@ async def list_scan_citations(
     return db.query(ScanCitation).filter(
         ScanCitation.client_id == client_id,
         ScanCitation.scan_id == scan_id,
-    ).order_by(ScanCitation.created_at.desc()).all()
+    ).order_by(
+        ScanCitation.provider.asc(),
+        ScanCitation.group.asc(),
+        ScanCitation.question.asc(),
+        ScanCitation.source_rank.asc(),
+    ).all()

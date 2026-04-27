@@ -1,4 +1,5 @@
 import json
+import csv
 import tempfile
 import unittest
 from pathlib import Path
@@ -159,11 +160,23 @@ class DatabaseSchemaTests(unittest.TestCase):
                 encoding="utf-8",
             )
             csv_path = folder / "responses.csv"
-            csv_path.write_text(
-                "question,group,response_openai,error_openai\n"
-                "best ai visibility tool,G1,AISO Demo is a strong option,\n",
-                encoding="utf-8",
-            )
+            with csv_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["question", "group", "response_openai", "error_openai"],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "question": "best ai visibility tool",
+                        "group": "G1",
+                        "response_openai": (
+                            "AISO Demo is a strong option with proof from "
+                            "[Example Source](https://example.com/source?utm_source=test)."
+                        ),
+                        "error_openai": "",
+                    }
+                )
 
             with patch.object(database_module, "SessionLocal", self.Session):
                 persisted = persist_collect_csv_results(
@@ -177,7 +190,12 @@ class DatabaseSchemaTests(unittest.TestCase):
         try:
             self.assertEqual(len(persisted), 1)
             self.assertEqual(session.query(ScanResult).count(), 1)
+            self.assertEqual(session.query(ScanCitation).count(), 1)
             self.assertGreaterEqual(session.query(Action).count(), 1)
+            citation = session.query(ScanCitation).one()
+            self.assertEqual(citation.citation_url, "https://example.com/source")
+            self.assertEqual(citation.citation_title, "Example Source")
+            self.assertEqual(citation.source_domain, "example.com")
             artifact = session.query(ScanArtifact).one()
             self.assertEqual(artifact.artifact_type, "collect_csv")
             self.assertEqual(artifact.file_format, "csv")

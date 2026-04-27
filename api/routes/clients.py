@@ -1,6 +1,6 @@
 """
 Clients router — CRUD for client profiles.
-Each user can have multiple clients (businesses being tracked).
+Each user currently has one client/business profile.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -75,6 +75,25 @@ def _serialize_client(client: Client) -> ClientResponse:
     )
 
 
+def _apply_client_payload(
+    client: Client,
+    payload: ClientCreate,
+    resolved_name: str,
+    *,
+    preserve_omitted: bool,
+) -> None:
+    fields_set = payload.model_fields_set
+    client.name = resolved_name
+    if not preserve_omitted or "url" in fields_set:
+        client.url = payload.resolved_url or client.url
+    if not preserve_omitted or "industry" in fields_set:
+        client.industry = payload.industry
+    if not preserve_omitted or "location" in fields_set:
+        client.location = payload.location
+    if not preserve_omitted or "competitors" in fields_set:
+        client.competitors = _competitors_json(payload.competitors)
+
+
 @router.get("/clients", response_model=List[ClientResponse])
 async def list_clients(
     db: Session = Depends(get_db),
@@ -92,7 +111,7 @@ async def create_client(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id)
 ):
-    """Create or update a client profile for the current user."""
+    """Create or update the current user's single business profile."""
     resolved_name = payload.resolved_name
     if not resolved_name:
         raise HTTPException(status_code=422, detail="name or display_name is required")
@@ -104,20 +123,19 @@ async def create_client(
         if existing.user_id != user_id:
             raise HTTPException(status_code=409, detail="Client id already exists")
 
-        fields_set = payload.model_fields_set
-        existing.name = resolved_name
-        if "url" in fields_set:
-            existing.url = payload.resolved_url or existing.url
-        if "industry" in fields_set:
-            existing.industry = payload.industry
-        if "location" in fields_set:
-            existing.location = payload.location
-        if "competitors" in fields_set:
-            existing.competitors = _competitors_json(payload.competitors)
+        _apply_client_payload(existing, payload, resolved_name, preserve_omitted=True)
         db.commit()
         db.refresh(existing)
         response.status_code = status.HTTP_200_OK
         return _serialize_client(existing)
+
+    existing_for_user = db.query(Client).filter(Client.user_id == user_id).order_by(Client.created_at.asc()).first()
+    if existing_for_user:
+        _apply_client_payload(existing_for_user, payload, resolved_name, preserve_omitted=True)
+        db.commit()
+        db.refresh(existing_for_user)
+        response.status_code = status.HTTP_200_OK
+        return _serialize_client(existing_for_user)
 
     client = Client(
         id=client_id,

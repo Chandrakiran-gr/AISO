@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { CURRENT_PLAN, PRO_UPGRADE_HREF, canAccessRawArtifacts } from "@/lib/plan";
 import styles from "../dashboard.module.css";
 
 const API = "/api/proxy";
@@ -21,8 +22,10 @@ type ScanData = {
 type ArtifactData = {
   id: string;
   artifact_type: string;
+  file_format?: string | null;
   storage_path: string;
   original_filename: string | null;
+  size_bytes?: number | null;
 };
 
 type CitationData = {
@@ -36,7 +39,25 @@ type CitationData = {
   source_domain: string | null;
 };
 
+function artifactTitle(artifact: ArtifactData): string {
+  const labels: Record<string, string> = {
+    collect_csv: "Scan results export",
+    report: "Visibility report",
+    question_log: "Question set export",
+  };
+  return labels[artifact.artifact_type] ?? "Scan export";
+}
+
+function artifactMeta(artifact: ArtifactData): string {
+  const format = artifact.file_format?.toUpperCase() ?? "FILE";
+  if (!artifact.size_bytes) return format;
+  if (artifact.size_bytes < 1024) return `${format} • ${artifact.size_bytes} B`;
+  if (artifact.size_bytes < 1024 * 1024) return `${format} • ${Math.round(artifact.size_bytes / 1024)} KB`;
+  return `${format} • ${(artifact.size_bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function ResponsesPage() {
+  const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN);
   const [client, setClient] = useState<ClientData | null>(null);
   const [scan, setScan] = useState<ScanData | null>(null);
   const [citations, setCitations] = useState<CitationData[]>([]);
@@ -121,22 +142,31 @@ export default function ResponsesPage() {
           <section className={styles.lowerGrid}>
             <article className={`${styles.card} ${styles.trendCard}`}>
               <span className={styles.cardLabel}>Citations</span>
-              <div className={styles.actionList}>
+              <div className={styles.citationList}>
                 {citations.length ? (
                   citations.map((citation) => (
-                    <a
+                    <article
                       key={citation.id}
-                      className={styles.actionRow}
-                      href={citation.citation_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      className={styles.citationCard}
                     >
-                      <span>
-                        {citation.provider}
-                        {citation.group ? ` · ${citation.group}` : ""} · {citation.source_domain ?? citation.citation_url}
-                      </span>
-                      <strong>Open</strong>
-                    </a>
+                      <div className={styles.citationMeta}>
+                        <span>{citation.provider}{citation.group ? ` · ${citation.group}` : ""}</span>
+                        <a
+                          href={citation.citation_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.citationLink}
+                        >
+                          {citation.source_domain ?? citation.citation_title ?? "Open source"}
+                        </a>
+                      </div>
+                      {citation.question && (
+                        <p className={styles.citationQuestion}>{citation.question}</p>
+                      )}
+                      {citation.answer_excerpt && (
+                        <p className={styles.citationExcerpt}>{citation.answer_excerpt}</p>
+                      )}
+                    </article>
                   ))
                 ) : (
                   <p className={styles.heroSub}>
@@ -147,13 +177,31 @@ export default function ResponsesPage() {
             </article>
 
             <article className={`${styles.card} ${styles.actionsCard}`}>
-              <span className={styles.cardLabelTeal}>Raw artifacts</span>
+              <span className={styles.cardLabelTeal}>Exports</span>
               <div className={styles.actionList}>
                 {scan.artifacts?.length ? (
                   scan.artifacts.map((artifact) => (
-                    <div key={artifact.id} className={styles.actionRow}>
-                      <span>{artifact.original_filename ?? artifact.storage_path}</span>
-                      <strong>{artifact.artifact_type}</strong>
+                    <div
+                      key={artifact.id}
+                      className={rawArtifactsUnlocked ? styles.exportRow : styles.lockedArtifactRow}
+                    >
+                      <span className={styles.exportIcon}>
+                        {(artifact.file_format ?? "file").slice(0, 3).toUpperCase()}
+                      </span>
+                      <span className={styles.exportText}>
+                        <span>{artifactTitle(artifact)}</span>
+                        <small>{artifactMeta(artifact)}</small>
+                      </span>
+                      {rawArtifactsUnlocked ? (
+                        <strong>Ready</strong>
+                      ) : (
+                        <>
+                          <strong className={styles.lockedBadge}>Pro export</strong>
+                          <Link href={PRO_UPGRADE_HREF} className={styles.artifactUpgradeLink}>
+                            Get it
+                          </Link>
+                        </>
+                      )}
                     </div>
                   ))
                 ) : (

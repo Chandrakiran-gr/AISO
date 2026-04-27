@@ -288,15 +288,83 @@
   text-align: right;
 }
 
+.exportsCard {
+  max-width: 760px;
+}
+
+.exportsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.exportsSub {
+  margin-top: 6px;
+  max-width: 520px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.exportsPlanBadge {
+  border: 1px solid rgba(124, 92, 252, 0.22);
+  border-radius: var(--radius-full);
+  padding: 5px 10px;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .artifactRow {
   display: grid;
-  grid-template-columns: 1fr minmax(160px, 280px);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md);
+  gap: var(--space-lg);
+  min-height: 78px;
+  padding: 16px 18px;
   border: var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: rgba(15,17,23,0.45);
+  border-radius: 14px;
+  background: rgba(15,17,23,0.38);
+}
+
+.artifactLocked {
+  border-color: rgba(124, 92, 252, 0.18);
+  background:
+    linear-gradient(135deg, rgba(124, 92, 252, 0.07), rgba(0, 212, 170, 0.035)),
+    rgba(15,17,23,0.42);
+}
+
+.artifactInfo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.artifactIcon {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 212, 170, 0.18);
+  border-radius: 12px;
+  background: rgba(0, 212, 170, 0.08);
+  color: var(--accent-teal);
+  font-size: 0.6875rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.artifactText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
 }
 
 .artifactPath {
@@ -307,14 +375,53 @@
   white-space: nowrap;
 }
 
+.artifactLockAction {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.artifactUpgradeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 11px;
+  background: var(--gradient-brand);
+  color: var(--bg-base);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.artifactReadyBadge {
+  border: 1px solid rgba(0, 212, 170, 0.18);
+  border-radius: var(--radius-full);
+  padding: 5px 10px;
+  color: var(--accent-teal);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
   .statsRow,
   .detailGrid {
     grid-template-columns: 1fr;
   }
 
+  .exportsHeader {
+    flex-direction: column;
+  }
+
   .scanRow,
   .artifactRow {
     grid-template-columns: 1fr;
+  }
+
+  .artifactLockAction {
+    justify-content: flex-start;
   }
 }

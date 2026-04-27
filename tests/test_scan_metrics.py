@@ -6,6 +6,7 @@ from pathlib import Path
 from full_stack.scan_metrics import (
     ClientIdentity,
     aggregate_scan_results,
+    extract_scan_citations,
     load_client_identity,
 )
 
@@ -84,6 +85,43 @@ class ScanMetricsTests(unittest.TestCase):
         self.assertEqual(identity.focal_name, "PemSpa Skincare & Wellness")
         self.assertIn("PemSpa", identity.focal_aliases)
         self.assertEqual(identity.competitors, ("Bella Boutique Spa",))
+
+    def test_extracts_citations_and_dedupes_only_within_answer(self):
+        fieldnames = [
+            "question",
+            "group",
+            "response_perplexity",
+            "error_perplexity",
+        ]
+        rows = [
+            {
+                "question": "best facials",
+                "group": "G1",
+                "response_perplexity": (
+                    "PemSpa is mentioned by [Local Guide](https://Example.com/page/?utm_source=ai&b=2&a=1). "
+                    "Duplicate link [Again](https://example.com/page/?a=1&b=2#frag) "
+                    "and a bare URL https://source.example/review?utm_campaign=test."
+                ),
+            },
+            {
+                "question": "is PemSpa legit",
+                "group": "G5",
+                "response_perplexity": (
+                    "The same source can repeat across questions: "
+                    "[Local Guide](https://example.com/page/?a=1&b=2)."
+                ),
+            },
+        ]
+
+        citations = extract_scan_citations(rows, fieldnames)
+
+        self.assertEqual(len(citations), 3)
+        self.assertEqual(citations[0].citation_url, "https://example.com/page?a=1&b=2")
+        self.assertEqual(citations[0].citation_title, "Local Guide")
+        self.assertEqual(citations[0].source_domain, "example.com")
+        self.assertEqual(citations[0].source_rank, 1)
+        self.assertEqual(citations[1].citation_url, "https://source.example/review")
+        self.assertEqual(citations[2].question, "is PemSpa legit")
 
 
 if __name__ == "__main__":

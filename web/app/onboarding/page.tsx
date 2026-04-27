@@ -48,7 +48,16 @@ const DEFAULT: FormState = {
   location:     "",
   competitors:  "",
   providers:    ["openai", "claude", "perplexity", "gemini"],
-  groups:       ["G1", "G2", "G3"],
+  groups:       GROUPS.map((group) => group.id),
+};
+
+type ExistingClient = {
+  id: string;
+  name: string;
+  url: string;
+  industry: string | null;
+  location: string | null;
+  competitors: string[] | null;
 };
 
 function providerName(id: string): string {
@@ -490,6 +499,36 @@ export default function OnboardingPage() {
 
   // Clean up poller on unmount
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadExistingClient() {
+      try {
+        const res = await fetch(`${API}/v1/clients`, { cache: "no-store" });
+        if (!res.ok) return;
+        const clients: ExistingClient[] = await res.json();
+        const client = clients[0] ?? null;
+        if (!client || !active) return;
+
+        setForm((prev) => ({
+          ...prev,
+          businessName: client.name,
+          websiteUrl: client.url,
+          industry: client.industry ?? "",
+          location: client.location ?? "",
+          competitors: client.competitors?.join(", ") ?? "",
+        }));
+      } catch {
+        // Prefill is a convenience only; users can still enter details manually.
+      }
+    }
+
+    void loadExistingClient();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleLaunch() {
     setError(null);

@@ -16,6 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,21 @@ class AggregatedScanResult:
     avg_position: float | None
     visibility_score: float
     competitor_data: dict[str, int]
+
+
+@dataclass(frozen=True)
+class ExtractedCitation:
+    """A DB-ready source citation extracted from one provider answer."""
+
+    provider: str
+    group: str | None
+    question: str | None
+    answer_excerpt: str | None
+    citation_url: str
+    citation_title: str | None
+    source_domain: str | None
+    source_rank: int
+    metadata: dict[str, str]
 
 
 def _normalize_slug(raw: str) -> str:
@@ -201,6 +217,162 @@ def read_collect_csv(csv_path: Path) -> tuple[list[dict[str, str]], list[str]]:
         return list(reader), list(reader.fieldnames or [])
 
 
+TRACKING_QUERY_PARAMS = {
+    "fbclid",
+    "gclid",
+    "gbraid",
+    "igshid",
+    "mc_cid",
+    "mc_eid",
+    "msclkid",
+    "twclid",
+}
+
+
+def _clean_url(raw_url: str) -> str:
+    url = str(raw_url or "").strip().strip("<>\"'")
+    return url.rstrip(".,;:!?)]+}")
+
+
+def _normalize_url(raw_url: str) -> str | None:
+    url = _clean_url(raw_url)
+    if not url.startswith(("http://", "https://")):
+        return None
+
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return None
+    if not parsed.netloc:
+        return None
+
+    netloc = parsed.netloc.lower()
+    if netloc.endswith(":80") and parsed.scheme == "http":
+        netloc = netloc[:-3]
+    if netloc.endswith(":443") and parsed.scheme == "https":
+        netloc = netloc[:-4]
+
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.lower().startswith("utm_") and key.lower() not in TRACKING_QUERY_PARAMS
+    ]
+    query.sort()
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/")
+
+    return urlunsplit(
+        (
+            parsed.scheme.lower(),
+            netloc,
+            path,
+            urlencode(query, doseq=True),
+            "",
+        )
+    )
+
+
+def _source_domain(raw_url: str) -> str | None:
+    normalized = _normalize_url(raw_url)
+    if not normalized:
+        return None
+    domain = urlsplit(normalized).netloc.lower()
+    return domain.removeprefix("www.") or None
+
+
+def _answer_excerpt(text: str, limit: int = 420) -> str | None:
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not clean:
+        return None
+    return clean if len(clean) <= limit else clean[: limit - 1].rstrip() + "…"
+
+
+def _extract_markdown_links(text: str) -> list[tuple[str, str]]:
+    return [
+        (label.strip(), _clean_url(url))
+        for label, url in re.findall(r"\[([^\]]{1,240})\]\((https?://[^)\s]+)\)", text)
+    ]
+
+
+def _extract_bare_urls(text: str) -> list[str]:
+    return [
+        _clean_url(match.group(0))
+        for match in re.finditer(r"https?://[^\s<>\]\)\"']+", text)
+    ]
+
+
+def extract_scan_citations(
+    rows: list[Mapping[str, str]],
+    fieldnames: list[str],
+) -> list[ExtractedCitation]:
+    """
+    Extract source URLs from provider responses.
+
+    Duplicates are removed only within one answer. Repeated citations across
+    questions, providers, or scans remain as durable signal.
+    """
+    provider_names = [
+        name.removeprefix("response_")
+        for name in fieldnames
+        if name.startswith("response_")
+    ]
+    citations: list[ExtractedCitation] = []
+
+    for row in rows:
+        group = str(row.get("group") or "") or None
+        question = str(row.get("question") or "") or None
+        for provider in provider_names:
+            response_text = str(row.get(f"response_{provider}") or "")
+            if not response_text.strip():
+                continue
+
+            candidates: list[tuple[str | None, str, str]] = []
+            for title, url in _extract_markdown_links(response_text):
+                candidates.append((title or None, url, "markdown"))
+            markdown_normalized = {
+                normalized
+                for _, url, _ in candidates
+                if (normalized := _normalize_url(url))
+            }
+            for url in _extract_bare_urls(response_text):
+                normalized = _normalize_url(url)
+                if normalized and normalized not in markdown_normalized:
+                    candidates.append((None, url, "bare_url"))
+
+            seen_in_answer: set[str] = set()
+            source_rank = 0
+            for title, url, citation_type in candidates:
+                normalized = _normalize_url(url)
+                if not normalized or normalized in seen_in_answer:
+                    continue
+                seen_in_answer.add(normalized)
+                source_rank += 1
+
+                domain = _source_domain(normalized)
+                clean_title = title
+                if clean_title and clean_title.strip().isdigit():
+                    clean_title = None
+                citations.append(
+                    ExtractedCitation(
+                        provider=provider,
+                        group=group,
+                        question=question,
+                        answer_excerpt=_answer_excerpt(response_text),
+                        citation_url=normalized,
+                        citation_title=clean_title,
+                        source_domain=domain,
+                        source_rank=source_rank,
+                        metadata={
+                            "citation_type": citation_type,
+                            "normalized_url": normalized,
+                        },
+                    )
+                )
+
+    return citations
+
+
 def aggregate_scan_results(
     rows: list[Mapping[str, str]],
     fieldnames: list[str],
@@ -306,16 +478,18 @@ def persist_collect_csv_results(
     Writes are idempotent for a scan_id: existing rows for the scan are removed
     before inserting the freshly aggregated result set.
     """
-    results = aggregate_collect_csv(
-        csv_path,
+    rows, fieldnames = read_collect_csv(csv_path)
+    identity = load_client_identity(
         client_folder,
         fallback_name=fallback_name,
         fallback_competitors=fallback_competitors,
     )
+    results = aggregate_scan_results(rows, fieldnames, identity)
     if not results:
         return []
+    citations = extract_scan_citations(rows, fieldnames)
 
-    from api.database import Action, ScanArtifact, ScanResult, SessionLocal
+    from api.database import Action, ScanArtifact, ScanCitation, ScanResult, SessionLocal
     from api.storage import describe_local_artifact
 
     db = SessionLocal()
@@ -326,6 +500,7 @@ def persist_collect_csv_results(
             ScanArtifact.scan_id == scan_id,
             ScanArtifact.artifact_type == "collect_csv",
         ).delete()
+        db.query(ScanCitation).filter(ScanCitation.scan_id == scan_id).delete()
         for result in results:
             db.add(
                 ScanResult(
@@ -357,6 +532,23 @@ def persist_collect_csv_results(
                 **artifact,
             )
         )
+        for citation in citations:
+            db.add(
+                ScanCitation(
+                    id=str(uuid.uuid4()),
+                    scan_id=scan_id,
+                    client_id=client_id,
+                    provider=citation.provider,
+                    group=citation.group,
+                    question=citation.question,
+                    answer_excerpt=citation.answer_excerpt,
+                    citation_url=citation.citation_url,
+                    citation_title=citation.citation_title,
+                    source_domain=citation.source_domain,
+                    source_rank=citation.source_rank,
+                    metadata_json=json.dumps(citation.metadata),
+                )
+            )
         for action in _recommend_actions(results):
             db.add(
                 Action(
