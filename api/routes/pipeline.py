@@ -102,7 +102,7 @@ GROUP_LABELS = {
     "G4": "Transactional & bottom-funnel",
     "G5": "Trust, reviews & risk",
     "G6": "Fit: persona, occasion, constraint",
-    "G7": "Post-purchase support",
+    "G7": "Head-to-head choice",
     "all": "All questions",
 }
 

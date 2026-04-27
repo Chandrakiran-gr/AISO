@@ -1,24 +1,19 @@
-"use client";
-
-import { useState } from "react";
-import Sidebar from "@/components/Sidebar/Sidebar";
 import styles from "./layout.module.css";
+import Sidebar from "@/components/Sidebar/Sidebar";
+import { auth } from "@/auth";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const session = await auth();
+  const accountLabel = session?.user?.name || session?.user?.email || null;
 
   return (
     <div className={styles.shell}>
-      <Sidebar onExpandChange={setSidebarExpanded} />
-      <main
-        className={`${styles.main} ${sidebarExpanded ? styles.mainExpanded : ""}`}
-      >
-        {children}
-      </main>
+      <Sidebar initialAccountLabel={accountLabel} />
+      <main className={styles.main}>{children}</main>
     </div>
   );
 }

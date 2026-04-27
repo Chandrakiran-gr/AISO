@@ -65,12 +65,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       } else if (user) {
         token.id = user.id;
+        token.email = user.email;
+        token.name = user.name;
       }
       return token;
     },
     // Expose id in session
     async session({ session, token }) {
       if (token.id) session.user.id = token.id as string;
+      if (typeof token.email === "string") session.user.email = token.email;
+      if (typeof token.name === "string") session.user.name = token.name;
       return session;
     },
   },

@@ -1,193 +1,295 @@
-/* ── Sidebar ──────────────────────────────────────────────── */
+/* Shared dashboard sidebar */
 
 .sidebar {
-  position: fixed;
-  left: 0;
-  top: 0;
-  height: 100vh;
-  width: var(--sidebar-width-collapsed);
-  background: rgba(8, 9, 13, 0.95);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  width: 220px;
+  flex-shrink: 0;
   border-right: var(--border-subtle);
+  background: var(--bg-deep);
   display: flex;
   flex-direction: column;
-  z-index: var(--z-sidebar);
-  transition: width var(--transition-slow);
-  overflow: hidden;
+  padding: var(--space-md) 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
-.sidebar.expanded {
-  width: var(--sidebar-width-expanded);
-}
-
-/* Logo */
 .logo {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-lg) var(--space-md);
-  cursor: pointer;
-  min-height: 64px;
-  user-select: none;
+  gap: 8px;
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .logoMark {
-  font-size: 1.25rem;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-brand);
+  color: var(--bg-base);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.logoText {
   background: var(--gradient-brand);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  flex-shrink: 0;
-  width: 40px;
-  text-align: center;
-  transition: transform var(--transition-fast);
 }
 
-.logo:hover .logoMark { transform: scale(1.1); }
-
-.logoText {
-  font-family: var(--font-display);
-  font-size: 1.0625rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translateX(-8px);
-  animation: slideIn 0.15s ease-out forwards;
-}
-
-@keyframes slideIn {
-  to { opacity: 1; transform: translateX(0); }
-}
-
-/* Gradient glow line under logo */
-.glow {
-  height: 1px;
-  background: var(--gradient-brand);
-  opacity: 0.2;
-  margin: 0 var(--space-md);
-}
-
-/* Navigation */
 .nav {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  padding: var(--space-md) var(--space-sm);
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: var(--space-sm);
+  padding: 0 var(--space-sm);
 }
 
 .groupLabel {
+  display: block;
   font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-muted);
   padding: 0 var(--space-sm);
-  margin-bottom: 2px;
-  white-space: nowrap;
-  opacity: 0;
-  animation: slideIn 0.15s ease-out 0.05s forwards;
+  margin: var(--space-md) 0 var(--space-xs);
 }
 
 .navItem {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 10px;
   padding: 8px var(--space-sm);
   border-radius: var(--radius-md);
-  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
   text-decoration: none;
   transition: background var(--transition-fast), color var(--transition-fast);
-  white-space: nowrap;
-  min-height: 36px;
 }
 
 .navItem:hover {
   background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-
-.navItem.active {
-  background: rgba(0, 212, 170, 0.08);
   color: var(--text-primary);
 }
 
-.navIcon {
-  font-size: 0.875rem;
-  width: 40px;
-  text-align: center;
-  flex-shrink: 0;
-  transition: color var(--transition-fast);
+.navItem.active {
+  background: rgba(0,212,170,0.08);
+  color: var(--accent-teal);
 }
 
-.navItem.active .navIcon {
-  background: var(--gradient-brand);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.navIcon {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.035);
+}
+
+.navIcon::before,
+.navIcon::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.9;
+}
+
+.navIconscans::before {
+  border-radius: 50%;
+  inset: 4px 6px 6px 4px;
+}
+
+.navIconscans::after {
+  width: 6px;
+  height: 1.5px;
+  inset: auto 3px 4px auto;
+  border: none;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+.navIconrank::before {
+  inset: auto 5px 4px 5px;
+  height: 8px;
+  border-width: 0 0 1.5px 0;
+  border-radius: 0;
+  box-shadow:
+    -4px -2px 0 -2px currentColor,
+    0 -5px 0 -2px currentColor,
+    4px -8px 0 -2px currentColor;
+}
+
+.navIconrank::after {
+  display: none;
+}
+
+.navIconactions::before {
+  inset: 4px 8px;
+  border-width: 0 1.5px 0 0;
+  border-radius: 0;
+  transform: skewX(-18deg);
+}
+
+.navIconactions::after {
+  inset: auto 6px 4px 6px;
+  height: 1.5px;
+  border: none;
+  background: currentColor;
+  transform: skewX(-18deg);
+}
+
+.navIconsettings::before {
+  border-radius: 50%;
+  inset: 4px;
+}
+
+.navIconsettings::after {
+  inset: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .navLabel {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  opacity: 0;
-  animation: slideIn 0.15s ease-out 0.05s forwards;
+  min-width: 0;
 }
 
-.activeDot {
-  position: absolute;
-  right: var(--space-sm);
-  width: 5px;
-  height: 5px;
-  background: var(--gradient-brand);
-  border-radius: 50%;
+.sidebarSpacer {
+  flex: 1;
 }
 
-/* Bottom section */
-.bottom {
-  padding: var(--space-md) var(--space-sm);
+.sidebarFooter {
+  padding: var(--space-sm) var(--space-md);
   border-top: var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.cmdBtn {
+.userEmail {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.signOutBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--transition-fast);
+}
+
+.signOutBtn:hover {
+  color: var(--text-primary);
+}
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: rgba(0,0,0,0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.dialog {
+  width: min(420px, 100%);
+  background: var(--bg-elevated);
+  border: var(--border-muted);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-deep);
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.dialogIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-brand);
+  color: var(--bg-base);
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.dialogTitle {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.dialogText {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
   gap: var(--space-sm);
-  width: 100%;
-  padding: 8px var(--space-sm);
-  background: transparent;
+  margin-top: var(--space-sm);
+}
+
+.dialogCancel,
+.dialogConfirm {
   border: none;
   border-radius: var(--radius-md);
-  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 700;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-  text-align: left;
+  padding: 10px 14px;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
-.cmdBtn:hover {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-
-.kbd {
-  margin-left: auto;
-  padding: 1px 6px;
+.dialogCancel {
   background: var(--bg-surface);
-  border: var(--border-subtle);
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.dialogConfirm {
+  background: var(--gradient-brand);
+  color: var(--text-inverse);
+}
+
+.dialogCancel:hover,
+.dialogConfirm:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 720px) {
+  .sidebar {
+    width: 184px;
+  }
 }

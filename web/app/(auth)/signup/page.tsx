@@ -2,6 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import styles from "../auth.module.css";
 import { signInWithGoogle, signUpWithCredentials } from "../actions";
+import { PasswordField } from "../PasswordField";
+
+const PASSWORD_PATTERN =
+  "(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9\\s]).{8,}";
+const PASSWORD_POLICY =
+  "Use at least 8 characters with uppercase, lowercase, number, and special character.";
 
 export const metadata: Metadata = {
   title: "Sign up free — AISO by Sapienic",
@@ -125,8 +131,21 @@ async function SignupContent({
             </div>
             <div className={styles.fieldGroup}>
               <label className={styles.label} htmlFor="signup-password">Password</label>
-              <input id="signup-password" name="password" type="password" className="input"
-                placeholder="At least 8 characters" autoComplete="new-password" required minLength={8} maxLength={128} />
+              <PasswordField
+                id="signup-password"
+                name="password"
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                maxLength={128}
+                pattern={PASSWORD_PATTERN}
+                title={PASSWORD_POLICY}
+                describedBy="signup-password-help"
+              />
+              <p className={styles.passwordHelp} id="signup-password-help">
+                {PASSWORD_POLICY}
+              </p>
             </div>
             <button type="submit" className={styles.submitBtn} id="signup-submit-btn">
               Create free account →

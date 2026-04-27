@@ -207,6 +207,42 @@
   color: var(--text-secondary);
 }
 
+.passwordWrap {
+  position: relative;
+}
+
+.passwordInput {
+  padding-right: 64px !important;
+}
+
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 2px;
+  transition: color var(--transition-fast);
+}
+
+.passwordToggle:hover,
+.passwordToggle:focus-visible {
+  color: var(--text-primary);
+}
+
+.passwordHelp {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .submitBtn {
   width: 100%;
   padding: 12px;

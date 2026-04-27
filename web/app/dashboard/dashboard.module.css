@@ -35,10 +35,17 @@
 }
 
 .logoMark {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--gradient-brand);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--bg-base);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .sidebarSection {
@@ -81,10 +88,79 @@
 }
 
 .navIcon {
-  font-size: 1rem;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  border-radius: 6px;
   flex-shrink: 0;
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.035);
+}
+
+.navIcon::before,
+.navIcon::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.9;
+}
+
+.navIconscans::before {
+  border-radius: 50%;
+  inset: 4px 6px 6px 4px;
+}
+
+.navIconscans::after {
+  width: 6px;
+  height: 1.5px;
+  inset: auto 3px 4px auto;
+  border: none;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+.navIconrank::before {
+  inset: auto 5px 4px 5px;
+  height: 8px;
+  border-width: 0 0 1.5px 0;
+  border-radius: 0;
+  box-shadow:
+    -4px -2px 0 -2px currentColor,
+    0 -5px 0 -2px currentColor,
+    4px -8px 0 -2px currentColor;
+}
+
+.navIconrank::after {
+  display: none;
+}
+
+.navIconactions::before {
+  inset: 4px 8px;
+  border-width: 0 1.5px 0 0;
+  border-radius: 0;
+  transform: skewX(-18deg);
+}
+
+.navIconactions::after {
+  inset: auto 6px 4px 6px;
+  height: 1.5px;
+  border: none;
+  background: currentColor;
+  transform: skewX(-18deg);
+}
+
+.navIconsettings::before {
+  border-radius: 50%;
+  inset: 4px;
+}
+
+.navIconsettings::after {
+  inset: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .sidebarSpacer { flex: 1; }
@@ -118,6 +194,94 @@
 }
 
 .signOutBtn:hover { color: var(--text-primary); }
+
+/* Sign-out dialog */
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: rgba(0,0,0,0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.dialog {
+  width: min(420px, 100%);
+  background: var(--bg-elevated);
+  border: var(--border-muted);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-deep);
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.dialogIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-brand);
+  color: var(--bg-base);
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.dialogTitle {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.dialogText {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.dialogCancel,
+.dialogConfirm {
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 10px 14px;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.dialogCancel {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.dialogConfirm {
+  background: var(--gradient-brand);
+  color: var(--text-inverse);
+}
+
+.dialogCancel:hover,
+.dialogConfirm:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
 
 /* ── Main content ────────────────────────────────────────────── */
 .main {

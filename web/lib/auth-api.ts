@@ -64,7 +64,9 @@ async function postAuth(path: string, body: AuthPayload): Promise<AuthUser> {
         ? "email_exists"
         : response.status === 401
           ? "invalid_credentials"
-          : "auth_api_error";
+          : response.status === 422
+            ? "validation_error"
+            : "auth_api_error";
 
     throw new AuthApiError(detail, response.status, code);
   }

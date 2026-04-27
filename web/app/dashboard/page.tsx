@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { useSession, signOut } from "next-auth/react";
 import styles from "./dashboard.module.css";
+import { INTENT_GROUPS } from "@/lib/intent-groups";
 
 export const dynamic = "force-dynamic";
 
@@ -28,15 +28,10 @@ const PLACEHOLDER_PROVIDERS = [
   { id: "gemini",     name: "Gemini",     color: "#4285f4", score: 0, mentions: 0, total: 100 },
 ];
 
-const PLACEHOLDER_GROUPS = [
-  { id: "G1", label: "Awareness",  score: 0 },
-  { id: "G2", label: "Comparison", score: 0 },
-  { id: "G3", label: "Transact",   score: 0 },
-  { id: "G4", label: "Local",      score: 0 },
-  { id: "G5", label: "Technical",  score: 0 },
-  { id: "G6", label: "Trust",      score: 0 },
-  { id: "G7", label: "Support",    score: 0 },
-];
+const PLACEHOLDER_GROUPS = INTENT_GROUPS.map((group) => ({
+  ...group,
+  score: 0,
+}));
 
 const MOCK_COMPETITORS = [
   { name: "Competitor A",  score: 71, isYou: false },
@@ -52,14 +47,6 @@ const MOCK_ACTIONS = [
   { priority: "medium", title: "Get listed on 3 more authoritative directories",        sub: "G1 Awareness · Yelp, BBB, G2 are top AI citation sources" },
   { priority: "medium", title: "Create a FAQ page targeting G5 technical questions",   sub: "G5 Technical · Answer-first content improves AI citation" },
   { priority: "low",    title: "Add customer review schema (AggregateRating)",         sub: "G6 Trust · Structured review data increases citations by ~18%" },
-];
-
-const NAV = [
-  { icon: "📊", label: "Overview",     href: "/dashboard",             active: true  },
-  { icon: "🔍", label: "Scan History", href: "/dashboard/scans",       active: false },
-  { icon: "🏆", label: "Competitors",  href: "/dashboard/competitors", active: false },
-  { icon: "⚡", label: "Action Plan",  href: "/dashboard/actions",     active: false },
-  { icon: "⚙️", label: "Settings",     href: "/dashboard/settings",    active: false },
 ];
 
 // ── Score ring component ───────────────────────────────────────────────────────
@@ -218,7 +205,6 @@ function ActionItems() {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const { data: session } = useSession();
   const [latestScan, setLatestScan] = useState<ScanData | null>(null);
   const [loading, setLoading]       = useState(true);
 
@@ -245,94 +231,60 @@ export default function DashboardPage() {
   const lastScanDate = latestScan
     ? new Date(latestScan.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
     : null;
-  const userEmail = session?.user?.email ?? "—";
 
   return (
-    <div className={styles.shell}>
-      {/* Sidebar */}
-      <aside className={styles.sidebar} aria-label="Dashboard navigation">
-        <Link href="/" className={styles.sidebarLogo}>
-          <span className={styles.logoMark}>◆</span>
-          <span className="gradient-text">AISO</span>
-        </Link>
-        <div className={styles.sidebarSection}>
-          <span className={styles.sidebarLabel}>Workspace</span>
-          {NAV.map((item) => (
-            <Link key={item.href} href={item.href}
-              className={`${styles.navItem} ${item.active ? styles.active : ""}`}>
-              <span className={styles.navIcon}>{item.icon}</span>
-              {item.label}
-            </Link>
-          ))}
+    <div className={styles.main}>
+      <div className={styles.topBar}>
+        <div className={styles.topBarLeft}>
+          <span className={styles.pageTitle}>Overview</span>
+          <span className={styles.pageSub}>
+            {loading ? "Loading…"
+              : lastScanDate ? `Last scan: ${lastScanDate} · ${latestScan?.providers?.length ?? 0} platforms`
+              : "No scans yet — run your first scan"}
+          </span>
         </div>
-        <div className={styles.sidebarSpacer} />
-        <div className={styles.sidebarFooter}>
-          <span className={styles.userEmail}>{userEmail}</span>
-          <button className={styles.signOutBtn} onClick={() => signOut({ callbackUrl: "/" })}>
-            Sign out
-          </button>
+        <div className={styles.topBarRight}>
+          <Link href="/onboarding" className={styles.newScanBtn}>▶ New scan</Link>
         </div>
-      </aside>
+      </div>
 
-      {/* Main */}
-      <main className={styles.main}>
-        <div className={styles.topBar}>
-          <div className={styles.topBarLeft}>
-            <span className={styles.pageTitle}>Overview</span>
-            <span className={styles.pageSub}>
-              {loading ? "Loading…"
-                : lastScanDate ? `Last scan: ${lastScanDate} · ${latestScan?.providers?.length ?? 0} platforms`
-                : "No scans yet — run your first scan"}
-            </span>
+      <section className={styles.content}>
+        {scanRunning && (
+          <div className={styles.scanBanner}>
+            <div className={styles.scanBannerSpinner} />
+            <p className={styles.scanBannerText}>
+              <strong>Scan in progress</strong> — querying AI platforms across 100 questions.
+            </p>
           </div>
-          <div className={styles.topBarRight}>
-            <Link href="/onboarding" className={styles.newScanBtn}>▶ New scan</Link>
+        )}
+
+        {!loading && !latestScan && (
+          <div style={{ textAlign: "center", padding: "var(--space-2xl) 0" }}>
+            <p style={{ fontSize: "2rem", marginBottom: 8 }}>🔍</p>
+            <p style={{ fontWeight: 600, marginBottom: 4 }}>No scans yet</p>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", marginBottom: 24 }}>
+              Run your first AI visibility scan to see your score.
+            </p>
+            <Link href="/onboarding" className={styles.newScanBtn}>▶ Run first scan</Link>
+          </div>
+        )}
+
+        <div className={styles.heroRow}>
+          <ScoreRing score={latestScan ? 42 : 0} delta={0} />
+          <div className={styles.providerGrid}>
+            {PLACEHOLDER_PROVIDERS.map((p) => <ProviderCard key={p.id} {...p} />)}
           </div>
         </div>
 
-        <section className={styles.content}>
-          {/* Scan running banner */}
-          {scanRunning && (
-            <div className={styles.scanBanner}>
-              <div className={styles.scanBannerSpinner} />
-              <p className={styles.scanBannerText}>
-                <strong>Scan in progress</strong> — querying AI platforms across 100 questions.
-              </p>
-            </div>
-          )}
+        <div className={styles.sectionRow}>
+          <GroupChart />
+          <CompetitorBoard />
+        </div>
 
-          {/* No scans yet — empty CTA */}
-          {!loading && !latestScan && (
-            <div style={{ textAlign: "center", padding: "var(--space-2xl) 0" }}>
-              <p style={{ fontSize: "2rem", marginBottom: 8 }}>🔍</p>
-              <p style={{ fontWeight: 600, marginBottom: 4 }}>No scans yet</p>
-              <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", marginBottom: 24 }}>
-                Run your first AI visibility scan to see your score.
-              </p>
-              <Link href="/onboarding" className={styles.newScanBtn}>▶ Run first scan</Link>
-            </div>
-          )}
-
-          {/* Score ring + provider cards */}
-          <div className={styles.heroRow}>
-            <ScoreRing score={latestScan ? 42 : 0} delta={0} />
-            <div className={styles.providerGrid}>
-              {PLACEHOLDER_PROVIDERS.map((p) => <ProviderCard key={p.id} {...p} />)}
-            </div>
-          </div>
-
-          {/* Group breakdown + competitor leaderboard */}
-          <div className={styles.sectionRow}>
-            <GroupChart />
-            <CompetitorBoard />
-          </div>
-
-          {/* Action items */}
-          <div className={styles.sectionRow}>
-            <ActionItems />
-          </div>
-        </section>
-      </main>
+        <div className={styles.sectionRow}>
+          <ActionItems />
+        </div>
+      </section>
     </div>
   );
 }

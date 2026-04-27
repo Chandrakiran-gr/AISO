@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import styles from "../auth.module.css";
 import { signInWithGoogle, signInWithCredentials } from "../actions";
+import { PasswordField } from "../PasswordField";
 
 export const metadata: Metadata = {
   title: "Log in — AISO by Sapienic",
@@ -120,8 +121,15 @@ async function LoginContent({
             </div>
             <div className={styles.fieldGroup}>
               <label className={styles.label} htmlFor="login-password">Password</label>
-              <input id="login-password" name="password" type="password" className="input"
-                placeholder="••••••••" autoComplete="current-password" required minLength={8} maxLength={128} />
+              <PasswordField
+                id="login-password"
+                name="password"
+                placeholder="••••••••"
+                autoComplete="current-password"
+                required
+                minLength={8}
+                maxLength={128}
+              />
             </div>
             <button type="submit" className={styles.submitBtn} id="login-submit-btn">
               Log in
