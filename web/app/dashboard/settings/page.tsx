@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./settings.module.css";
 import {
   setKey, getKey, clearKey, hadKeyPreviousSession,
@@ -53,22 +53,26 @@ const PROVIDERS: { id: Provider; name: string; color: string; keyLink: string; k
   },
 ];
 
-function getProviderKeyInitialState(providerId: Provider) {
-  const current = getKey(providerId);
-  return {
-    value: current ?? "",
-    saved: Boolean(current),
-    hadPrev: !current && hadKeyPreviousSession(providerId),
-  };
-}
-
 // ── Single provider row ────────────────────────────────────────────────────────
 function ProviderKeyRow({ provider }: { provider: typeof PROVIDERS[number] }) {
-  const [initial] = useState(() => getProviderKeyInitialState(provider.id));
-  const [value, setValue]       = useState(initial.value);
+  const [value, setValue]       = useState("");
   const [revealed, setRevealed] = useState(false);
-  const [saved, setSaved]       = useState(initial.saved);
-  const [hadPrev, setHadPrev]   = useState(initial.hadPrev);
+  const [saved, setSaved]       = useState(false);
+  const [hadPrev, setHadPrev]   = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const current = getKey(provider.id);
+      if (current) {
+        setValue(current);
+        setSaved(true);
+      } else {
+        setHadPrev(hadKeyPreviousSession(provider.id));
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [provider.id]);
 
   function handleChange(v: string) {
     setValue(v);

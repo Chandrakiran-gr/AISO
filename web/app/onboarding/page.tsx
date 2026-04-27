@@ -31,14 +31,6 @@ const SCAN_STEPS = [
   "Computing visibility score…",
 ];
 
-function getInitialKeySet(): Partial<Record<Provider, boolean>> {
-  const state: Partial<Record<Provider, boolean>> = {};
-  for (const p of PROVIDERS) {
-    state[p.id as Provider] = Boolean(getKey(p.id as Provider));
-  }
-  return state;
-}
-
 interface FormState {
   businessName: string;
   websiteUrl:   string;
@@ -117,9 +109,19 @@ function Step2({ form, set, onBack, onNext }: {
 }) {
   const [keysOpen, setKeysOpen] = useState(false);
   // Track which providers have keys in this session
-  const [keySet, setKeySet] = useState<Partial<Record<Provider, boolean>>>(
-    getInitialKeySet
-  );
+  const [keySet, setKeySet] = useState<Partial<Record<Provider, boolean>>>({});
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const state: Partial<Record<Provider, boolean>> = {};
+      for (const p of PROVIDERS) {
+        state[p.id as Provider] = Boolean(getKey(p.id as Provider));
+      }
+      setKeySet(state);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   function handleKeyInput(provider: Provider, value: string) {
     if (value.trim()) {

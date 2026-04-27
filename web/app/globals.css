@@ -72,8 +72,8 @@
   --font-mono:    'JetBrains Mono', monospace;
 
   /* Sidebar */
-  --sidebar-width-collapsed: 72px;
-  --sidebar-width-expanded:  240px;
+  --sidebar-width-collapsed: 220px;
+  --sidebar-width-expanded:  220px;
 
   /* Z-index layers */
   --z-base:    1;

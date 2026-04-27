@@ -1,22 +1,36 @@
 "use client";
 
 import Link from "next/link";
+import { getSession, signOut, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getSession, signOut, useSession } from "next-auth/react";
 import styles from "./Sidebar.module.css";
 
-const NAV_ITEMS = [
-  { href: "/dashboard",             icon: "overview", label: "Overview" },
-  { href: "/dashboard/scans",       icon: "scans",    label: "Scan History" },
-  { href: "/dashboard/competitors", icon: "rank",     label: "Competitors" },
-  { href: "/dashboard/actions",     icon: "actions",  label: "Action Plan" },
-  { href: "/dashboard/settings",    icon: "settings", label: "Settings" },
+type NavItem = {
+  href: string;
+  icon: "overview" | "scans" | "competitors" | "settings";
+  label: string;
+};
+
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  {
+    label: "Workspace",
+    items: [
+      { href: "/dashboard", icon: "overview", label: "Overview" },
+      { href: "/dashboard/scans", icon: "scans", label: "Scan History" },
+      { href: "/dashboard/competitors", icon: "competitors", label: "Competitors" },
+      { href: "/dashboard/settings", icon: "settings", label: "Settings" },
+    ],
+  },
 ];
 
-function SidebarIcon({ name }: { name: string }) {
-  const modifier = styles[`navIcon${name}`] ?? "";
-  return <span className={`${styles.navIcon} ${modifier}`} aria-hidden="true" />;
+function SidebarIcon({ name }: { name: NavItem["icon"] }) {
+  return (
+    <span
+      className={`${styles.iconTile} ${styles[`icon${name}`]}`}
+      aria-hidden="true"
+    />
+  );
 }
 
 function useAccountLabel(initialAccountLabel: string | null): string {
@@ -61,11 +75,7 @@ function useAccountLabel(initialAccountLabel: string | null): string {
     session?.user?.email ||
     refreshedLabel ||
     initialAccountLabel ||
-    (status === "authenticated"
-      ? "Loading account..."
-      : status === "loading"
-        ? "Loading account..."
-        : "Loading account...")
+    "Loading account..."
   );
 }
 
@@ -90,33 +100,53 @@ export default function Sidebar({
   return (
     <>
       <aside className={styles.sidebar} aria-label="Dashboard navigation">
-        <Link href="/" className={styles.logo} aria-label="AISO home">
-          <span className={styles.logoMark}>A</span>
-          <span className={styles.logoText}>AISO</span>
+        <div className={styles.sidebarGlow} aria-hidden="true" />
+
+        <Link href="/dashboard" className={styles.logo} aria-label="AISO dashboard">
+          <span className={styles.logoMark} aria-hidden="true" />
+          <span className={styles.logoCopy}>
+            <span className={styles.logoTitle}>AISO</span>
+            <span className={styles.logoSubtitle}>AI Visibility OS</span>
+          </span>
         </Link>
 
-        <nav className={styles.nav} aria-label="Workspace">
-          <span className={styles.groupLabel}>Workspace</span>
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`${styles.navItem} ${active ? styles.active : ""}`}
-                aria-current={active ? "page" : undefined}
-              >
-                <SidebarIcon name={item.icon} />
-                <span className={styles.navLabel}>{item.label}</span>
-              </Link>
-            );
-          })}
+        <nav className={styles.nav} aria-label="Workspace navigation">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className={styles.group}>
+              <span className={styles.groupLabel}>{group.label}</span>
+              {group.items.map((item) => {
+                const active = isActive(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`${styles.navItem} ${active ? styles.active : ""}`}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <SidebarIcon name={item.icon} />
+                    <span className={styles.navLabel}>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
-        <div className={styles.sidebarSpacer} />
+        <div className={styles.brandCard} aria-label="Current brand summary">
+          <span className={styles.brandMeta}>Current brand</span>
+          <div className={styles.brandRow}>
+            <span className={styles.brandName}>Your brand</span>
+            <span className={styles.brandScore}>0</span>
+          </div>
+          <span className={styles.brandTrack}>
+            <span className={styles.brandTrackValue} />
+          </span>
+          <span className={styles.brandDate}>First scan pending</span>
+        </div>
 
-        <div className={styles.sidebarFooter}>
-          <span className={styles.userEmail}>{accountLabel}</span>
+        <div className={styles.account}>
+          <span className={styles.accountDot} aria-hidden="true" />
+          <span className={styles.accountName}>{accountLabel}</span>
           <button
             type="button"
             className={styles.signOutBtn}
