@@ -26,11 +26,29 @@ PROVIDER_ENV_KEYS: dict[str, str] = {
 }
 
 # Max simultaneous API calls per provider (tune to each provider's rate limits)
-PROVIDER_CONCURRENCY: dict[str, int] = {
+DEFAULT_PROVIDER_CONCURRENCY: dict[str, int] = {
     "openai":     5,
     "claude":     5,  # ↑ from 3: more parallel calls offset per-call latency
     "perplexity": 3,
-    "gemini":     2,  # free tier: 15 RPM — keep concurrent calls low
+    "gemini":     2,
+}
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        print(f"{name} must be an integer; using {default}.")
+        return default
+    return max(1, parsed)
+
+
+PROVIDER_CONCURRENCY: dict[str, int] = {
+    name: _env_int(f"AISO_{name.upper()}_CONCURRENCY", default)
+    for name, default in DEFAULT_PROVIDER_CONCURRENCY.items()
 }
 
 
@@ -104,4 +122,3 @@ def get_active_providers_multiturn() -> dict[str, Callable]:
         for name in PROVIDER_ORDER
         if os.environ.get(PROVIDER_ENV_KEYS[name], "").strip()
     }
-

@@ -258,3 +258,63 @@
 .emptyIcon { font-size: 2.5rem; opacity: 0.3; }
 .emptyTitle { font-size: 1rem; font-weight: 600; }
 .emptySub { font-size: 0.875rem; color: var(--text-muted); max-width: 300px; line-height: 1.6; }
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.detailCard {
+  padding: var(--space-lg);
+  border: var(--border-subtle);
+  border-radius: var(--radius-xl);
+  background: rgba(22,25,35,0.75);
+  backdrop-filter: blur(12px);
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.detailRow strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  text-align: right;
+}
+
+.artifactRow {
+  display: grid;
+  grid-template-columns: 1fr minmax(160px, 280px);
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: rgba(15,17,23,0.45);
+}
+
+.artifactPath {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .statsRow,
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .scanRow,
+  .artifactRow {
+    grid-template-columns: 1fr;
+  }
+}

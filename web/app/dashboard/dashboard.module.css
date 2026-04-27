@@ -244,6 +244,21 @@
   text-transform: uppercase;
 }
 
+.cardTitle {
+  margin-top: 12px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.actionControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 .cardLabel,
 .sectionLabel {
   color: var(--text-muted);

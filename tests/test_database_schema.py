@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api import database as database_module
 from api.database import (
+    Action,
     Base,
     Client,
     Scan,
@@ -176,6 +177,7 @@ class DatabaseSchemaTests(unittest.TestCase):
         try:
             self.assertEqual(len(persisted), 1)
             self.assertEqual(session.query(ScanResult).count(), 1)
+            self.assertGreaterEqual(session.query(Action).count(), 1)
             artifact = session.query(ScanArtifact).one()
             self.assertEqual(artifact.artifact_type, "collect_csv")
             self.assertEqual(artifact.file_format, "csv")

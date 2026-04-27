@@ -5,17 +5,21 @@ Wraps setup2.py → collect.py → analysis1.py → analysis2.py
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 import uuid
 import json
 import os
 
-from api.database import get_db, Scan, Client, ScanResult
+from api.database import get_db, Scan, Client, ScanArtifact, ScanCitation, ScanResult
 from api.auth import get_current_user_id
+from api.scan_workspace import prepare_scan_workspace
 
 router = APIRouter(tags=["pipeline"])
+
+DEFAULT_PROVIDERS = ["openai", "claude", "perplexity", "gemini"]
+DEFAULT_GROUPS = ["G1", "G2", "G3"]
 
 
 class BYOKKeys(BaseModel):
@@ -31,8 +35,8 @@ class BYOKKeys(BaseModel):
 
 class ScanCreate(BaseModel):
     client_id: str
-    providers: List[str] = ["openai", "claude", "perplexity", "gemini"]
-    groups:    List[str] = ["G1", "G2", "G3"]
+    providers: List[str] = Field(default_factory=lambda: DEFAULT_PROVIDERS.copy())
+    groups:    List[str] = Field(default_factory=lambda: DEFAULT_GROUPS.copy())
     byok_keys: Optional[BYOKKeys] = None  # BYOK: user's own API keys (never stored)
 
     @property
@@ -52,9 +56,47 @@ class ScanResponse(BaseModel):
     status:            str
     providers:         Optional[List[str]]
     groups:            Optional[List[str]]
-    skipped_providers: Optional[List[str]]  # providers skipped due to missing key
+    skipped_providers: Optional[List[str]] = None  # providers skipped due to missing key
     started_at:        Optional[datetime]
+    completed_at:      Optional[datetime] = None
     created_at:        datetime
+    error:             Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ScanArtifactResponse(BaseModel):
+    id: str
+    artifact_type: str
+    file_format: Optional[str]
+    storage_backend: str
+    storage_path: str
+    original_filename: Optional[str]
+    mime_type: Optional[str]
+    size_bytes: Optional[int]
+    sha256: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ScanDetailResponse(ScanResponse):
+    artifacts: List[ScanArtifactResponse] = Field(default_factory=list)
+
+
+class CitationResponse(BaseModel):
+    id: str
+    provider: str
+    group: Optional[str]
+    question: Optional[str]
+    answer_excerpt: Optional[str]
+    citation_url: str
+    citation_title: Optional[str]
+    source_domain: Optional[str]
+    source_rank: Optional[int]
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -105,6 +147,45 @@ GROUP_LABELS = {
     "G7": "Head-to-head choice",
     "all": "All questions",
 }
+
+
+def _redact_known_secrets(text: str, secrets: Optional[dict]) -> str:
+    """Avoid reflecting BYOK values if a provider ever echoes request config."""
+    redacted = text
+    for value in (secrets or {}).values():
+        secret = str(value or "").strip()
+        if len(secret) >= 8:
+            redacted = redacted.replace(secret, "[redacted]")
+    return redacted
+
+
+def _extract_script_failure(script_name: str, return_code: int, output: str) -> str:
+    """Turn subprocess output into a concise, user-facing scan failure."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if "consecutive empty responses" in line:
+            return line.removeprefix("RuntimeError:").strip()
+        if line.startswith("RuntimeError:"):
+            return line.removeprefix("RuntimeError:").strip()
+
+    ignored_prefixes = (
+        "File ",
+        "Traceback ",
+        "^",
+        "from ",
+        "See README",
+        "https://",
+        "All support for ",
+    )
+    for line in reversed(lines[-12:]):
+        if line.startswith(ignored_prefixes):
+            continue
+        if "FutureWarning" in line:
+            continue
+        if len(line) <= 240:
+            return f"{script_name} failed: {line}"
+
+    return f"{script_name} failed with exit code {return_code}"
 
 
 async def run_pipeline(
@@ -160,6 +241,13 @@ async def run_pipeline(
         if not active_providers:
             raise RuntimeError("No providers available — please add at least one API key in Settings.")
 
+        client = db.query(Client).filter(Client.id == client_id).first()
+        if not client:
+            raise RuntimeError("Client not found for scan workspace preparation.")
+
+        client_folder = prepare_scan_workspace(client)
+        print(f"[AISO Pipeline] Scan workspace ready: {client_folder}")
+
         # ── Run real pipeline via subprocess ─────────────────────────────────
         # Keys are passed as env var overrides — never written to disk.
         # collect.py receives explicit provider/group args and matching env vars.
@@ -189,10 +277,10 @@ async def run_pipeline(
         sub_env["AISO_CLIENT_ID"] = client_id
         sub_env["AISO_SCAN_ID"]   = scan_id
 
-        async def run_script(script: pathlib.Path, extra_args: list[str] | None = None) -> int:
+        async def run_script(script: pathlib.Path, extra_args: list[str] | None = None) -> tuple[int, str]:
             if not script.exists():
                 print(f"[AISO Pipeline] Script not found: {script} — skipping")
-                return 0
+                return 0, ""
             command = [sys.executable, str(script), client_id]
             if extra_args:
                 command.extend(extra_args)
@@ -203,9 +291,10 @@ async def run_pipeline(
                 stderr=asyncio.subprocess.STDOUT,
             )
             stdout, _ = await proc.communicate()
+            output = _redact_known_secrets(stdout.decode(errors="replace"), byok_keys)
             if stdout:
-                print(f"[AISO Pipeline] {script.name}:\n{stdout.decode(errors='replace')}")
-            return proc.returncode or 0
+                print(f"[AISO Pipeline] {script.name}:\n{output}")
+            return proc.returncode or 0, output
 
         collect_args = [
             "--providers", ",".join(active_providers),
@@ -214,9 +303,9 @@ async def run_pipeline(
             "--yes",
         ]
 
-        collect_rc = await run_script(collect_script, collect_args)
+        collect_rc, collect_output = await run_script(collect_script, collect_args)
         if collect_rc != 0:
-            raise RuntimeError(f"collect.py exited with code {collect_rc}")
+            raise RuntimeError(_extract_script_failure("collect.py", collect_rc, collect_output))
 
         if os.environ.get("AISO_RUN_LEGACY_ANALYSIS", "").strip() == "1":
             await run_script(analysis_script)  # opt-in only: legacy CSV mutation path
@@ -282,10 +371,7 @@ async def start_scan(
         run_pipeline, scan.id, client_id, payload.providers, payload.groups, byok_dict
     )
 
-    scan.providers = json.loads(scan.providers)  # type: ignore
-    scan.groups    = json.loads(scan.groups)      # type: ignore
-    scan.skipped_providers = []  # type: ignore  # populated after pipeline runs
-    return scan
+    return _scan_response(scan)
 
 
 @router.get("/clients/{client_id}/scans", response_model=List[ScanResponse])
@@ -303,11 +389,7 @@ async def list_scans(
         raise HTTPException(status_code=404, detail="Client not found")
 
     scans = db.query(Scan).filter(Scan.client_id == client_id).order_by(Scan.created_at.desc()).all()
-    for s in scans:
-        if s.providers: s.providers = json.loads(s.providers)
-        if s.groups:    s.groups    = json.loads(s.groups)
-        s.skipped_providers = _parse_skipped(s.error)  # type: ignore
-    return scans
+    return [_scan_response(scan) for scan in scans]
 
 
 def _safe_json_dict(value: Optional[str]) -> Dict[str, int]:
@@ -502,7 +584,48 @@ def _parse_skipped(error_field: Optional[str]) -> List[str]:
     return []
 
 
-@router.get("/clients/{client_id}/scans/{scan_id}", response_model=ScanResponse)
+def _public_error(error_field: Optional[str]) -> Optional[str]:
+    """Return a user-facing scan error while hiding skipped-provider metadata."""
+    if not error_field:
+        return None
+    try:
+        data = json.loads(error_field)
+        if isinstance(data, dict):
+            message = data.get("error") or data.get("message")
+            return str(message) if message else None
+    except Exception:
+        pass
+    return error_field
+
+
+def _json_list(value: Optional[str]) -> Optional[List[str]]:
+    if not value:
+        return None
+    try:
+        data = json.loads(value)
+    except Exception:
+        return None
+    if not isinstance(data, list):
+        return None
+    return [str(item) for item in data]
+
+
+def _scan_response(scan: Scan) -> dict:
+    return {
+        "id": scan.id,
+        "client_id": scan.client_id,
+        "status": scan.status,
+        "providers": _json_list(scan.providers),
+        "groups": _json_list(scan.groups),
+        "skipped_providers": _parse_skipped(scan.error),
+        "started_at": scan.started_at,
+        "completed_at": scan.completed_at,
+        "created_at": scan.created_at,
+        "error": _public_error(scan.error),
+    }
+
+
+@router.get("/clients/{client_id}/scans/{scan_id}", response_model=ScanDetailResponse)
 async def get_scan(
     client_id: str,
     scan_id: str,
@@ -524,7 +647,39 @@ async def get_scan(
     ).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    if scan.providers: scan.providers = json.loads(scan.providers)  # type: ignore
-    if scan.groups:    scan.groups    = json.loads(scan.groups)      # type: ignore
-    scan.skipped_providers = _parse_skipped(scan.error)             # type: ignore
-    return scan
+    artifacts = db.query(ScanArtifact).filter(
+        ScanArtifact.scan_id == scan_id,
+        ScanArtifact.client_id == client_id,
+    ).order_by(ScanArtifact.created_at.desc()).all()
+    return {**_scan_response(scan), "artifacts": artifacts}
+
+
+@router.get(
+    "/clients/{client_id}/scans/{scan_id}/citations",
+    response_model=List[CitationResponse],
+)
+async def list_scan_citations(
+    client_id: str,
+    scan_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """List citation/source evidence for a scan when available."""
+    client = db.query(Client).filter(
+        Client.id == client_id,
+        Client.user_id == user_id,
+    ).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    scan = db.query(Scan).filter(
+        Scan.id == scan_id,
+        Scan.client_id == client_id,
+    ).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    return db.query(ScanCitation).filter(
+        ScanCitation.client_id == client_id,
+        ScanCitation.scan_id == scan_id,
+    ).order_by(ScanCitation.created_at.desc()).all()
