@@ -50,22 +50,31 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // Attach durable database user id to JWT
     async jwt({ token, user, account }) {
       if (user?.email && account?.provider === "google") {
-        const persisted = await upsertOAuthUser({
-          email: user.email,
-          name: user.name,
-          provider: "google",
-        });
-        token.id = persisted.id;
-        token.email = persisted.email;
-        token.name = persisted.name;
+        try {
+          const persisted = await upsertOAuthUser({
+            email: user.email,
+            name: user.name,
+            provider: "google",
+          });
+          token.id = persisted.id;
+          token.email = persisted.email;
+          token.name = persisted.name;
+        } catch (e) {
+          console.error("[AISO Auth] Failed to persist Google user", e);
+          throw new Error("Google account setup failed");
+        }
       } else if (user) {
         token.id = user.id;
+        token.email = user.email;
+        token.name = user.name;
       }
       return token;
     },
     // Expose id in session
     async session({ session, token }) {
       if (token.id) session.user.id = token.id as string;
+      if (typeof token.email === "string") session.user.email = token.email;
+      if (typeof token.name === "string") session.user.name = token.name;
       return session;
     },
   },

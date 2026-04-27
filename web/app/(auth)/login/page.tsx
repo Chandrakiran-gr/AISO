@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import styles from "../auth.module.css";
 import { signInWithGoogle, signInWithCredentials } from "../actions";
+import { PasswordField } from "../PasswordField";
 
 export const metadata: Metadata = {
   title: "Log in — AISO by Sapienic",
@@ -90,7 +91,7 @@ async function LoginContent({
           <form
             action={async () => {
               "use server";
-              await signInWithGoogle("/dashboard");
+              await signInWithGoogle("/dashboard", "/login");
             }}
           >
             <button type="submit" className={styles.oauthBtn} id="login-google-btn">
@@ -120,8 +121,15 @@ async function LoginContent({
             </div>
             <div className={styles.fieldGroup}>
               <label className={styles.label} htmlFor="login-password">Password</label>
-              <input id="login-password" name="password" type="password" className="input"
-                placeholder="••••••••" autoComplete="current-password" required minLength={8} maxLength={128} />
+              <PasswordField
+                id="login-password"
+                name="password"
+                placeholder="••••••••"
+                autoComplete="current-password"
+                required
+                minLength={8}
+                maxLength={128}
+              />
             </div>
             <button type="submit" className={styles.submitBtn} id="login-submit-btn">
               Log in
@@ -147,6 +155,10 @@ function getLoginErrorMessage(error?: string): string | null {
     OAuthAccountNotLinked: "This email is already linked to another sign-in method. Try the method you used before.",
     OAuthSignin: "Google sign-in could not be started. Please try again.",
     OAuthCallback: "Google sign-in could not be completed. Please try again.",
+    OAuthCallbackError: "Google sign-in could not be completed. Please try again.",
+    CallbackRouteError: "We could not finish signing you in. Please try again.",
+    AccessDenied: "Access was denied. Please choose another account or try again.",
+    Configuration: "Sign-in is temporarily unavailable. Please try again later.",
   };
 
   return messages[error] ?? "We could not sign you in. Please try again.";

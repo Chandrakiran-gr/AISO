@@ -1,6 +1,7 @@
 import unittest
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -23,10 +24,10 @@ class AuthPersistenceTests(unittest.TestCase):
         self.Session = sessionmaker(bind=self.engine)
 
     def test_password_hashes_are_verified_without_storing_plaintext(self):
-        stored_hash = hash_password("correct-horse-battery")
+        stored_hash = hash_password("Correct-horse-battery1!")
 
-        self.assertNotIn("correct-horse-battery", stored_hash)
-        self.assertTrue(verify_password("correct-horse-battery", stored_hash))
+        self.assertNotIn("Correct-horse-battery1!", stored_hash)
+        self.assertTrue(verify_password("Correct-horse-battery1!", stored_hash))
         self.assertFalse(verify_password("wrong-password", stored_hash))
 
     def test_credentials_signup_persists_user_and_login_verifies(self):
@@ -36,20 +37,20 @@ class AuthPersistenceTests(unittest.TestCase):
                 CredentialsSignup(
                     name="Jane Founder",
                     email="JANE@Example.COM",
-                    password="secure-password",
+                    password="Secure-password1!",
                 ),
                 db=session,
             )
 
             self.assertEqual(created.email, "jane@example.com")
             self.assertEqual(created.provider, "credentials")
-            self.assertNotEqual(created.password_hash, "secure-password")
+            self.assertNotEqual(created.password_hash, "Secure-password1!")
             self.assertEqual(session.query(User).count(), 1)
 
             verified = verify_credentials(
                 CredentialsVerify(
                     email="jane@example.com",
-                    password="secure-password",
+                    password="Secure-password1!",
                 ),
                 db=session,
             )
@@ -57,13 +58,21 @@ class AuthPersistenceTests(unittest.TestCase):
         finally:
             session.close()
 
+    def test_credentials_signup_requires_strong_password(self):
+        with self.assertRaises(ValidationError):
+            CredentialsSignup(
+                name="Jane Founder",
+                email="jane@example.com",
+                password="secure-password",
+            )
+
     def test_credentials_signup_rejects_duplicate_email(self):
         session = self.Session()
         try:
             payload = CredentialsSignup(
                 name="Jane Founder",
                 email="jane@example.com",
-                password="secure-password",
+                password="Secure-password1!",
             )
             signup_with_credentials(payload, db=session)
 

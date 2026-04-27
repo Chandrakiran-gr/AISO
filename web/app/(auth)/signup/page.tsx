@@ -2,6 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import styles from "../auth.module.css";
 import { signInWithGoogle, signUpWithCredentials } from "../actions";
+import { PasswordField } from "../PasswordField";
+
+const PASSWORD_PATTERN =
+  "(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9\\s]).{8,}";
+const PASSWORD_POLICY =
+  "Use at least 8 characters with uppercase, lowercase, number, and special character.";
 
 export const metadata: Metadata = {
   title: "Sign up free — AISO by Sapienic",
@@ -90,7 +96,7 @@ async function SignupContent({
           <form
             action={async () => {
               "use server";
-              await signInWithGoogle("/onboarding");
+              await signInWithGoogle("/onboarding", "/signup");
             }}
           >
             <button type="submit" className={styles.oauthBtn} id="signup-google-btn">
@@ -125,8 +131,21 @@ async function SignupContent({
             </div>
             <div className={styles.fieldGroup}>
               <label className={styles.label} htmlFor="signup-password">Password</label>
-              <input id="signup-password" name="password" type="password" className="input"
-                placeholder="At least 8 characters" autoComplete="new-password" required minLength={8} maxLength={128} />
+              <PasswordField
+                id="signup-password"
+                name="password"
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                maxLength={128}
+                pattern={PASSWORD_PATTERN}
+                title={PASSWORD_POLICY}
+                describedBy="signup-password-help"
+              />
+              <p className={styles.passwordHelp} id="signup-password-help">
+                {PASSWORD_POLICY}
+              </p>
             </div>
             <button type="submit" className={styles.submitBtn} id="signup-submit-btn">
               Create free account →
@@ -154,9 +173,15 @@ function getSignupErrorMessage(error?: string): string | null {
   const messages: Record<string, string> = {
     invalid: "We could not create your account. Please check your details and try again.",
     email_exists: "An account already exists for this email. Log in instead.",
+    service_unavailable: "Account creation is temporarily unavailable. Please try again later.",
+    signin_failed: "Your account was created, but sign-in failed. Try logging in.",
     CredentialsSignin: "Your account was created, but sign-in failed. Try logging in.",
     OAuthSignin: "Google sign-up could not be started. Please try again.",
     OAuthCallback: "Google sign-up could not be completed. Please try again.",
+    OAuthCallbackError: "Google sign-up could not be completed. Please try again.",
+    CallbackRouteError: "We could not finish creating your Google account. Please try again.",
+    AccessDenied: "Access was denied. Please choose another account or try again.",
+    Configuration: "Sign-up is temporarily unavailable. Please try again later.",
   };
 
   return messages[error] ?? "We could not create your account. Please try again.";

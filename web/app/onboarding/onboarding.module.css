@@ -268,20 +268,31 @@
 
 .groupTag {
   padding: 6px 14px;
-  border: var(--border-subtle);
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.14);
   border-radius: var(--radius-full);
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-fast);
   user-select: none;
+  opacity: 0.72;
+  filter: saturate(0.75);
+}
+
+.groupTag:hover {
+  opacity: 1;
+  background: rgba(255,255,255,0.07);
+  color: var(--text-primary);
 }
 
 .groupTag.selected {
   border-color: rgba(0,212,170,0.35);
   background: rgba(0,212,170,0.08);
   color: var(--accent-teal);
+  opacity: 1;
+  filter: none;
 }
 
 /* Navigation buttons */
@@ -547,3 +558,45 @@
 }
 
 .byokGetKey:hover { color: var(--accent-teal); }
+
+@media (max-width: 640px) {
+  .page {
+    padding: var(--space-xl) var(--space-md);
+    justify-content: flex-start;
+  }
+
+  .topBar {
+    padding: var(--space-md);
+  }
+
+  .stepPills {
+    margin-top: 72px;
+    margin-bottom: var(--space-lg);
+    transform: scale(0.92);
+  }
+
+  .card {
+    padding: var(--space-xl);
+    border-radius: var(--radius-lg);
+  }
+
+  .providerGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .labelRow,
+  .summaryRow {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .byokRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .byokProvider {
+    width: auto;
+  }
+}

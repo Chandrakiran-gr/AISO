@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 import { setKey, getKey, getAllKeys, hadKeyPreviousSession, type Provider } from "@/lib/byok";
+import { INTENT_GROUPS } from "@/lib/intent-groups";
 
 const PROVIDERS = [
   { id: "openai",     name: "ChatGPT",    color: "#10a37f" },
@@ -12,15 +13,7 @@ const PROVIDERS = [
   { id: "gemini",     name: "Gemini",     color: "#4285f4" },
 ];
 
-const GROUPS = [
-  { id: "G1", label: "Awareness",  desc: "Brand discovery queries" },
-  { id: "G2", label: "Comparison", desc: "vs-competitor queries" },
-  { id: "G3", label: "Transact",   desc: "High-intent purchase queries" },
-  { id: "G4", label: "Local",      desc: "Location-based queries" },
-  { id: "G5", label: "Technical",  desc: "Features & specs queries" },
-  { id: "G6", label: "Trust",      desc: "Review & reputation queries" },
-  { id: "G7", label: "Support",    desc: "Post-purchase queries" },
-];
+const GROUPS = INTENT_GROUPS;
 
 const STEPS = [
   { num: 1, label: "Discover" },
@@ -71,23 +64,23 @@ function Step1({ form, set, onNext }: { form: FormState; set: (f: FormState) => 
       <div className={styles.fields}>
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="ob-name">Business name *</label>
-          <input id="ob-name" className="input" type="text" placeholder="Boston Brew Coffee"
+          <input id="ob-name" className="input" type="text" placeholder="Your business name"
             value={form.businessName} onChange={(e) => set({ ...form, businessName: e.target.value })} maxLength={200} required />
         </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="ob-url">Website URL *</label>
-          <input id="ob-url" className="input" type="url" placeholder="https://bostonbrew.com"
+          <input id="ob-url" className="input" type="url" placeholder="https://yourbusiness.com"
             value={form.websiteUrl} onChange={(e) => set({ ...form, websiteUrl: e.target.value })} maxLength={500} required />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-sm)" }}>
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="ob-industry">Industry</label>
             <input id="ob-industry" className="input" type="text" placeholder="e.g. Coffee shop, SaaS"
-              value={form.industry} onChange={(e) => set({ ...form, industry: e.target.value })} maxLength={100} />
+              value={form.industry} onChange={(e) => set({ ...form, industry: e.target.value })} maxLength={110} />
           </div>
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="ob-location">Location</label>
-            <input id="ob-location" className="input" type="text" placeholder="e.g. Boston, MA"
+            <input id="ob-location" className="input" type="text" placeholder="e.g. City, State"
               value={form.location} onChange={(e) => set({ ...form, location: e.target.value })} maxLength={100} />
           </div>
         </div>

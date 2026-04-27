@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import styles from "./settings.module.css";
 import {
   setKey, getKey, clearKey, hadKeyPreviousSession,
@@ -52,14 +51,6 @@ const PROVIDERS: { id: Provider; name: string; color: string; keyLink: string; k
 3. Select a Google Cloud project (or create one)<br/>
 4. Copy the generated key`,
   },
-];
-
-const NAV = [
-  { icon: "📊", label: "Overview",    href: "/dashboard",              active: false },
-  { icon: "🔍", label: "Scan History", href: "/dashboard/scans",       active: false },
-  { icon: "🏆", label: "Competitors",  href: "/dashboard/competitors", active: false },
-  { icon: "⚡", label: "Action Plan",  href: "/dashboard/actions",     active: false },
-  { icon: "⚙️", label: "Settings",     href: "/dashboard/settings",    active: true  },
 ];
 
 // ── Single provider row ────────────────────────────────────────────────────────
@@ -194,81 +185,48 @@ function KeyGuide() {
 // ── Settings Page ──────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   return (
-    <div className={styles.shell}>
-      {/* Sidebar */}
-      <aside className={styles.sidebar} aria-label="Dashboard navigation">
-        <Link href="/" className={styles.sidebarLogo}>
-          <span className={styles.logoMark}>◆</span>
-          <span className="gradient-text">AISO</span>
-        </Link>
-        <div className={styles.sidebarSection}>
-          <span className={styles.sidebarLabel}>Workspace</span>
-          {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`${styles.navItem} ${item.active ? styles.active : ""}`}
-            >
-              <span className={styles.navIcon}>{item.icon}</span>
-              {item.label}
-            </Link>
-          ))}
-        </div>
-        <div className={styles.sidebarSpacer} />
-        <div className={styles.sidebarFooter}>
-          <span className={styles.userEmail}>chandrakiran.gr25@gmail.com</span>
-          <button className={styles.signOutBtn}>Sign out</button>
-        </div>
-      </aside>
+    <div className={styles.main}>
+      <div className={styles.topBar}>
+        <span className={styles.pageTitle}>Settings</span>
+      </div>
 
-      {/* Main */}
-      <main className={styles.main}>
-        <div className={styles.topBar}>
-          <span className={styles.pageTitle}>Settings</span>
-        </div>
+      <div className={styles.content}>
+        <section className={styles.section} aria-labelledby="api-keys-heading">
+          <h2 id="api-keys-heading" className={styles.sectionTitle}>
+            API Keys — Bring Your Own Key (BYOK)
+          </h2>
 
-        <div className={styles.content}>
-          {/* API Keys section */}
-          <section className={styles.section} aria-labelledby="api-keys-heading">
-            <h2 id="api-keys-heading" className={styles.sectionTitle}>
-              API Keys — Bring Your Own Key (BYOK)
-            </h2>
-
-            {/* Trust banner */}
-            <div className={styles.trustBanner} role="note">
-              <span className={styles.trustIcon}>🔒</span>
-              <div className={styles.trustText}>
-                <strong className={styles.trustTitle}>Your keys are never saved to our servers</strong>
-                <p className={styles.trustDesc}>
-                  API keys are stored only in your browser&apos;s session memory (sessionStorage).
-                  They are sent directly to our scan engine over HTTPS and discarded immediately after use.
-                  Closing this browser tab clears them permanently — we have no record of them.
-                  You can{" "}
-                  <a
-                    href="https://developer.chrome.com/docs/devtools/storage/sessionstorage/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: "var(--accent-teal)" }}
-                  >
-                    inspect this in DevTools
-                  </a>{" "}
-                  to verify.
-                </p>
-              </div>
+          <div className={styles.trustBanner} role="note">
+            <span className={styles.trustIcon}>🔒</span>
+            <div className={styles.trustText}>
+              <strong className={styles.trustTitle}>Your keys are never saved to our servers</strong>
+              <p className={styles.trustDesc}>
+                API keys are stored only in your browser&apos;s session memory (sessionStorage).
+                They are sent directly to our scan engine over HTTPS and discarded immediately after use.
+                Closing this browser tab clears them permanently — we have no record of them.
+                You can{" "}
+                <a
+                  href="https://developer.chrome.com/docs/devtools/storage/sessionstorage/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--accent-teal)" }}
+                >
+                  inspect this in DevTools
+                </a>{" "}
+                to verify.
+              </p>
             </div>
+          </div>
 
-            {/* Per-provider rows */}
-            <div className={styles.providerRows}>
-              {PROVIDERS.map((p) => (
-                <ProviderKeyRow key={p.id} provider={p} />
-              ))}
-            </div>
+          <div className={styles.providerRows}>
+            {PROVIDERS.map((p) => (
+              <ProviderKeyRow key={p.id} provider={p} />
+            ))}
+          </div>
 
-            {/* How-to guide */}
-            <KeyGuide />
-          </section>
-        </div>
-      </main>
+          <KeyGuide />
+        </section>
+      </div>
     </div>
   );
 }

@@ -1,115 +1,204 @@
 "use client";
 
 import Link from "next/link";
-import { signOut, useSession } from "next-auth/react";
+import { getSession, signOut, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import styles from "./Sidebar.module.css";
 
 type NavItem = {
-  badge?: string;
   href: string;
-  icon: string;
+  icon: "overview" | "scans" | "competitors" | "settings";
   label: string;
 };
 
 const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
-    label: "Core",
+    label: "Workspace",
     items: [
-      { href: "/dashboard", icon: "🏠", label: "Dashboard" },
-      { href: "/dashboard/providers", icon: "🤖", label: "Providers" },
-      { href: "/dashboard/competitors", icon: "🏁", label: "Competitors" },
-      { href: "/dashboard/taxonomy", icon: "🧭", label: "Taxonomy" },
-    ],
-  },
-  {
-    label: "Intelligence",
-    items: [
-      { href: "/dashboard/responses", icon: "🔎", label: "Responses" },
-      { href: "/dashboard/actions", icon: "✅", label: "Actions", badge: "12" },
-      { href: "/dashboard/chat", icon: "💬", label: "Copilot" },
-      { href: "/dashboard/scans", icon: "🕘", label: "History" },
-    ],
-  },
-  {
-    label: "Manage",
-    items: [
-      { href: "/dashboard/reports", icon: "📊", label: "Reports" },
-      { href: "/dashboard/settings", icon: "⚙", label: "Settings" },
+      { href: "/dashboard", icon: "overview", label: "Overview" },
+      { href: "/dashboard/scans", icon: "scans", label: "Scan History" },
+      { href: "/dashboard/competitors", icon: "competitors", label: "Competitors" },
+      { href: "/dashboard/settings", icon: "settings", label: "Settings" },
     ],
   },
 ];
 
-export default function Sidebar() {
+function SidebarIcon({ name }: { name: NavItem["icon"] }) {
+  return (
+    <span
+      className={`${styles.iconTile} ${styles[`icon${name}`]}`}
+      aria-hidden="true"
+    />
+  );
+}
+
+function useAccountLabel(initialAccountLabel: string | null): string {
+  const { data: session, status } = useSession();
+  const [refreshedLabel, setRefreshedLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    const currentLabel = session?.user?.name || session?.user?.email;
+    if (currentLabel || initialAccountLabel || status === "loading") return;
+
+    let active = true;
+    let attempts = 0;
+    let retryId: ReturnType<typeof setTimeout> | null = null;
+
+    async function refreshSessionLabel() {
+      attempts += 1;
+      const refreshed = await getSession();
+      const label = refreshed?.user?.name || refreshed?.user?.email;
+
+      if (!active) return;
+
+      if (label) {
+        setRefreshedLabel(label);
+        return;
+      }
+
+      if (attempts < 10) {
+        retryId = setTimeout(refreshSessionLabel, 500);
+      }
+    }
+
+    void refreshSessionLabel();
+
+    return () => {
+      active = false;
+      if (retryId) clearTimeout(retryId);
+    };
+  }, [initialAccountLabel, session?.user?.email, session?.user?.name, status]);
+
+  return (
+    session?.user?.name ||
+    session?.user?.email ||
+    refreshedLabel ||
+    initialAccountLabel ||
+    "Loading account..."
+  );
+}
+
+export default function Sidebar({
+  initialAccountLabel,
+}: {
+  initialAccountLabel: string | null;
+}) {
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const accountLabel =
-    session?.user?.name?.split(" ")[0] ?? session?.user?.email?.split("@")[0] ?? "Chandrakiran";
+  const accountLabel = useAccountLabel(initialAccountLabel);
+  const [showSignOutDialog, setShowSignOutDialog] = useState(false);
 
   function isActive(href: string) {
     if (href === "/dashboard") return pathname === "/dashboard";
     return pathname.startsWith(href);
   }
 
+  function confirmSignOut() {
+    void signOut({ callbackUrl: "/" });
+  }
+
   return (
-    <aside className={styles.sidebar} aria-label="Main navigation">
-      <div className={styles.sidebarGlow} aria-hidden="true" />
+    <>
+      <aside className={styles.sidebar} aria-label="Dashboard navigation">
+        <div className={styles.sidebarGlow} aria-hidden="true" />
 
-      <Link href="/dashboard" className={styles.logo} aria-label="AISO dashboard">
-        <span className={styles.logoMark} aria-hidden="true" />
-        <span className={styles.logoCopy}>
-          <span className={styles.logoTitle}>AISO</span>
-          <span className={styles.logoSubtitle}>AI Visibility OS</span>
-        </span>
-      </Link>
+        <Link href="/dashboard" className={styles.logo} aria-label="AISO dashboard">
+          <span className={styles.logoMark} aria-hidden="true" />
+          <span className={styles.logoCopy}>
+            <span className={styles.logoTitle}>AISO</span>
+            <span className={styles.logoSubtitle}>AI Visibility OS</span>
+          </span>
+        </Link>
 
-      <nav className={styles.nav}>
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label} className={styles.group}>
-            <span className={styles.groupLabel}>{group.label}</span>
-            {group.items.map((item) => {
-              const active = isActive(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`${styles.navItem} ${active ? styles.active : ""}`}
-                >
-                  <span className={styles.iconTile} aria-hidden="true">
-                    {item.icon}
-                  </span>
-                  <span className={styles.navLabel}>{item.label}</span>
-                  {item.badge && <span className={styles.badge}>{item.badge}</span>}
-                </Link>
-              );
-            })}
+        <nav className={styles.nav} aria-label="Workspace navigation">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className={styles.group}>
+              <span className={styles.groupLabel}>{group.label}</span>
+              {group.items.map((item) => {
+                const active = isActive(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`${styles.navItem} ${active ? styles.active : ""}`}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <SidebarIcon name={item.icon} />
+                    <span className={styles.navLabel}>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div className={styles.brandCard} aria-label="Current brand summary">
+          <span className={styles.brandMeta}>Current brand</span>
+          <div className={styles.brandRow}>
+            <span className={styles.brandName}>Your brand</span>
+            <span className={styles.brandScore}>0</span>
           </div>
-        ))}
-      </nav>
-
-      <div className={styles.brandCard} aria-label="Current brand summary">
-        <span className={styles.brandMeta}>Current brand</span>
-        <div className={styles.brandRow}>
-          <span className={styles.brandName}>Boston Brew</span>
-          <span className={styles.brandScore}>67</span>
+          <span className={styles.brandTrack}>
+            <span className={styles.brandTrackValue} />
+          </span>
+          <span className={styles.brandDate}>First scan pending</span>
         </div>
-        <span className={styles.brandTrack}>
-          <span className={styles.brandTrackValue} />
-        </span>
-        <span className={styles.brandDate}>Last scan Apr 25</span>
-      </div>
 
-      <div className={styles.account}>
-        <span className={styles.accountDot} aria-hidden="true" />
-        <span className={styles.accountName}>{accountLabel}</span>
-        <button
-          type="button"
-          className={styles.signOutBtn}
-          onClick={() => signOut({ callbackUrl: "/" })}
+        <div className={styles.account}>
+          <span className={styles.accountDot} aria-hidden="true" />
+          <span className={styles.accountName}>{accountLabel}</span>
+          <button
+            type="button"
+            className={styles.signOutBtn}
+            onClick={() => setShowSignOutDialog(true)}
+          >
+            Sign out
+          </button>
+        </div>
+      </aside>
+
+      {showSignOutDialog && (
+        <div
+          className={styles.dialogOverlay}
+          role="presentation"
+          onClick={() => setShowSignOutDialog(false)}
         >
-          Sign out
-        </button>
-      </div>
-    </aside>
+          <div
+            className={styles.dialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="signout-dialog-title"
+            aria-describedby="signout-dialog-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.dialogIcon} aria-hidden="true">A</div>
+            <div>
+              <h2 className={styles.dialogTitle} id="signout-dialog-title">
+                Sign out of AISO?
+              </h2>
+              <p className={styles.dialogText} id="signout-dialog-description">
+                You can sign back in anytime to continue from your dashboard.
+              </p>
+            </div>
+            <div className={styles.dialogActions}>
+              <button
+                type="button"
+                className={styles.dialogCancel}
+                onClick={() => setShowSignOutDialog(false)}
+              >
+                Stay signed in
+              </button>
+              <button
+                type="button"
+                className={styles.dialogConfirm}
+                onClick={confirmSignOut}
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

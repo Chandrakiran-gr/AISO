@@ -108,13 +108,19 @@ function checkRateLimit(ip: string, pathname: string): {
 // ── Security Headers ─────────────────────────────────────────────────────────
 function applySecurityHeaders(response: NextResponse): NextResponse {
   const h = response.headers;
+  const scriptSrc = [
+    "'self'",
+    "'unsafe-inline'", // needed for Next.js inline scripts; tighten with nonce in prod
+    ...(process.env.NODE_ENV !== "production" ? ["'unsafe-eval'"] : []),
+    "https://fonts.googleapis.com",
+  ];
 
   // CSP — strict, no unsafe-inline for scripts
   h.set(
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com",  // unsafe-inline needed for Next.js inline scripts; tighten with nonce in prod
+      `script-src ${scriptSrc.join(" ")}`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: https:",

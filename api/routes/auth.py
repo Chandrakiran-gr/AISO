@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -25,6 +26,14 @@ from api.database import Client, User, get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+PASSWORD_POLICY_MESSAGE = (
+    "Password must be at least 8 characters and include uppercase, lowercase, "
+    "number, and special character."
+)
+PASSWORD_POLICY_PATTERN = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,}$"
+)
+
 
 class CredentialsSignup(BaseModel):
     name: Optional[str] = None
@@ -38,6 +47,13 @@ class CredentialsSignup(BaseModel):
             return None
         clean = " ".join(value.strip().split())
         return clean[:120] or None
+
+    @field_validator("password")
+    @classmethod
+    def password_must_be_strong(cls, value: str) -> str:
+        if not PASSWORD_POLICY_PATTERN.match(value or ""):
+            raise ValueError(PASSWORD_POLICY_MESSAGE)
+        return value
 
 
 class CredentialsVerify(BaseModel):

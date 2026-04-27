@@ -29,10 +29,10 @@ const PROVIDERS = [
 ];
 
 const COMPETITORS = [
-  { name: "Dunkin'", score: 78, color: "#ffd93d" },
-  { name: "You", score: 67, color: "#00d4aa", gradient: true },
-  { name: "Blue Btl", score: 52, color: "#1fb8cd" },
-  { name: "Tatte", score: 41, color: "#d4a27f" },
+  { name: "Competitor A", score: 78, color: "#ffd93d" },
+  { name: "Your Business", score: 67, color: "#00d4aa", gradient: true },
+  { name: "Competitor B", score: 52, color: "#1fb8cd" },
+  { name: "Competitor C", score: 41, color: "#d4a27f" },
 ];
 
 const ACTIONS = [
@@ -161,7 +161,7 @@ export default function DashboardPage() {
         hour: "2-digit",
         minute: "2-digit",
       })
-    : "Apr 25";
+    : "No completed scans";
 
   return (
     <div className={styles.page}>
@@ -171,18 +171,18 @@ export default function DashboardPage() {
           <p className={styles.topCrumb}>Overview</p>
         </div>
         <div className={styles.topActions}>
-          <button type="button" className={styles.headerPill}>⌘K Search</button>
+          <button type="button" className={styles.headerPill}>Search</button>
           <button type="button" className={styles.headerPill}>Alerts</button>
-          <span className={styles.avatar}>CK</span>
+          <span className={styles.avatar}>AI</span>
         </div>
       </header>
 
       <main className={styles.content}>
         <section className={styles.hero}>
           <div>
-            <h2 className={styles.heroTitle}>What AI is saying about Boston Brew</h2>
+            <h2 className={styles.heroTitle}>What AI is saying about your brand</h2>
             <p className={styles.heroSub}>
-              Visibility improved, but Dunkin&apos; still owns transactional and family-fit queries.
+              Run a scan to see visibility, competitor gaps, citations, and prioritized next steps.
             </p>
           </div>
           <Link href="/onboarding" className={styles.newScanBtn}>Run new scan</Link>
@@ -199,7 +199,7 @@ export default function DashboardPage() {
 
         {!loading && !latestScan && (
           <div className={styles.previewBanner}>
-            Showing prototype-quality sample metrics until your first completed scan is available.
+            Showing baseline metrics until your first completed scan is available.
           </div>
         )}
 
@@ -214,7 +214,7 @@ export default function DashboardPage() {
           <article className={`${styles.card} ${styles.urgencyCard}`}>
             <span className={styles.cardLabelWarning}>Urgency</span>
             <strong className={styles.gapMetric}>-11 pts</strong>
-            <p className={styles.gapCopy}>behind Dunkin&apos; across all AI providers</p>
+            <p className={styles.gapCopy}>behind your top competitor across AI providers</p>
             <div className={styles.cardDivider} />
             <span className={styles.smallMuted}>Next best move</span>
             <div className={styles.nextMoveRow}>
