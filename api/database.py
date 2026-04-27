@@ -173,16 +173,25 @@ class ScanCitation(Base):
 class Action(Base):
     """AI-generated action items for a client."""
     __tablename__ = "actions"
+    __table_args__ = (
+        Index("ix_actions_client_scan", "client_id", "scan_id"),
+        Index("ix_actions_status", "status"),
+        Index("ix_actions_scan_key", "scan_id", "action_key", unique=True),
+    )
 
     id          = Column(String, primary_key=True)            # UUID
     client_id   = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
     scan_id     = Column(String, ForeignKey("scans.id"), nullable=True)
+    action_key  = Column(String, nullable=True)               # stable deterministic key per scan
     title       = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     priority    = Column(String, default="medium")            # "high" | "medium" | "low"
     category    = Column(String, nullable=True)               # "on-page" | "entity" | "off-page"
     impact_pts  = Column(String, nullable=True)               # "+3-5 pts"
     effort      = Column(String, nullable=True)               # "30 min" | "1 hour"
+    score       = Column(Float, nullable=True)                # ranking score from deterministic engine
+    sort_order  = Column(Integer, nullable=True)              # stable UI ordering
+    evidence_json = Column(Text, nullable=True)               # JSON evidence behind the recommendation
     status      = Column(String, default="open")              # "open" | "done" | "dismissed"
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at= Column(DateTime, nullable=True)

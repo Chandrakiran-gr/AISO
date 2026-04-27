@@ -24,13 +24,21 @@ class AlembicMigrationTests(unittest.TestCase):
                 command.upgrade(_alembic_config(db_path), "head")
 
             engine = create_engine(f"sqlite:///{db_path}")
-            inspector = inspect(engine)
+            try:
+                with engine.connect() as connection:
+                    inspector = inspect(connection)
 
-            self.assertIn("users", inspector.get_table_names())
-            self.assertIn("scan_artifacts", inspector.get_table_names())
-            self.assertIn("scan_analysis", inspector.get_table_names())
-            self.assertIn("scan_citations", inspector.get_table_names())
-            self.assertIn("alembic_version", inspector.get_table_names())
+                    self.assertIn("users", inspector.get_table_names())
+                    self.assertIn("scan_artifacts", inspector.get_table_names())
+                    self.assertIn("scan_analysis", inspector.get_table_names())
+                    self.assertIn("scan_citations", inspector.get_table_names())
+                    self.assertIn("alembic_version", inspector.get_table_names())
+                    action_columns = {
+                        column["name"] for column in inspector.get_columns("actions")
+                    }
+                    self.assertIn("evidence_json", action_columns)
+            finally:
+                engine.dispose()
 
     def test_upgrade_head_adopts_existing_create_all_database(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -41,12 +49,20 @@ class AlembicMigrationTests(unittest.TestCase):
             with patch.dict("os.environ", {"DATABASE_URL": f"sqlite:///{db_path}"}):
                 command.upgrade(_alembic_config(db_path), "head")
 
-            inspector = inspect(engine)
-            self.assertIn("alembic_version", inspector.get_table_names())
-            self.assertIn(
-                "ix_users_email",
-                {index["name"] for index in inspector.get_indexes("users")},
-            )
+            try:
+                with engine.connect() as connection:
+                    inspector = inspect(connection)
+                    self.assertIn("alembic_version", inspector.get_table_names())
+                    self.assertIn(
+                        "ix_users_email",
+                        {index["name"] for index in inspector.get_indexes("users")},
+                    )
+                    action_columns = {
+                        column["name"] for column in inspector.get_columns("actions")
+                    }
+                    self.assertIn("action_key", action_columns)
+            finally:
+                engine.dispose()
 
 
 if __name__ == "__main__":

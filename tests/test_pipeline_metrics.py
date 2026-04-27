@@ -15,6 +15,9 @@ class PipelineMetricsTests(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
+    def tearDown(self):
+        self.engine.dispose()
+
     def test_competitor_scores_are_scoped_to_each_provider(self):
         session = self.Session()
         try:

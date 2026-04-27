@@ -21,6 +21,9 @@ class ClientProfileTests(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
+    def tearDown(self):
+        self.engine.dispose()
+
     def test_create_client_persists_full_onboarding_profile_and_updates_same_user(self):
         session = self.Session()
         try:

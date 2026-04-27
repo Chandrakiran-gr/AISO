@@ -23,6 +23,9 @@ class AuthPersistenceTests(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
+    def tearDown(self):
+        self.engine.dispose()
+
     def test_password_hashes_are_verified_without_storing_plaintext(self):
         stored_hash = hash_password("Correct-horse-battery1!")
 
