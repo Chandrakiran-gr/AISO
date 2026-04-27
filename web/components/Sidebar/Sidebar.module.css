@@ -197,6 +197,29 @@
   transform: translateY(6px);
 }
 
+.iconresponses::before {
+  width: 13px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+}
+
+.iconresponses::after {
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translate(3px, 5px) rotate(45deg);
+}
+
+.iconactions::before {
+  width: 13px;
+  height: 7px;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
 .iconsettings::before {
   width: 12px;
   height: 12px;

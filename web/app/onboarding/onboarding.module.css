@@ -515,6 +515,14 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+.byokRowMissing {
+  border-color: rgba(239,68,68,0.2);
+  background: rgba(239,68,68,0.055);
 }
 
 .byokProvider {
@@ -546,6 +554,33 @@
   color: #fbbf24;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.byokRequired,
+.byokOptional {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.byokRequired {
+  color: #f87171;
+}
+
+.byokOptional {
+  color: var(--text-muted);
+}
+
+.validationError {
+  padding: 10px 12px;
+  border: 1px solid rgba(239,68,68,0.25);
+  border-radius: var(--radius-md);
+  background: rgba(239,68,68,0.08);
+  color: #fca5a5;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .byokGetKey {

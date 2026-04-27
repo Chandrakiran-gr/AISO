@@ -3,10 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
-import { setKey, getKey, getAllKeys, hadKeyPreviousSession, type Provider } from "@/lib/byok";
+import { setKey, getKey, getAllKeys, hadKeyPreviousSession, clearKey, type Provider } from "@/lib/byok";
 import { INTENT_GROUPS } from "@/lib/intent-groups";
 
-const PROVIDERS = [
+const PROVIDERS: { id: Provider; name: string; color: string }[] = [
   { id: "openai",     name: "ChatGPT",    color: "#10a37f" },
   { id: "claude",     name: "Claude",     color: "#e8b68a" },
   { id: "perplexity", name: "Perplexity", color: "#1fb8cd" },
@@ -50,6 +50,16 @@ const DEFAULT: FormState = {
   providers:    ["openai", "claude", "perplexity", "gemini"],
   groups:       ["G1", "G2", "G3"],
 };
+
+function providerName(id: string): string {
+  return PROVIDERS.find((provider) => provider.id === id)?.name ?? id;
+}
+
+function missingSelectedProviderKeys(providerIds: string[]): Provider[] {
+  return providerIds
+    .filter((id): id is Provider => PROVIDERS.some((provider) => provider.id === id))
+    .filter((id) => !getKey(id));
+}
 
 // ── Step 1: Discover ──────────────────────────────────────────────────────────
 function Step1({ form, set, onNext }: { form: FormState; set: (f: FormState) => void; onNext: () => void }) {
@@ -104,42 +114,78 @@ function Step1({ form, set, onNext }: { form: FormState; set: (f: FormState) => 
 }
 
 // ── Step 2: Configure ─────────────────────────────────────────────────────────
-function Step2({ form, set, onBack, onNext }: {
-  form: FormState; set: (f: FormState) => void; onBack: () => void; onNext: () => void;
+function Step2({ form, set, onBack, onNext, externalError, onClearExternalError }: {
+  form: FormState;
+  set: (f: FormState) => void;
+  onBack: () => void;
+  onNext: () => void;
+  externalError: string | null;
+  onClearExternalError: () => void;
 }) {
   const [keysOpen, setKeysOpen] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
   // Track which providers have keys in this session
   const [keySet, setKeySet] = useState<Partial<Record<Provider, boolean>>>({});
 
+  function refreshKeyState() {
+    const state: Partial<Record<Provider, boolean>> = {};
+    for (const p of PROVIDERS) {
+      state[p.id] = Boolean(getKey(p.id));
+    }
+    setKeySet(state);
+    return state;
+  }
+
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const state: Partial<Record<Provider, boolean>> = {};
-      for (const p of PROVIDERS) {
-        state[p.id as Provider] = Boolean(getKey(p.id as Provider));
-      }
-      setKeySet(state);
-    }, 0);
+    const timer = window.setTimeout(refreshKeyState, 0);
 
     return () => window.clearTimeout(timer);
   }, []);
 
   function handleKeyInput(provider: Provider, value: string) {
-    if (value.trim()) {
-      setKey(provider, value.trim());
+    const clean = value.trim();
+    if (clean) {
+      setKey(provider, clean);
       setKeySet((prev) => ({ ...prev, [provider]: true }));
+      setValidationError(null);
+      onClearExternalError();
+      return;
     }
+    clearKey(provider);
+    setKeySet((prev) => ({ ...prev, [provider]: false }));
   }
 
   const toggleProvider = (id: string) => {
     const next = form.providers.includes(id) ? form.providers.filter((p) => p !== id) : [...form.providers, id];
-    if (next.length > 0) set({ ...form, providers: next });
+    if (next.length > 0) {
+      set({ ...form, providers: next });
+      setValidationError(null);
+      onClearExternalError();
+    }
   };
   const toggleGroup = (id: string) => {
     const next = form.groups.includes(id) ? form.groups.filter((g) => g !== id) : [...form.groups, id];
     if (next.length > 0) set({ ...form, groups: next });
   };
 
-  const anyKeySet = PROVIDERS.some((p) => keySet[p.id as Provider]);
+  const selectedProviderKeysSet = form.providers.filter((id) => keySet[id as Provider]).length;
+  const missingKeys = form.providers.filter((id) => !keySet[id as Provider]);
+  const visibleValidationError = validationError ?? externalError;
+  const byokPanelOpen = keysOpen || Boolean(visibleValidationError);
+
+  function handleNext() {
+    const currentState = refreshKeyState();
+    const missing = form.providers.filter((id) => !currentState[id as Provider]);
+    if (missing.length > 0) {
+      setKeysOpen(true);
+      setValidationError(
+        `Add API keys for selected providers: ${missing.map(providerName).join(", ")}.`
+      );
+      return;
+    }
+    setValidationError(null);
+    onNext();
+  }
 
   return (
     <div>
@@ -184,57 +230,74 @@ function Step2({ form, set, onBack, onNext }: {
             type="button"
             className={styles.byokToggle}
             onClick={() => setKeysOpen((o) => !o)}
-            aria-expanded={keysOpen}
+            aria-expanded={byokPanelOpen}
             id="ob-byok-toggle"
           >
-            <span className={`${styles.byokArrow} ${keysOpen ? styles.byokArrowOpen : ""}`}>▶</span>
-            {anyKeySet
-              ? `🔑 API keys added (${PROVIDERS.filter((p) => keySet[p.id as Provider]).length} of 4)`
-              : "+ Add your own API keys to run all platforms"}
+            <span className={`${styles.byokArrow} ${byokPanelOpen ? styles.byokArrowOpen : ""}`}>▶</span>
+            {missingKeys.length
+              ? `Add API keys for ${missingKeys.length} selected platform${missingKeys.length === 1 ? "" : "s"}`
+              : `API keys ready (${selectedProviderKeysSet}/${form.providers.length} selected)`}
           </button>
 
-          {keysOpen && (
+          {byokPanelOpen && (
             <div className={styles.byokPanel}>
               <p className={styles.byokTrust}>
                 🔒 <strong>Never saved to our servers.</strong> Keys are stored only in your browser&apos;s session memory and cleared when you close this tab.
                 {" "}You can manage them anytime in{" "}
                 <a href="/dashboard/settings" target="_blank" style={{ color: "var(--accent-teal)" }}>Settings</a>.
               </p>
+              {visibleValidationError && (
+                <div className={styles.validationError} role="alert">
+                  {visibleValidationError}
+                </div>
+              )}
               <div className={styles.byokFields}>
-                {PROVIDERS.map((p) => (
-                  <div key={p.id} className={styles.byokRow}>
-                    <span className={styles.byokProvider}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, display: "inline-block", marginRight: 6 }} />
-                      {p.name}
-                    </span>
-                    {keySet[p.id as Provider]
-                      ? <span className={styles.byokSaved}>✓ Session active</span>
-                      : hadKeyPreviousSession(p.id as Provider)
-                      ? <span className={styles.byokPrev}>⟳ Re-enter key</span>
-                      : null
-                    }
-                    <input
-                      type="password"
-                      className={`input ${styles.byokInput}`}
-                      placeholder={keySet[p.id as Provider] ? "••••••••" : `Paste your ${p.name} API key`}
-                      autoComplete="off"
-                      spellCheck={false}
-                      onBlur={(e) => handleKeyInput(p.id as Provider, e.target.value)}
-                      onChange={(e) => { if (!e.target.value) setKeySet((prev) => ({ ...prev, [p.id]: false })); }}
-                    />
-                    <a
-                      href={p.id === "openai" ? "https://platform.openai.com/api-keys"
-                        : p.id === "claude" ? "https://console.anthropic.com/settings/keys"
-                        : p.id === "perplexity" ? "https://www.perplexity.ai/settings/api"
-                        : "https://aistudio.google.com/app/apikey"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={styles.byokGetKey}
+                {PROVIDERS.map((p) => {
+                  const selected = form.providers.includes(p.id);
+                  const missingRequired = selected && !keySet[p.id];
+                  return (
+                    <div
+                      key={p.id}
+                      className={`${styles.byokRow} ${missingRequired ? styles.byokRowMissing : ""}`}
                     >
-                      Get key →
-                    </a>
-                  </div>
-                ))}
+                      <span className={styles.byokProvider}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, display: "inline-block", marginRight: 6 }} />
+                        {p.name}
+                      </span>
+                      {keySet[p.id]
+                        ? <span className={styles.byokSaved}>✓ Session active</span>
+                        : missingRequired
+                        ? <span className={styles.byokRequired}>Required</span>
+                        : hadKeyPreviousSession(p.id)
+                        ? <span className={styles.byokPrev}>⟳ Re-enter key</span>
+                        : !selected
+                        ? <span className={styles.byokOptional}>Optional</span>
+                        : null
+                      }
+                      <input
+                        type="password"
+                        className={`input ${styles.byokInput}`}
+                        placeholder={keySet[p.id] ? "••••••••" : `Paste your ${p.name} API key`}
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-invalid={missingRequired}
+                        aria-label={`${p.name} API key`}
+                        onChange={(e) => handleKeyInput(p.id, e.target.value)}
+                      />
+                      <a
+                        href={p.id === "openai" ? "https://platform.openai.com/api-keys"
+                          : p.id === "claude" ? "https://console.anthropic.com/settings/keys"
+                          : p.id === "perplexity" ? "https://www.perplexity.ai/settings/api"
+                          : "https://aistudio.google.com/app/apikey"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.byokGetKey}
+                      >
+                        Get key →
+                      </a>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -244,7 +307,7 @@ function Step2({ form, set, onBack, onNext }: {
       </div>
       <div className={styles.navRow}>
         <button type="button" className={styles.backBtn} onClick={onBack}>← Back</button>
-        <button type="button" className={styles.nextBtn} onClick={onNext} id="ob-step2-next">
+        <button type="button" className={styles.nextBtn} onClick={handleNext} id="ob-step2-next">
           Review &amp; Launch →
         </button>
       </div>
@@ -346,16 +409,27 @@ function Step3({ form, onBack, onLaunch, scanning, scanIdx, error, skipped }: {
 // ── API helpers ───────────────────────────────────────────────────────────────
 const API = "/api/proxy";
 
-async function createClient(slug: string, displayName: string): Promise<string> {
+function parseCompetitors(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
+async function createClient(slug: string, form: FormState): Promise<string> {
   const res = await fetch(`${API}/v1/clients`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: slug, display_name: displayName }),
+    body: JSON.stringify({
+      id: slug,
+      display_name: form.businessName,
+      url: form.websiteUrl,
+      industry: form.industry || null,
+      location: form.location || null,
+      competitors: parseCompetitors(form.competitors),
+    }),
   });
-  if (res.status === 409) {
-    // Client already exists — reuse the slug as ID
-    return res.headers.get("X-Client-Id") ?? slug;
-  }
   if (!res.ok) throw new Error(`Failed to create client (${res.status})`);
   const data = await res.json();
   return data.id as string;
@@ -385,6 +459,7 @@ async function createScan(
 async function pollScan(clientId: string, scanId: string): Promise<{
   status: string;
   skipped_providers?: string[];
+  error?: string | null;
 }> {
   const res = await fetch(`${API}/v1/clients/${clientId}/scans/${scanId}`);
   if (!res.ok) throw new Error(`Scan poll failed (${res.status})`);
@@ -392,7 +467,7 @@ async function pollScan(clientId: string, scanId: string): Promise<{
 }
 
 function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 50);
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 50);
 }
 
 // ── Main Wizard ───────────────────────────────────────────────────────────────
@@ -403,6 +478,7 @@ export default function OnboardingPage() {
   const [scanning, setScanning]   = useState(false);
   const [scanIdx, setScanIdx]     = useState(0);
   const [error, setError]         = useState<string | null>(null);
+  const [keyError, setKeyError]   = useState<string | null>(null);
   const [skipped, setSkipped]     = useState<string[]>([]);
   const pollRef                   = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -417,13 +493,22 @@ export default function OnboardingPage() {
 
   async function handleLaunch() {
     setError(null);
+    const missingKeys = missingSelectedProviderKeys(form.providers);
+    if (missingKeys.length > 0) {
+      const message = `Add API keys for selected providers: ${missingKeys.map(providerName).join(", ")}.`;
+      setStep(2);
+      setKeyError(message);
+      setError(message);
+      return;
+    }
+    setKeyError(null);
     setScanning(true);
 
     try {
       // 1. Create / reuse client record
       const clientId = await createClient(
         slugify(form.businessName),
-        form.businessName,
+        form,
       );
 
       // 2. Collect BYOK keys from sessionStorage (never logged)
@@ -440,6 +525,11 @@ export default function OnboardingPage() {
             clearInterval(pollRef.current!);
             if (result.skipped_providers?.length) {
               setSkipped(result.skipped_providers);
+            }
+            if (result.status === "failed") {
+              setScanning(false);
+              setError(result.error || "The scan failed. Check your API keys and try again.");
+              return;
             }
             // Short pause so the user sees the final scan step
             setTimeout(() => router.push("/dashboard"), 1500);
@@ -484,7 +574,23 @@ export default function OnboardingPage() {
 
       <div className={styles.card}>
         {step === 1 && <Step1 form={form} set={setForm} onNext={() => setStep(2)} />}
-        {step === 2 && <Step2 form={form} set={setForm} onBack={() => setStep(1)} onNext={() => setStep(3)} />}
+        {step === 2 && (
+          <Step2
+            form={form}
+            set={setForm}
+            onBack={() => setStep(1)}
+            onNext={() => {
+              setKeyError(null);
+              setError(null);
+              setStep(3);
+            }}
+            externalError={keyError}
+            onClearExternalError={() => {
+              setKeyError(null);
+              setError(null);
+            }}
+          />
+        )}
         {step === 3 && <Step3 form={form} onBack={() => setStep(2)} onLaunch={handleLaunch} scanning={scanning} scanIdx={scanIdx} error={error} skipped={skipped} />}
       </div>
     </div>

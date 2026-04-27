@@ -56,6 +56,22 @@ DEFAULT_LIMIT = 100
 # 7 groups × ~14/group ≈ 100 total
 DEFAULT_PER_GROUP = 14
 
+# Provider pacing is opt-in for projects with tight provider rate limits.
+DEFAULT_PROVIDER_MIN_INTERVAL_SEC = {
+    "gemini": 0.0,
+}
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        print(f"{name} must be a number; using {default}.")
+        return default
+
 
 # ─── Spinner ──────────────────────────────────────────────────────────────────
 
@@ -668,6 +684,15 @@ def main():
         name: threading.Semaphore(PROVIDER_CONCURRENCY.get(name, 3))
         for name in provider_names
     }
+    provider_rate_locks = {name: threading.Lock() for name in provider_names}
+    provider_last_call_at: dict[str, float] = defaultdict(float)
+    provider_min_interval = {
+        name: _env_float(
+            f"AISO_{name.upper()}_MIN_INTERVAL_SEC",
+            DEFAULT_PROVIDER_MIN_INTERVAL_SEC.get(name, 0.0),
+        )
+        for name in provider_names
+    }
 
     # ── Step 9: Mutable state (all accessed only in main thread via as_completed)
     pending: dict[int, dict[str, ProviderResult]] = defaultdict(dict)
@@ -677,6 +702,7 @@ def main():
     tasks_succeeded = 0
     tasks_failed = 0
     consecutive_empty = 0
+    recent_empty_errors: list[str] = []
     MAX_CONSECUTIVE_EMPTY = 5 * len(provider_names)
 
     question_timeout_sec = float(
@@ -695,6 +721,14 @@ def main():
         """
         question = questions[q_idx]
         with semaphores[provider_name]:
+            min_interval = provider_min_interval.get(provider_name, 0.0)
+            if min_interval > 0:
+                with provider_rate_locks[provider_name]:
+                    elapsed = time.monotonic() - provider_last_call_at[provider_name]
+                    wait_for = min_interval - elapsed
+                    if wait_for > 0:
+                        time.sleep(wait_for)
+                    provider_last_call_at[provider_name] = time.monotonic()
             # Single-turn only
             try:
                 result = active_providers[provider_name](question)
@@ -769,6 +803,13 @@ def main():
         )
         return f"\r[{bar}] {provider_counts} | ok={tasks_succeeded} fail={tasks_failed}   "
 
+    def _compact_error(provider_name: str, error: str) -> str:
+        """Keep provider errors useful in terminal/API failures without flooding output."""
+        clean = " ".join(str(error or "").split())
+        if not clean:
+            return ""
+        return f"{provider_name}: {clean[:360]}"
+
     try:
         for future in as_completed(all_futures, timeout=question_timeout_sec * total_tasks):
             # Unpack result (failures caught inside _task_worker — always returns tuple)
@@ -791,9 +832,14 @@ def main():
             if result.response.strip():
                 tasks_succeeded += 1
                 consecutive_empty = 0
+                recent_empty_errors.clear()
             else:
                 tasks_failed += 1
                 consecutive_empty += 1
+                compact_error = _compact_error(provider_name, result.error)
+                if compact_error:
+                    recent_empty_errors.append(compact_error)
+                    recent_empty_errors[:] = recent_empty_errors[-MAX_CONSECUTIVE_EMPTY:]
 
             if followup_result is not None:
                 if followup_result.response.strip():
@@ -802,9 +848,11 @@ def main():
                     tasks_failed += 1
 
             if consecutive_empty >= MAX_CONSECUTIVE_EMPTY:
+                last_error = f" Last provider error: {recent_empty_errors[-1]}" if recent_empty_errors else ""
                 raise RuntimeError(
                     f"{consecutive_empty} consecutive empty responses — "
                     "likely an API configuration issue. Check your keys and quota."
+                    f"{last_error}"
                 )
 
             # Write row immediately once all providers have responded for this question

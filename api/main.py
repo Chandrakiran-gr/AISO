@@ -12,7 +12,7 @@ import time
 import os
 
 from api.routes import auth as auth_routes
-from api.routes import clients, health, pipeline
+from api.routes import actions, clients, health, pipeline
 
 # ── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -78,3 +78,4 @@ app.include_router(health.router,   prefix="/api/v1")
 app.include_router(auth_routes.router, prefix="/api/v1")
 app.include_router(clients.router,  prefix="/api/v1")
 app.include_router(pipeline.router, prefix="/api/v1")
+app.include_router(actions.router, prefix="/api/v1")
