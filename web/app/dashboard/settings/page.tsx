@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import styles from "./settings.module.css";
 import {
@@ -62,18 +62,22 @@ const NAV = [
   { icon: "⚙️", label: "Settings",     href: "/dashboard/settings",    active: true  },
 ];
 
+function getProviderKeyInitialState(providerId: Provider) {
+  const current = getKey(providerId);
+  return {
+    value: current ?? "",
+    saved: Boolean(current),
+    hadPrev: !current && hadKeyPreviousSession(providerId),
+  };
+}
+
 // ── Single provider row ────────────────────────────────────────────────────────
 function ProviderKeyRow({ provider }: { provider: typeof PROVIDERS[number] }) {
-  const [value, setValue]       = useState("");
+  const [initial] = useState(() => getProviderKeyInitialState(provider.id));
+  const [value, setValue]       = useState(initial.value);
   const [revealed, setRevealed] = useState(false);
-  const [saved, setSaved]       = useState(false);
-  const [hadPrev, setHadPrev]   = useState(false);
-
-  useEffect(() => {
-    const current = getKey(provider.id);
-    if (current) { setValue(current); setSaved(true); }
-    else setHadPrev(hadKeyPreviousSession(provider.id));
-  }, [provider.id]);
+  const [saved, setSaved]       = useState(initial.saved);
+  const [hadPrev, setHadPrev]   = useState(initial.hadPrev);
 
   function handleChange(v: string) {
     setValue(v);

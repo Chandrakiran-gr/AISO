@@ -90,7 +90,7 @@ async function SignupContent({
           <form
             action={async () => {
               "use server";
-              await signInWithGoogle("/onboarding");
+              await signInWithGoogle("/onboarding", "/signup");
             }}
           >
             <button type="submit" className={styles.oauthBtn} id="signup-google-btn">
@@ -154,9 +154,15 @@ function getSignupErrorMessage(error?: string): string | null {
   const messages: Record<string, string> = {
     invalid: "We could not create your account. Please check your details and try again.",
     email_exists: "An account already exists for this email. Log in instead.",
+    service_unavailable: "Account creation is temporarily unavailable. Please try again later.",
+    signin_failed: "Your account was created, but sign-in failed. Try logging in.",
     CredentialsSignin: "Your account was created, but sign-in failed. Try logging in.",
     OAuthSignin: "Google sign-up could not be started. Please try again.",
     OAuthCallback: "Google sign-up could not be completed. Please try again.",
+    OAuthCallbackError: "Google sign-up could not be completed. Please try again.",
+    CallbackRouteError: "We could not finish creating your Google account. Please try again.",
+    AccessDenied: "Access was denied. Please choose another account or try again.",
+    Configuration: "Sign-up is temporarily unavailable. Please try again later.",
   };
 
   return messages[error] ?? "We could not create your account. Please try again.";

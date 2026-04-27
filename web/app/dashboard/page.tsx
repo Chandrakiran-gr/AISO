@@ -220,7 +220,6 @@ function ActionItems() {
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [latestScan, setLatestScan] = useState<ScanData | null>(null);
-  const [clientId, setClientId]     = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
 
   // Fetch first client → latest scan on mount
@@ -232,7 +231,6 @@ export default function DashboardPage() {
         const clients: ClientData[] = await clientsRes.json();
         if (!clients.length) return;
         const cid = clients[0].id;
-        setClientId(cid);
         const scansRes = await fetch(`${API}/api/v1/clients/${cid}/scans`);
         if (!scansRes.ok) return;
         const scans: ScanData[] = await scansRes.json();
