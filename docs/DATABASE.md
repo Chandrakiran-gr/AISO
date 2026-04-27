@@ -19,9 +19,31 @@ Production should use PostgreSQL:
 DATABASE_URL=postgresql://user:password@host:5432/aiso
 ```
 
-FastAPI initializes tables on startup through `api.database.init_db()`. This is
-acceptable for the current local phase. Before production, add Alembic
-migrations so schema changes are explicit, reviewable, and reversible.
+FastAPI can initialize tables on startup through `api.database.init_db()` during
+local development. Production should set `AISO_AUTO_CREATE_TABLES=0` and apply
+Alembic migrations instead.
+
+## Migrations
+
+Run migrations from the repository root:
+
+```bash
+.venv/bin/alembic upgrade head
+```
+
+If your local `aiso.db` already exists because it was created before Alembic was
+introduced, mark it as current after confirming the schema exists:
+
+```bash
+.venv/bin/alembic stamp head
+```
+
+Useful inspection commands:
+
+```bash
+.venv/bin/alembic current
+.venv/bin/alembic history
+```
 
 ## Core Tables
 
@@ -91,7 +113,7 @@ storage_path = clients/{client_id}/scans/{scan_id}/raw/responses.csv
 
 ## Production Hardening Still Needed
 
-- Add Alembic migrations.
+- Add follow-up Alembic migrations for future schema changes.
 - Add account-linking metadata if additional OAuth providers are introduced.
 - Add object storage behind the artifact metadata contract.
 - Add cascade/delete policy for client-owned records.

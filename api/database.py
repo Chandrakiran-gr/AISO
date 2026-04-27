@@ -200,6 +200,16 @@ def get_db() -> Session:  # type: ignore[return]
 
 
 def init_db():
-    """Create all tables if they don't exist."""
+    """Create local development tables when auto-create is enabled.
+
+    Production deployments should apply Alembic migrations instead of relying
+    on implicit table creation at app startup.
+    """
+    auto_create_default = "0" if os.getenv("ENV") == "production" else "1"
+    auto_create = os.getenv("AISO_AUTO_CREATE_TABLES", auto_create_default)
+    if auto_create != "1":
+        print("[AISO DB] Auto table creation disabled; run Alembic migrations.")
+        return
+
     Base.metadata.create_all(bind=engine)
     print("[AISO DB] Tables initialised.")
