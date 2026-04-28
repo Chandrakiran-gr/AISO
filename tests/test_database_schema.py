@@ -13,6 +13,7 @@ from api.database import (
     Action,
     Base,
     Client,
+    ClientContext,
     Scan,
     ScanAnalysis,
     ScanArtifact,
@@ -44,6 +45,7 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertIn("scan_artifacts", inspector.get_table_names())
             self.assertIn("scan_analysis", inspector.get_table_names())
             self.assertIn("scan_citations", inspector.get_table_names())
+            self.assertIn("client_contexts", inspector.get_table_names())
 
             artifact_columns = {
                 column["name"] for column in inspector.get_columns("scan_artifacts")
@@ -83,6 +85,19 @@ class DatabaseSchemaTests(unittest.TestCase):
                 }.issubset(action_columns)
             )
 
+            context_columns = {
+                column["name"] for column in inspector.get_columns("client_contexts")
+            }
+            self.assertTrue(
+                {
+                    "client_id",
+                    "status",
+                    "profile_json",
+                    "evidence_json",
+                    "warnings_json",
+                }.issubset(context_columns)
+            )
+
     def test_persists_scan_artifact_analysis_and_citation_rows(self):
         session = self.Session()
         try:
@@ -98,6 +113,15 @@ class DatabaseSchemaTests(unittest.TestCase):
                 )
             )
             session.add(Scan(id="scan-1", client_id="client-1", status="complete"))
+            session.add(
+                ClientContext(
+                    client_id="client-1",
+                    status="confirmed",
+                    profile_json=json.dumps({"business": {"name": "AISO Demo"}}),
+                    evidence_json=json.dumps({"pages": []}),
+                    warnings_json=json.dumps([]),
+                )
+            )
             session.flush()
 
             session.add(
@@ -140,6 +164,7 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertEqual(session.query(ScanArtifact).count(), 1)
             self.assertEqual(session.query(ScanAnalysis).count(), 1)
             self.assertEqual(session.query(ScanCitation).count(), 1)
+            self.assertEqual(session.query(ClientContext).count(), 1)
         finally:
             session.close()
 

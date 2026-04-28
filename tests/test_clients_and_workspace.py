@@ -148,6 +148,49 @@ class ScanWorkspaceTests(unittest.TestCase):
             self.assertGreaterEqual(len(rows), 7)
             self.assertEqual({row["group"] for row in rows}, {"G1", "G2", "G3", "G4", "G5", "G6", "G7"})
 
+    def test_prepare_scan_workspace_uses_confirmed_context_profile(self):
+        client = Client(
+            id="pempsa",
+            user_id="user-1",
+            name="Pempsa",
+            url="https://pempsa.example",
+            industry="Spa",
+            location="Greater Boston",
+            competitors=json.dumps(["Bella Boutique Spa"]),
+        )
+        context_profile = {
+            "business": {"name": "Pempsa"},
+            "categories": [{"name": "boutique skincare spa", "type": "category"}],
+            "offering_groups": [{"name": "Signature Facials", "type": "offering_group", "bookable": False}],
+            "offerings": [{"name": "Chemical Peel", "type": "offering", "bookable": True}],
+            "product_brands": [{"name": "Face Reality", "type": "product_brand"}],
+            "competitors": [{"name": "Bella Boutique Spa", "type": "competitor_business"}],
+            "locations": {
+                "physical_locations": [{"name": "Newton Centre, MA", "type": "physical_location"}],
+                "service_areas": [],
+                "visibility_markets": [{"name": "Greater Boston", "type": "visibility_market"}],
+                "excluded_locations": [],
+            },
+            "goals": [{"name": "improve acne-prone skin", "type": "goal"}],
+            "personas": [{"name": "first-time facial clients", "type": "persona"}],
+            "differentiators": [],
+            "guardrails": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("api.scan_workspace.CLIENTS_ROOT", Path(tmp)):
+                folder = prepare_scan_workspace(client, context_profile=context_profile)
+
+            profile = json.loads((folder / "client_profile.json").read_text())
+            self.assertEqual(profile["confirmed_context"]["offerings"][0]["name"], "Chemical Peel")
+
+            with (folder / "query_template_bank.csv").open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+
+            questions = {row["question"] for row in rows}
+            self.assertIn("Does Pempsa offer Chemical Peel?", questions)
+            self.assertNotIn("Chemical Peel vs Bella Boutique Spa: which is better?", questions)
+
 
 if __name__ == "__main__":
     unittest.main()

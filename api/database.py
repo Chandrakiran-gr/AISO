@@ -65,6 +65,22 @@ class Client(Base):
     updated_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class ClientContext(Base):
+    """Confirmed client context extracted from public website evidence."""
+    __tablename__ = "client_contexts"
+    __table_args__ = (
+        Index("ix_client_contexts_status", "status"),
+    )
+
+    client_id     = Column(String, ForeignKey("clients.id"), primary_key=True)
+    status        = Column(String, default="not_started", nullable=False)  # not_started | discovering | draft | confirmed | needs_review | failed
+    profile_json  = Column(Text, nullable=True)                            # structured draft/confirmed profile
+    evidence_json = Column(Text, nullable=True)                            # website evidence + source URLs
+    warnings_json = Column(Text, nullable=True)                            # uncertainty/safety/classification warnings
+    created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class Scan(Base):
     """A pipeline run for a client."""
     __tablename__ = "scans"
