@@ -32,6 +32,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("scan_artifacts", inspector.get_table_names())
                     self.assertIn("scan_analysis", inspector.get_table_names())
                     self.assertIn("scan_citations", inspector.get_table_names())
+                    self.assertIn("client_contexts", inspector.get_table_names())
                     self.assertIn("alembic_version", inspector.get_table_names())
                     action_columns = {
                         column["name"] for column in inspector.get_columns("actions")
@@ -61,6 +62,7 @@ class AlembicMigrationTests(unittest.TestCase):
                         column["name"] for column in inspector.get_columns("actions")
                     }
                     self.assertIn("action_key", action_columns)
+                    self.assertIn("client_contexts", inspector.get_table_names())
             finally:
                 engine.dispose()
 

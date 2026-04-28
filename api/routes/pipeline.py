@@ -13,7 +13,7 @@ import json
 import os
 import csv
 
-from api.database import get_db, Scan, Client, ScanArtifact, ScanCitation, ScanResult
+from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult
 from api.auth import get_current_user_id
 from api.scan_workspace import prepare_scan_workspace
 
@@ -280,7 +280,7 @@ async def run_pipeline(
 
         if skipped_providers:
             print(f"[AISO Pipeline] Providers skipped (no key): {skipped_providers}")
-            print(f"[AISO Pipeline] Add keys in /dashboard/settings or contact support for managed keys.")
+            print("[AISO Pipeline] Add keys in /dashboard/settings or contact support for managed keys.")
 
         if not active_providers:
             raise RuntimeError("No providers available — please add at least one API key in Settings.")
@@ -289,13 +289,26 @@ async def run_pipeline(
         if not client:
             raise RuntimeError("Client not found for scan workspace preparation.")
 
-        client_folder = prepare_scan_workspace(client)
+        context = db.query(ClientContext).filter(
+            ClientContext.client_id == client_id,
+            ClientContext.status == "confirmed",
+        ).first()
+        context_profile = None
+        if context and context.profile_json:
+            try:
+                context_profile = json.loads(context.profile_json)
+            except json.JSONDecodeError:
+                context_profile = None
+
+        client_folder = prepare_scan_workspace(client, context_profile=context_profile)
         print(f"[AISO Pipeline] Scan workspace ready: {client_folder}")
 
         # ── Run real pipeline via subprocess ─────────────────────────────────
         # Keys are passed as env var overrides — never written to disk.
         # collect.py receives explicit provider/group args and matching env vars.
-        import asyncio, sys, pathlib
+        import asyncio
+        import pathlib
+        import sys
 
         repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
         collect_script  = repo_root / "full_stack" / "collect.py"

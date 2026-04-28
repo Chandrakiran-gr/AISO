@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterable
 
 from api.database import Client
+from api.question_generation import QUERY_BANK_HEADERS, profile_to_question_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENTS_ROOT = REPO_ROOT / "clients"
@@ -41,17 +42,6 @@ VALUE_BANK_HEADERS = [
     "price_or_budget",
     "timeframe",
     "qualifier",
-]
-
-QUERY_BANK_HEADERS = [
-    "question",
-    "group",
-    "group_label",
-    "group_rank",
-    "intent_score",
-    "popularity_score",
-    "cpc_proxy_score",
-    "rank_reason",
 ]
 
 GROUP_LABELS = {
@@ -239,6 +229,71 @@ def _profile_values(client: Client) -> dict[str, str]:
     }
 
 
+def _first_context_name(profile: dict, key: str, fallback: str, *, bookable_only: bool = False) -> str:
+    values = profile.get(key, [])
+    if not isinstance(values, list):
+        return fallback
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        if bookable_only and item.get("bookable") is False:
+            continue
+        name = str(item.get("name") or "").strip()
+        if name:
+            return name
+    return fallback
+
+
+def _context_locations(profile: dict) -> tuple[str, str]:
+    locations = profile.get("locations") if isinstance(profile.get("locations"), dict) else {}
+    for key in ("physical_locations", "service_areas", "visibility_markets"):
+        values = locations.get(key, [])
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if isinstance(item, dict) and str(item.get("name") or "").strip():
+                name = str(item["name"]).strip()
+                parts = [part.strip() for part in name.split(",") if part.strip()]
+                return (parts[0], parts[-1] if len(parts) > 1 else name)
+    return ("your area", "your region")
+
+
+def _context_profile_values(client: Client, profile: dict) -> dict[str, str]:
+    fallback = _profile_values(client)
+    business = profile.get("business") if isinstance(profile.get("business"), dict) else {}
+    client_name = str(business.get("name") or client.name).strip()
+    category = _first_context_name(profile, "categories", fallback["category"])
+    service = _first_context_name(profile, "offerings", category, bookable_only=True)
+    group = _first_context_name(profile, "offering_groups", category)
+    product = _first_context_name(profile, "product_brands", service)
+    competitor = _first_context_name(profile, "competitors", fallback["competitor"])
+    city, region = _context_locations(profile)
+    goal = _first_context_name(profile, "goals", fallback["goal"])
+    persona = _first_context_name(profile, "personas", fallback["persona_or_occasion"])
+    return {
+        **fallback,
+        "client": client_name,
+        "competitor": competitor,
+        "competitor_a": competitor,
+        "competitor_b": _first_context_name(profile, "competitors", competitor),
+        "option_a": client_name,
+        "option_b": competitor,
+        "category": category,
+        "service": service,
+        "product": product,
+        "city": city,
+        "neighborhood": city,
+        "landmark": city,
+        "region": region,
+        "state_or_country": region,
+        "zip_or_area": city,
+        "goal": goal,
+        "use_case": goal,
+        "persona_or_occasion": persona,
+        "audience": persona,
+    }
+
+
 def _render_question(template: str, values: dict[str, str]) -> str:
     result = template
     for key, value in values.items():
@@ -246,7 +301,7 @@ def _render_question(template: str, values: dict[str, str]) -> str:
     return re.sub(r"\s+", " ", result).strip()
 
 
-def prepare_scan_workspace(client: Client) -> Path:
+def prepare_scan_workspace(client: Client, context_profile: dict | None = None) -> Path:
     """Create/update the local client folder needed by collect.py."""
     slug = normalize_slug(client.id)
     client_folder = CLIENTS_ROOT / slug
@@ -261,6 +316,7 @@ def prepare_scan_workspace(client: Client) -> Path:
         "industry": client.industry,
         "location": client.location,
         "competitors": competitors,
+        "confirmed_context": context_profile or None,
         "_generated_by": "api.scan_workspace",
     }
     (client_folder / "client_profile.json").write_text(
@@ -281,29 +337,32 @@ def prepare_scan_workspace(client: Client) -> Path:
         encoding="utf-8",
     )
 
-    values = _profile_values(client)
+    values = _context_profile_values(client, context_profile) if context_profile else _profile_values(client)
     with (client_folder / "value_bank.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=VALUE_BANK_HEADERS)
         writer.writeheader()
         writer.writerow({key: values.get(key, "") for key in VALUE_BANK_HEADERS})
 
     bank_path = client_folder / "query_template_bank.csv"
-    templates = _question_templates()
-    rows: list[dict[str, str | int | float]] = []
-    for group_id, group_templates in templates.items():
-        for rank, template in enumerate(group_templates, start=1):
-            rows.append(
-                {
-                    "question": _render_question(template, values),
-                    "group": group_id,
-                    "group_label": GROUP_LABELS[group_id],
-                    "group_rank": rank,
-                    "intent_score": 7,
-                    "popularity_score": "",
-                    "cpc_proxy_score": 5,
-                    "rank_reason": "Generated from onboarding profile for local-first scan launch.",
-                }
-            )
+    if context_profile:
+        rows = profile_to_question_rows(context_profile)
+    else:
+        templates = _question_templates()
+        rows: list[dict[str, str | int | float]] = []
+        for group_id, group_templates in templates.items():
+            for rank, template in enumerate(group_templates, start=1):
+                rows.append(
+                    {
+                        "question": _render_question(template, values),
+                        "group": group_id,
+                        "group_label": GROUP_LABELS[group_id],
+                        "group_rank": rank,
+                        "intent_score": 7,
+                        "popularity_score": "",
+                        "cpc_proxy_score": 5,
+                        "rank_reason": "Generated from onboarding profile fallback for local-first scan launch.",
+                    }
+                )
 
     with bank_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=QUERY_BANK_HEADERS)
