@@ -77,6 +77,7 @@ class ClientContextProfileTests(unittest.TestCase):
                     "text_blocks": [
                         "Sign In My Account Bookings",
                         "Proudly serving Newton, Chestnut Hill, Brookline, Needham, and nearby Greater Boston communities since 2021.",
+                        "634 Commonwealth Avenue suite 209, Newton Centre, Newton, Newton Centre, Massachusetts 02459",
                         "634 Commonwealth Avenue, Suite 209, Newton, Massachusetts 02459",
                     ],
                     "json_ld": [],
@@ -94,6 +95,7 @@ class ClientContextProfileTests(unittest.TestCase):
                     "text_blocks": [
                         "Book Now",
                         "Dermaplaning gently exfoliates and removes peach fuzz.",
+                        "The Hydro Boost Add-On is the perfect solution, featuring PAIN-FREE extractions.",
                     ],
                     "json_ld": [],
                     "forms": [],
@@ -121,6 +123,8 @@ class ClientContextProfileTests(unittest.TestCase):
         groups = {item["name"] for item in profile["offering_groups"]}
         offerings = {item["name"] for item in profile["offerings"]}
         categories = {item["name"] for item in profile["categories"]}
+        product_brands = {item["name"] for item in profile["product_brands"]}
+        physical_locations = [item["name"] for item in profile["locations"]["physical_locations"]]
 
         self.assertEqual(status, "draft")
         self.assertIn("Signature Facials", groups)
@@ -129,8 +133,46 @@ class ClientContextProfileTests(unittest.TestCase):
         self.assertNotIn("Advanced Facials", offerings)
         self.assertIn("Chemical Peel", offerings)
         self.assertIn("Deluxe Dermaplane Facial", offerings)
+        self.assertNotIn("PAIN", product_brands)
+        self.assertEqual(len(physical_locations), 1)
+        self.assertNotIn("Newton Centre, Newton, Newton Centre", physical_locations[0])
         self.assertNotIn("home service", categories)
         self.assertNotIn("No services found.", warnings)
+
+    def test_persona_evidence_is_not_cut_mid_sentence(self):
+        client = Client(
+            id="pempsa-persona",
+            user_id="user-1",
+            name="PemSpa",
+            url="https://pempsa.example",
+            industry="boutique skincare spa",
+        )
+        persona_text = (
+            "✨ Ideal for sensitive skin or anyone wanting hydrated, radiant results without harsh abrasion. "
+            "Removes unwanted hair from the chin area for a smooth, clean look. "
+            "We use gentle wax suitable for sensitive skin and first-time waxing clients. >Book Now"
+        )
+        evidence = {
+            "pages": [
+                {
+                    "url": "https://pempsa.example/signature-facials",
+                    "title": "Signature Facials",
+                    "headings": ["Chemical Peel"],
+                    "text_blocks": [persona_text],
+                    "json_ld": [],
+                    "forms": [],
+                }
+            ],
+            "warnings": [],
+        }
+
+        profile, _, _ = build_context_profile(client, evidence)
+
+        persona_names = [item["name"] for item in profile["personas"]]
+        expected = persona_text.replace(" >Book Now", "")
+        self.assertIn(expected, persona_names)
+        self.assertFalse(any("Book Now" in name for name in persona_names))
+        self.assertFalse(any(name.endswith("se") for name in persona_names))
 
 
 class ClientContextApiTests(unittest.TestCase):

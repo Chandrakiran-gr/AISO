@@ -11,25 +11,59 @@ from api.database import Client
 
 
 PROFILE_VERSION = "client_context.v1"
+KNOWN_PRODUCT_BRANDS = (
+    "Face Reality",
+    "SkinBetter",
+    "HydraFacial",
+    "ZO Skin Health",
+    "Obagi",
+    "iS Clinical",
+)
 
 
 def _clean(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def _strip_inline_cta(value: str) -> str:
+    clean = _clean(value)
+    clean = re.sub(r"\s*>?\s*(?:Book Now|Learn More|Get Directions)\s*$", "", clean, flags=re.I)
+    return _clean(clean)
+
+
+def _dedupe_key(name: str, item_type: str | None) -> str:
+    clean = _clean(name).casefold()
+    if item_type == "physical_location":
+        address = re.sub(r"\b(?:suite|ste)\s*#?\s*(\d+)\b", r"suite \1", clean)
+        street = re.search(
+            r"\b(\d{2,5}\s+[^,]+?\b(?:avenue|ave|street|st|road|rd|drive|dr|boulevard|blvd|lane|ln|way))\b",
+            address,
+        )
+        suite = re.search(r"\bsuite\s*\d+\b", address)
+        zip_code = re.search(r"\b\d{5}(?:-\d{4})?\b", address)
+        if street and zip_code:
+            suite_key = f" {suite.group(0)}" if suite else ""
+            return f"address:{street.group(1)}{suite_key} {zip_code.group(0)}"
+    return re.sub(r"[^a-z0-9]+", " ", clean).strip()
+
+
 def _dedupe_items(items: Iterable[dict[str, Any]], *, key: str = "name", limit: int = 30) -> list[dict[str, Any]]:
-    seen: set[str] = set()
+    seen: dict[str, int] = {}
     result: list[dict[str, Any]] = []
     for item in items:
         name = _clean(item.get(key))
         if not name:
             continue
-        normalized = re.sub(r"[^a-z0-9]+", " ", name.casefold()).strip()
-        if normalized in seen:
-            continue
-        seen.add(normalized)
+        normalized = _dedupe_key(name, _clean(item.get("type")) or None)
         next_item = dict(item)
         next_item[key] = name
+        if normalized in seen:
+            existing_index = seen[normalized]
+            existing_name = _clean(result[existing_index].get(key))
+            if len(name) < len(existing_name):
+                result[existing_index] = next_item
+            continue
+        seen[normalized] = len(result)
         result.append(next_item)
         if len(result) >= limit:
             break
@@ -111,7 +145,7 @@ def _duration_from_text(text: str) -> str | None:
 
 def _looks_like_group(text: str) -> bool:
     lowered = text.casefold()
-    if _skip_context_text(text) or len(text) > 90:
+    if _skip_context_text(text):
         return False
     if any(
         term in lowered
@@ -141,7 +175,9 @@ def _looks_like_offering(text: str) -> bool:
     lowered = text.casefold()
     if _skip_context_text(text):
         return False
-    if len(text) < 3 or len(text) > 120:
+    if len(text) < 3:
+        return False
+    if re.search(r"\b(?:provide|provides|include|includes|targeting|designed to|serving|specializing)\b", lowered):
         return False
     if _price_from_text(text):
         return True
@@ -218,51 +254,86 @@ def _skip_context_text(text: str) -> bool:
         return True
     if "boutique" in lowered and re.search(r"\bnewton,\s?(ma|massachusetts)\b", lowered):
         return True
-    if len(text) > 80 and any(term in lowered for term in ("facial", "service", "treatment")):
-        return True
     return False
 
 
 def _extract_brand_names(text: str) -> list[str]:
     brands: list[str] = []
     patterns = [
-        r"(?:use|uses|carry|carries|featuring|powered by|partnered with)\s+([A-Z][A-Za-z0-9&' ]{2,40})",
-        r"\b(Face Reality|SkinBetter|HydraFacial|ZO Skin Health|Obagi|iS Clinical)\b",
+        rf"\b({'|'.join(re.escape(name) for name in KNOWN_PRODUCT_BRANDS)})\b",
+        r"(?:use|uses|carry|carries|sells|sold|partnered with)\s+([A-Z][A-Za-z0-9&' ]+)",
     ]
     for pattern in patterns:
         for match in re.finditer(pattern, text):
             candidate = _clean(match.group(1))
             candidate = re.sub(r"\s+(?:products|skincare|line|brand).*$", "", candidate, flags=re.I)
-            if candidate and len(candidate.split()) <= 5:
+            if candidate and len(candidate.split()) <= 5 and not _reject_brand_candidate(candidate):
                 brands.append(candidate)
     return brands
+
+
+def _reject_brand_candidate(candidate: str) -> bool:
+    clean = _clean(candidate)
+    if clean in KNOWN_PRODUCT_BRANDS:
+        return False
+    lowered = clean.casefold()
+    blocked = {
+        "pain",
+        "pain free",
+        "online bookings",
+        "your skin",
+        "natural collagen",
+        "all rights reserved",
+    }
+    if lowered in blocked:
+        return True
+    if re.fullmatch(r"[A-Z0-9&' -]+", clean):
+        return True
+    return any(token in lowered.split() for token in {"pain", "free", "booking", "bookings", "copyright"})
+
+
+def _clean_physical_address(address: str) -> str:
+    clean = _clean(address)
+    clean = re.sub(r"\b(?:suite|ste)\s*#?\s*(\d+)\b", r"Suite \1", clean, flags=re.I)
+    clean = re.sub(r"\bMassachusetts\b", "MA", clean, flags=re.I)
+    parts: list[str] = []
+    seen: set[str] = set()
+    for part in (piece.strip(" ,") for piece in clean.split(",")):
+        if not part:
+            continue
+        key = part.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(part)
+    return ", ".join(parts)
 
 
 def _extract_location_items(text: str, source_url: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     physical: list[dict[str, Any]] = []
     service_areas: list[dict[str, Any]] = []
     visibility: list[dict[str, Any]] = []
-    city_state = re.findall(r"\b([A-Z][A-Za-z .'-]{2,40},\s?[A-Z]{2})\b", text)
+    city_state = re.findall(r"\b([A-Z][A-Za-z .'-]+,\s?[A-Z]{2})\b", text)
     for location in city_state:
         if re.search(r"\b(skincare|facial|boutique|service|treatment)\b", location, re.I):
             continue
         physical.append(_item(location, "physical_location", 0.72, source_url))
     for match in re.finditer(
-        r"\b(\d{2,5}\s+[^.;\n]{1,60}\b(?:Avenue|Ave|Street|St|Road|Rd|Drive|Dr|Boulevard|Blvd|Lane|Ln|Way)\b[^.;\n]{0,40},\s*(?:Suite\s*\d+,\s*)?[A-Z][A-Za-z .'-]{2,40},\s*(?:Massachusetts|MA)\s*\d{5})\b",
+        r"\b(\d{2,5}\s+[^.;\n,]+\b(?:Avenue|Ave|Street|St|Road|Rd|Drive|Dr|Boulevard|Blvd|Lane|Ln|Way)\b[^.;\n,]*,\s*(?:Suite\s*\d+,\s*)?[A-Z][A-Za-z .'-]+,\s*(?:Massachusetts|MA)\s*\d{5})\b",
         text,
         re.I,
     ):
-        address = _clean(match.group(1))
+        address = _clean_physical_address(match.group(1))
         if re.match(r"\d+\s+(?:daily|monthly|weekly|yearly)\b", address, re.I) or "PemSpa" in address.split("Avenue", 1)[0]:
             continue
         physical.append(_item(address, "physical_location", 0.82, source_url))
-    for match in re.finditer(r"(?:serving|serves|service areas include|available in)\s+([^.;\n]{3,140})", text, re.I):
+    for match in re.finditer(r"(?:serving|serves|service areas include|available in)\s+([^.;\n]+)", text, re.I):
         area_text = re.split(r"\b(?:since|PemSpa| is | with treatments| tailored)\b", match.group(1), maxsplit=1, flags=re.I)[0]
         for area in re.split(r",| and ", area_text):
             clean = _clean(re.sub(r"^(?:nearby|surrounding|including)\s+", "", area, flags=re.I))
             if 2 < len(clean) < 60:
                 service_areas.append(_item(clean, "service_area", 0.66, source_url))
-    for match in re.finditer(r"(?:near|around|throughout)\s+([A-Z][A-Za-z .'-]{2,50})", text):
+    for match in re.finditer(r"(?:near|around|throughout)\s+([A-Z][A-Za-z .'-]+)", text):
         visibility.append(_item(match.group(1), "visibility_market", 0.48, source_url, usage="visibility_only"))
     return physical, service_areas, visibility
 
@@ -273,7 +344,7 @@ def _infer_category(text: str, source_url: str, client: Client) -> list[dict[str
         categories.append(_item(client.industry, "category", 0.86, source_url or client.url))
     category_patterns = [
         r"\b(skincare spa|facial spa|med spa|coffee shop|restaurant|law firm|dental clinic|marketing agency|software platform|home services?)\b",
-        r"\b([A-Z][A-Za-z ]{2,40})\s+(?:services|studio|clinic|spa|salon|agency|company)\b",
+        r"\b([A-Z][A-Za-z ]+)\s+(?:services|studio|clinic|spa|salon|agency|company)\b",
     ]
     for pattern in category_patterns:
         for match in re.finditer(pattern, text, re.I):
@@ -389,9 +460,9 @@ def build_context_profile(client: Client, evidence: dict[str, Any]) -> tuple[dic
             for brand in _extract_brand_names(clean):
                 product_brands.append(_item(brand, "product_brand", 0.74, source_url))
             if any(term in clean.casefold() for term in ("award", "certified", "customized", "personalized", "specializing", "family-owned")):
-                differentiators.append(_item(clean[:120], "differentiator", 0.55, source_url))
+                differentiators.append(_item(_strip_inline_cta(clean), "differentiator", 0.55, source_url))
             if any(term in clean.casefold() for term in ("for acne", "for sensitive skin", "for teams", "for homeowners", "for founders")):
-                personas.append(_item(clean[:100], "persona", 0.52, source_url))
+                personas.append(_item(_strip_inline_cta(clean), "persona", 0.52, source_url))
 
         page_physical, page_service, page_visibility = _extract_location_items(page_text, source_url)
         physical_locations.extend(page_physical)

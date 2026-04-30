@@ -416,7 +416,7 @@ class EvidenceHTMLParser(HTMLParser):
             self._form = None
         if self._blocks and self._blocks[-1]["tag"] == tag:
             block = self._blocks.pop()
-            text = _clean_text(" ".join(block["text"]))[:600]
+            text = _clean_text(" ".join(block["text"]))
             if not text:
                 return
             if tag in {"h1", "h2", "h3", "h4"}:
