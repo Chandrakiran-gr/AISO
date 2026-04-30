@@ -131,7 +131,7 @@ function parseCompetitors(raw: string): string[] {
 }
 
 function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 50);
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
 function emptyProfile(form: FormState): ContextProfile {
@@ -182,6 +182,12 @@ function itemLines(items: ContextItem[]): string {
   return items.map((item) => item.name).join("\n");
 }
 
+function contextRows(items: ContextItem[]): number {
+  const lineCount = Math.max(1, items.length);
+  const wrappedRows = items.reduce((total, item) => total + Math.ceil(Math.max(item.name.length, 1) / 84), 0);
+  return Math.max(3, Math.min(10, lineCount + wrappedRows));
+}
+
 function linesToItems(raw: string, type: string, extra: Partial<ContextItem> = {}): ContextItem[] {
   return raw
     .split("\n")
@@ -192,18 +198,18 @@ function linesToItems(raw: string, type: string, extra: Partial<ContextItem> = {
 }
 
 function confidenceLabel(item: ContextItem): string {
-  if (typeof item.confidence !== "number") return "Manual";
-  return `${Math.round(item.confidence * 100)}%`;
+  if (typeof item.confidence !== "number") return "Manual confidence";
+  return `Confidence ${Math.round(item.confidence * 100)}%`;
 }
 
 function sourceLabel(source?: string): string {
   if (!source) return "No source";
-  if (source === "manual_onboarding" || source === "fallback") return "Manual";
+  if (source === "manual_onboarding" || source === "fallback") return "Manual entry";
   try {
     const url = new URL(source);
-    return url.hostname.replace(/^www\./, "");
+    return `Source ${url.hostname.replace(/^www\./, "")}`;
   } catch {
-    return source;
+    return `Source ${source}`;
   }
 }
 
@@ -325,7 +331,6 @@ function Step1({
             placeholder="Your business name"
             value={form.businessName}
             onChange={(e) => set({ ...form, businessName: e.target.value })}
-            maxLength={200}
             required
           />
         </div>
@@ -338,7 +343,6 @@ function Step1({
             placeholder="https://yourbusiness.com"
             value={form.websiteUrl}
             onChange={(e) => set({ ...form, websiteUrl: e.target.value })}
-            maxLength={500}
             required
           />
         </div>
@@ -352,7 +356,6 @@ function Step1({
               placeholder="Used only if the website is unclear"
               value={form.industry}
               onChange={(e) => set({ ...form, industry: e.target.value })}
-              maxLength={110}
             />
           </div>
           <div className={styles.fieldGroup}>
@@ -364,7 +367,6 @@ function Step1({
               placeholder="City, region, or service area"
               value={form.location}
               onChange={(e) => set({ ...form, location: e.target.value })}
-              maxLength={140}
             />
           </div>
         </div>
@@ -380,7 +382,6 @@ function Step1({
             placeholder="Competitor A, Competitor B"
             value={form.competitors}
             onChange={(e) => set({ ...form, competitors: e.target.value })}
-            maxLength={500}
           />
         </div>
       </div>
@@ -488,13 +489,13 @@ function ContextSection({
         className={styles.contextTextarea}
         value={itemLines(items)}
         onChange={(event) => onChange(linesToItems(event.target.value, type, extra))}
-        rows={Math.max(3, Math.min(7, items.length + 1))}
+        rows={contextRows(items)}
       />
       {items.length > 0 && (
         <div className={styles.sourceChips}>
           {items.slice(0, 4).map((item) => (
             <span key={`${item.name}-${item.source_url}`}>
-              {confidenceLabel(item)} · {sourceLabel(item.source_url)}
+              {sourceLabel(item.source_url)} · {confidenceLabel(item)}
             </span>
           ))}
         </div>
