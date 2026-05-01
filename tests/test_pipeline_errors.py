@@ -56,6 +56,26 @@ RuntimeError: 5 consecutive empty responses — likely an API configuration issu
 
         self.assertEqual(estimate, (4, 2, 8))
 
+    def test_estimates_api_calls_from_curated_bank_without_pick_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bank = Path(tmp) / "query_template_bank.csv"
+            with bank.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["question", "group"])
+                writer.writeheader()
+                for index in range(3):
+                    writer.writerow({"question": f"G1 question {index}", "group": "G1"})
+                for index in range(2):
+                    writer.writerow({"question": f"G2 question {index}", "group": "G2"})
+
+            estimate = _estimate_api_calls(
+                bank,
+                groups=["G1", "G2"],
+                providers=["openai", "gemini"],
+                pick_all=None,
+            )
+
+        self.assertEqual(estimate, (5, 2, 10))
+
 
 if __name__ == "__main__":
     unittest.main()

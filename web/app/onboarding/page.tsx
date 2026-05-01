@@ -416,6 +416,7 @@ function Step2({
   const pageCount = context?.evidence_json?.page_count ?? context?.evidence_json?.pages?.length ?? 0;
   const status = context?.status ?? (discovering ? "discovering" : "not_started");
   const isRunning = discovering || status === "discovering";
+  const readyToReview = !isRunning && status !== "failed";
   return (
     <div>
       <span className={styles.stepBadge}>Step 2 of 4 · Website discovery</span>
@@ -430,9 +431,20 @@ function Step2({
         </div>
         <div>
           <strong>{isRunning ? "Discovering services, locations, proof, and CTAs" : "Discovery finished"}</strong>
-          <p>{isRunning ? "This usually takes a few seconds for small business sites." : `${pageCount} public page${pageCount === 1 ? "" : "s"} reviewed.`}</p>
+          <p>
+            {isRunning
+              ? "This usually takes a few seconds for small business sites."
+              : `${pageCount} public page${pageCount === 1 ? "" : "s"} reviewed. Continue to review and edit the extracted client context.`}
+          </p>
         </div>
       </div>
+
+      {readyToReview && (
+        <div className={styles.reviewHint}>
+          <strong>Extracted context is ready</strong>
+          <span>The next step shows the discovered offerings, competitors, locations, personas, and proof signals before any scan runs.</span>
+        </div>
+      )}
 
       {error && <div className={styles.validationError} role="alert">{error}</div>}
 
@@ -453,7 +465,7 @@ function Step2({
             </>
           )}
           <button type="button" className={styles.nextBtn} onClick={onNext} disabled={isRunning || status === "failed"}>
-            Confirm context
+            Review extracted context
           </button>
         </div>
       </div>

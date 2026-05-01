@@ -4,23 +4,27 @@ Wraps setup2.py → collect.py → analysis1.py → analysis2.py
 """
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
+from pathlib import Path
 import uuid
 import json
 import os
 import csv
 
-from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult
+from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, User
 from api.auth import get_current_user_id
 from api.scan_workspace import prepare_scan_workspace
+from api.storage import REPO_ROOT, local_storage_root
 
 router = APIRouter(tags=["pipeline"])
 
 DEFAULT_PROVIDERS = ["openai", "claude", "perplexity", "gemini"]
 DEFAULT_GROUPS = ["G1", "G2", "G3"]
+DEFAULT_ARTIFACT_ACCESS_EMAILS = {"admin@aisoglobal.com"}
 
 
 class BYOKKeys(BaseModel):
@@ -111,6 +115,43 @@ class ProviderMetric(BaseModel):
     avg_position: Optional[float]
 
 
+def _configured_artifact_access_emails() -> set[str]:
+    configured = {
+        email.strip().lower()
+        for email in os.getenv("AISO_ARTIFACT_ACCESS_EMAILS", "").split(",")
+        if email.strip()
+    }
+    return DEFAULT_ARTIFACT_ACCESS_EMAILS | configured
+
+
+def _can_download_artifacts(db: Session, user_id: str) -> bool:
+    plan = os.getenv("AISO_PLAN", os.getenv("NEXT_PUBLIC_AISO_PLAN", "free")).strip().lower()
+    if plan in {"pro", "agency"}:
+        return True
+
+    user = db.query(User).filter(User.id == user_id).first()
+    email = (user.email if user else "").strip().lower()
+    return bool(email and email in _configured_artifact_access_emails())
+
+
+def _resolve_local_artifact_path(artifact: ScanArtifact) -> Path:
+    if artifact.storage_backend != "local":
+        raise HTTPException(status_code=404, detail="Artifact is not available locally")
+
+    raw_path = Path(artifact.storage_path).expanduser()
+    candidate = raw_path if raw_path.is_absolute() else REPO_ROOT / raw_path
+    resolved = candidate.resolve()
+    allowed_roots = [
+        local_storage_root().resolve(),
+        (REPO_ROOT / "clients").resolve(),
+    ]
+    if not any(resolved == root or root in resolved.parents for root in allowed_roots):
+        raise HTTPException(status_code=404, detail="Artifact path is not available")
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Artifact file not found")
+    return resolved
+
+
 class GroupMetric(BaseModel):
     id: str
     label: str
@@ -195,7 +236,7 @@ def _estimate_api_calls(
     query_bank_path,
     groups: List[str],
     providers: List[str],
-    pick_all: int,
+    pick_all: Optional[int] = None,
 ) -> tuple[int, int, int]:
     """Estimate collect.py calls from the local query bank for terminal logs."""
     if not query_bank_path.exists():
@@ -209,10 +250,10 @@ def _estimate_api_calls(
             group_counts[group] = group_counts.get(group, 0) + 1
 
     selected_groups = groups or list(group_counts)
-    question_count = sum(
-        min(group_counts.get(group, 0), pick_all)
-        for group in selected_groups
-    )
+    if pick_all is None:
+        question_count = sum(group_counts.get(group, 0) for group in selected_groups)
+    else:
+        question_count = sum(min(group_counts.get(group, 0), pick_all) for group in selected_groups)
     provider_count = len(providers)
     return question_count, provider_count, question_count * provider_count
 
@@ -300,8 +341,21 @@ async def run_pipeline(
             except json.JSONDecodeError:
                 context_profile = None
 
-        client_folder = prepare_scan_workspace(client, context_profile=context_profile)
+        client_folder = prepare_scan_workspace(client, context_profile=context_profile, selected_groups=groups)
         print(f"[AISO Pipeline] Scan workspace ready: {client_folder}")
+        ranking_report_path = client_folder / "question_ranking_report.json"
+        if ranking_report_path.exists():
+            try:
+                ranking_report = json.loads(ranking_report_path.read_text(encoding="utf-8"))
+                summary = ranking_report.get("summary", {})
+                print(
+                    "[AISO Pipeline] Question ranking: "
+                    f"{summary.get('candidates_generated', 0)} candidates generated, "
+                    f"{summary.get('candidates_rejected', 0)} rejected, "
+                    f"{summary.get('final_selected', 0)} final selected."
+                )
+            except (OSError, json.JSONDecodeError):
+                print("[AISO Pipeline] Question ranking report could not be read.")
 
         # ── Run real pipeline via subprocess ─────────────────────────────────
         # Keys are passed as env var overrides — never written to disk.
@@ -353,7 +407,9 @@ async def run_pipeline(
                 print(f"[AISO Pipeline] {script.name}:\n{output}")
             return proc.returncode or 0, output
 
-        pick_all = _env_positive_int("AISO_PICK_ALL", 14)
+        pick_all_raw = os.environ.get("AISO_PICK_ALL", "").strip()
+        pick_all_value = _env_positive_int("AISO_PICK_ALL", 0) if pick_all_raw else 0
+        pick_all = pick_all_value if pick_all_value > 0 else None
         estimated_questions, estimated_providers, estimated_calls = _estimate_api_calls(
             client_folder / "query_template_bank.csv",
             groups,
@@ -368,9 +424,10 @@ async def run_pipeline(
         collect_args = [
             "--providers", ",".join(active_providers),
             "--groups", ",".join(groups),
-            "--pick-all", str(pick_all),
             "--yes",
         ]
+        if pick_all is not None:
+            collect_args.extend(["--pick-all", str(pick_all)])
 
         collect_rc, collect_output = await run_script(collect_script, collect_args)
         if collect_rc != 0:
@@ -763,6 +820,40 @@ async def get_scan(
         ScanArtifact.client_id == client_id,
     ).order_by(ScanArtifact.created_at.desc()).all()
     return {**_scan_response(scan), "artifacts": artifacts}
+
+
+@router.get("/clients/{client_id}/scans/{scan_id}/artifacts/{artifact_id}/download")
+async def download_scan_artifact(
+    client_id: str,
+    scan_id: str,
+    artifact_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Download a local scan artifact when the account has export access."""
+    client = db.query(Client).filter(
+        Client.id == client_id,
+        Client.user_id == user_id,
+    ).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    artifact = db.query(ScanArtifact).filter(
+        ScanArtifact.id == artifact_id,
+        ScanArtifact.scan_id == scan_id,
+        ScanArtifact.client_id == client_id,
+    ).first()
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    if not _can_download_artifacts(db, user_id):
+        raise HTTPException(status_code=403, detail="Artifact export requires Pro access")
+
+    path = _resolve_local_artifact_path(artifact)
+    return FileResponse(
+        path,
+        media_type=artifact.mime_type or "application/octet-stream",
+        filename=artifact.original_filename or path.name,
+    )
 
 
 @router.get(
