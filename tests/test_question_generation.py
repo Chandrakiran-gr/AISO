@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 
-from api.question_generation import QuestionCandidate, profile_to_question_rows, validate_question
+from api.question_generation import DEFAULT_GROUP_TARGETS, QuestionCandidate, profile_to_question_rows, validate_question
 
 
 PROFILE = {
@@ -28,12 +29,31 @@ PROFILE = {
 
 class QuestionGenerationTests(unittest.TestCase):
     def test_context_questions_are_conversational_and_grouped(self):
-        rows = profile_to_question_rows(PROFILE, limit_per_group=8)
+        rows = profile_to_question_rows(PROFILE)
 
-        self.assertGreaterEqual(len(rows), 20)
+        self.assertEqual(len(rows), sum(DEFAULT_GROUP_TARGETS.values()))
         self.assertEqual({row["group"] for row in rows}, {"G1", "G2", "G3", "G4", "G5", "G6", "G7"})
         self.assertTrue(all(row["question"].endswith("?") for row in rows))
         self.assertTrue(any("Does Pempsa offer Chemical Peel?" == row["question"] for row in rows))
+        self.assertTrue(all(row["rank_reason"].startswith("High value:") for row in rows))
+
+    def test_group_target_env_override_controls_selection(self):
+        with patch.dict("os.environ", {"AISO_QUESTION_GROUP_TARGETS": "G1:2,G2:3,G3:4"}, clear=False):
+            rows = profile_to_question_rows(PROFILE, selected_groups=["G1", "G2", "G3"])
+
+        counts = {group: sum(1 for row in rows if row["group"] == group) for group in {"G1", "G2", "G3"}}
+        self.assertEqual(counts, {"G1": 2, "G2": 3, "G3": 4})
+        self.assertEqual(len(rows), 9)
+
+    def test_transactional_questions_rank_above_generic_education(self):
+        rows = profile_to_question_rows(PROFILE)
+        g4 = [row for row in rows if row["group"] == "G4"]
+        g2 = [row for row in rows if row["group"] == "G2"]
+
+        self.assertTrue(any("book" in row["question"].lower() or "cost" in row["question"].lower() for row in g4[:5]))
+        generic_group_question = next(row for row in g2 if "What should customers know about Signature Facials" in row["question"])
+        direct_cost_question = next(row for row in g2 if "How much does Chemical Peel cost" in row["question"])
+        self.assertLess(int(direct_cost_question["group_rank"]), int(generic_group_question["group_rank"]))
 
     def test_validator_rejects_service_vs_business_comparisons(self):
         ok, reason = validate_question(

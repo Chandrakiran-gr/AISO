@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CURRENT_PLAN, PRO_UPGRADE_HREF, canAccessRawArtifacts } from "@/lib/plan";
@@ -78,8 +79,9 @@ function artifactMeta(artifact: ArtifactData, scan: ScanDetail): string {
 
 export default function ScanDetailPage() {
   const params = useParams<{ scanId: string }>();
+  const { data: session } = useSession();
   const scanId = params.scanId;
-  const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN);
+  const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN, session?.user?.email);
   const [client, setClient] = useState<ClientData | null>(null);
   const [scan, setScan] = useState<ScanDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -196,7 +198,9 @@ export default function ScanDetailPage() {
                 <div>
                   <h2 className={styles.sectionTitle}>Exports</h2>
                   <p className={styles.exportsSub}>
-                    Downloadable scan files are available with Pro.
+                    {rawArtifactsUnlocked
+                      ? "Downloadable scan files are available for this account."
+                      : "Downloadable scan files are available with Pro."}
                   </p>
                 </div>
                 {!rawArtifactsUnlocked && (
@@ -222,7 +226,12 @@ export default function ScanDetailPage() {
                         </span>
                       </div>
                       {rawArtifactsUnlocked ? (
-                        <span className={styles.artifactReadyBadge}>Ready</span>
+                        <a
+                          href={`${API}/v1/clients/${client?.id ?? scan.client_id}/scans/${scan.id}/artifacts/${artifact.id}/download`}
+                          className={styles.artifactReadyBadge}
+                        >
+                          Download
+                        </a>
                       ) : (
                         <div className={styles.artifactLockAction}>
                           <Link href={PRO_UPGRADE_HREF} className={styles.artifactUpgradeBtn}>

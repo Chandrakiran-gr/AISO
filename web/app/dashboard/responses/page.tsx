@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { CURRENT_PLAN, PRO_UPGRADE_HREF, canAccessRawArtifacts } from "@/lib/plan";
 import styles from "../dashboard.module.css";
@@ -57,7 +58,8 @@ function artifactMeta(artifact: ArtifactData): string {
 }
 
 export default function ResponsesPage() {
-  const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN);
+  const { data: session } = useSession();
+  const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN, session?.user?.email);
   const [client, setClient] = useState<ClientData | null>(null);
   const [scan, setScan] = useState<ScanData | null>(null);
   const [citations, setCitations] = useState<CitationData[]>([]);
@@ -193,7 +195,12 @@ export default function ResponsesPage() {
                         <small>{artifactMeta(artifact)}</small>
                       </span>
                       {rawArtifactsUnlocked ? (
-                        <strong>Ready</strong>
+                        <a
+                          href={`${API}/v1/clients/${client?.id}/scans/${scan.id}/artifacts/${artifact.id}/download`}
+                          className={styles.artifactUpgradeLink}
+                        >
+                          Download
+                        </a>
                       ) : (
                         <>
                           <strong className={styles.lockedBadge}>Pro export</strong>

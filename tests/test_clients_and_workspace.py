@@ -179,10 +179,11 @@ class ScanWorkspaceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with patch("api.scan_workspace.CLIENTS_ROOT", Path(tmp)):
-                folder = prepare_scan_workspace(client, context_profile=context_profile)
+                folder = prepare_scan_workspace(client, context_profile=context_profile, selected_groups=["G2", "G4"])
 
             profile = json.loads((folder / "client_profile.json").read_text())
             self.assertEqual(profile["confirmed_context"]["offerings"][0]["name"], "Chemical Peel")
+            self.assertTrue((folder / "question_ranking_report.json").exists())
 
             with (folder / "query_template_bank.csv").open(newline="", encoding="utf-8") as handle:
                 rows = list(csv.DictReader(handle))
@@ -190,6 +191,8 @@ class ScanWorkspaceTests(unittest.TestCase):
             questions = {row["question"] for row in rows}
             self.assertIn("Does Pempsa offer Chemical Peel?", questions)
             self.assertNotIn("Chemical Peel vs Bella Boutique Spa: which is better?", questions)
+            self.assertEqual({row["group"] for row in rows}, {"G2", "G4"})
+            self.assertTrue(all(row["final_rank_score"] for row in rows))
 
 
 if __name__ == "__main__":

@@ -199,6 +199,7 @@ def _load_grouped_bank(bank_path: Path) -> OrderedDict:
 def _interactive_group_picker(
     grouped: OrderedDict,
     pick_all: Optional[int] = None,
+    select_all: bool = False,
 ) -> List[Dict]:
     """
     Show available groups and let the operator pick how many from each.
@@ -223,7 +224,11 @@ def _interactive_group_picker(
     # Collect picks per group
     picks: Dict[str, int] = {}
 
-    if pick_all is not None:
+    if select_all:
+        for gid, rows in grouped.items():
+            picks[gid] = len(rows)
+        print("\n  Curated bank mode: taking every ranked question in the selected groups.")
+    elif pick_all is not None:
         # Non-interactive mode
         for gid, rows in grouped.items():
             picks[gid] = min(pick_all, len(rows))
@@ -410,7 +415,7 @@ def main():
     if args.limit is not None and args.limit < 0:
         print("--limit must be 0 (no limit) or a positive integer.")
         sys.exit(1)
-    if args.pick_all is not None and args.pick_all < 0:
+    if args.pick_all is not None and args.pick_all <= 0:
         print("--pick-all must be a positive integer.")
         sys.exit(1)
 
@@ -419,14 +424,14 @@ def main():
     backend_scan_mode = bool(os.environ.get("AISO_SCAN_ID", "").strip())
     auto_confirm = args.yes or backend_scan_mode
 
-    if backend_scan_mode and args.pick_all is None:
-        per_group = os.environ.get("AISO_PICK_ALL", str(DEFAULT_PER_GROUP)).strip()
+    if backend_scan_mode and args.pick_all is None and os.environ.get("AISO_PICK_ALL", "").strip():
+        per_group = os.environ.get("AISO_PICK_ALL", "").strip()
         try:
             args.pick_all = int(per_group)
         except ValueError:
             print("AISO_PICK_ALL must be a positive integer.")
             sys.exit(1)
-        if args.pick_all < 0:
+        if args.pick_all <= 0:
             print("AISO_PICK_ALL must be a positive integer.")
             sys.exit(1)
 
@@ -527,8 +532,13 @@ def main():
                 sys.exit(1)
             grouped = OrderedDict((gid, grouped[gid]) for gid in group_filter)
 
-        # If --pick-all or interactive, use group picker
-        selected_rows = _interactive_group_picker(grouped, pick_all=args.pick_all)
+        # Backend scans use the curated ranked bank by default. AISO_PICK_ALL remains
+        # an explicit admin cap when operators need to reduce provider calls.
+        selected_rows = _interactive_group_picker(
+            grouped,
+            pick_all=args.pick_all,
+            select_all=backend_scan_mode and args.pick_all is None,
+        )
 
         if not selected_rows:
             print("\n  No questions selected. Exiting.")

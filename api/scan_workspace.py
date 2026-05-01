@@ -301,7 +301,11 @@ def _render_question(template: str, values: dict[str, str]) -> str:
     return re.sub(r"\s+", " ", result).strip()
 
 
-def prepare_scan_workspace(client: Client, context_profile: dict | None = None) -> Path:
+def prepare_scan_workspace(
+    client: Client,
+    context_profile: dict | None = None,
+    selected_groups: list[str] | None = None,
+) -> Path:
     """Create/update the local client folder needed by collect.py."""
     slug = normalize_slug(client.id)
     client_folder = CLIENTS_ROOT / slug
@@ -345,11 +349,17 @@ def prepare_scan_workspace(client: Client, context_profile: dict | None = None) 
 
     bank_path = client_folder / "query_template_bank.csv"
     if context_profile:
-        rows = profile_to_question_rows(context_profile)
+        rows = profile_to_question_rows(
+            context_profile,
+            selected_groups=selected_groups,
+            report_path=client_folder / "question_ranking_report.json",
+        )
     else:
         templates = _question_templates()
         rows: list[dict[str, str | int | float]] = []
         for group_id, group_templates in templates.items():
+            if selected_groups and group_id not in selected_groups:
+                continue
             for rank, template in enumerate(group_templates, start=1):
                 rows.append(
                     {
