@@ -30,6 +30,14 @@ const SCAN_STEPS = [
   "Computing visibility score...",
 ];
 
+const SCAN_OBJECTIVES = [
+  { id: "high_intent_visibility", label: "Improve high-intent buyer visibility" },
+  { id: "find_competitor_gaps", label: "Find why AI recommends competitors" },
+  { id: "local_discovery_visibility", label: "Improve local discovery visibility" },
+  { id: "trust_citation_proof", label: "Improve trust, reviews, and citation proof" },
+  { id: "new_market_service_audience", label: "Validate a new market, service, or audience" },
+] as const;
+
 interface FormState {
   businessName: string;
   websiteUrl: string;
@@ -72,6 +80,27 @@ type ContextItem = {
   usage?: string;
 };
 
+type ScanObjective = {
+  objective: string;
+  label: string;
+  custom?: string;
+  source_url?: string;
+  confidence?: number;
+};
+
+type BuyerContext = {
+  label: string;
+  audience_type?: string;
+  problem?: string;
+  desired_outcome?: string;
+  trigger_event?: string;
+  constraints?: string;
+  decision_criteria?: string;
+  priority?: "high" | "medium" | "low" | string;
+  source_url?: string;
+  confidence?: number;
+};
+
 type ContextProfile = {
   version?: string;
   business: {
@@ -94,6 +123,8 @@ type ContextProfile = {
   };
   goals: ContextItem[];
   personas: ContextItem[];
+  scan_objective?: ScanObjective;
+  buyer_contexts?: BuyerContext[];
   differentiators: ContextItem[];
   guardrails: string[];
 };
@@ -130,6 +161,66 @@ function parseCompetitors(raw: string): string[] {
     .slice(0, 10);
 }
 
+function competitorNamesFromProfile(profile: ContextProfile): string[] {
+  return profile.competitors.map((item) => item.name.trim()).filter(Boolean);
+}
+
+function defaultScanObjective(): ScanObjective {
+  return {
+    objective: SCAN_OBJECTIVES[0].id,
+    label: SCAN_OBJECTIVES[0].label,
+    custom: "",
+    source_url: "manual_onboarding",
+    confidence: 0.9,
+  };
+}
+
+function objectiveLabel(id: string): string {
+  return SCAN_OBJECTIVES.find((objective) => objective.id === id)?.label ?? SCAN_OBJECTIVES[0].label;
+}
+
+function defaultBuyerContext(form: FormState): BuyerContext {
+  const category = form.industry.trim() || "this category";
+  return {
+    label: "Primary buyer",
+    audience_type: "Target customer",
+    problem: `Find a trusted ${category}`,
+    desired_outcome: `Choose the right ${category}`,
+    trigger_event: "",
+    constraints: "",
+    decision_criteria: "Trust, relevance, proof, and availability",
+    priority: "medium",
+    source_url: "manual_onboarding",
+    confidence: 0.9,
+  };
+}
+
+function buyerContextIsUsable(context: BuyerContext): boolean {
+  return Boolean(
+    context.label?.trim()
+    && [context.problem, context.desired_outcome, context.constraints, context.decision_criteria].some((value) => value?.trim()),
+  );
+}
+
+function normalizedProfile(profile: ContextProfile, form: FormState): ContextProfile {
+  const scanObjective = profile.scan_objective ?? defaultScanObjective();
+  const buyerContexts = (profile.buyer_contexts?.length ? profile.buyer_contexts : [defaultBuyerContext(form)]).map((context) => ({
+    ...context,
+    priority: context.priority || "medium",
+    source_url: context.source_url || "manual_onboarding",
+    confidence: typeof context.confidence === "number" ? context.confidence : 0.9,
+  }));
+  return {
+    ...profile,
+    scan_objective: {
+      ...scanObjective,
+      label: objectiveLabel(scanObjective.objective),
+      custom: scanObjective.custom ?? "",
+    },
+    buyer_contexts: buyerContexts,
+  };
+}
+
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
@@ -157,8 +248,10 @@ function emptyProfile(form: FormState): ContextProfile {
       visibility_markets: locations,
       excluded_locations: [],
     },
-    goals: [manualItem("Choose the best provider", "goal")],
+    goals: [manualItem(`Choose the right ${form.industry.trim() || "provider"}`, "goal")],
     personas: [manualItem("Local customers", "persona")],
+    scan_objective: defaultScanObjective(),
+    buyer_contexts: [defaultBuyerContext(form)],
     differentiators: [],
     guardrails: [
       "Do not compare product brands as competitors.",
@@ -284,7 +377,16 @@ async function createScan(
       byok_keys: Object.keys(byokKeys).length > 0 ? byokKeys : undefined,
     }),
   });
-  if (!res.ok) throw new Error(`Failed to create scan (${res.status})`);
+  if (!res.ok) {
+    let message = `Failed to create scan (${res.status})`;
+    try {
+      const data = await res.json();
+      if (typeof data?.detail === "string") message = data.detail;
+    } catch {
+      // Keep status fallback.
+    }
+    throw new Error(message);
+  }
   const data = await res.json();
   return data.id as string;
 }
@@ -373,7 +475,7 @@ function Step1({
         <div className={styles.fieldGroup}>
           <div className={styles.labelRow}>
             <label className={styles.label} htmlFor="ob-competitors">Known competitors</label>
-            <span className={styles.labelHint}>Optional</span>
+            <span className={styles.labelHint}>Recommended for competitor and head-to-head insights</span>
           </div>
           <input
             id="ob-competitors"
@@ -516,6 +618,97 @@ function ContextSection({
   );
 }
 
+function BuyerContextSection({
+  contexts,
+  onChange,
+}: {
+  contexts: BuyerContext[];
+  onChange: (contexts: BuyerContext[]) => void;
+}) {
+  const safeContexts = contexts.length ? contexts : [defaultBuyerContext(DEFAULT)];
+  function update(index: number, patch: Partial<BuyerContext>) {
+    onChange(safeContexts.map((context, i) => (i === index ? { ...context, ...patch } : context)));
+  }
+  function remove(index: number) {
+    const next = safeContexts.filter((_, i) => i !== index);
+    onChange(next.length ? next : [defaultBuyerContext(DEFAULT)]);
+  }
+  return (
+    <section className={`${styles.contextSection} ${styles.fullWidthSection}`}>
+      <div className={styles.contextSectionHeader}>
+        <div>
+          <h3>Buyer intent contexts</h3>
+          <p>Who the buyer is, what they need, and what would make them choose.</p>
+        </div>
+        <span>{safeContexts.length}</span>
+      </div>
+      <div className={styles.buyerContextList}>
+        {safeContexts.map((context, index) => (
+          <div key={`${context.label}-${index}`} className={styles.buyerContextCard}>
+            <div className={styles.buyerContextTop}>
+              <input
+                className={`input ${styles.compactInput}`}
+                value={context.label}
+                onChange={(event) => update(index, { label: event.target.value })}
+                placeholder="Buyer label"
+                aria-label="Buyer label"
+              />
+              <select
+                className={`input ${styles.compactSelect}`}
+                value={context.priority || "medium"}
+                onChange={(event) => update(index, { priority: event.target.value })}
+                aria-label="Buyer context priority"
+              >
+                <option value="high">High priority</option>
+                <option value="medium">Medium priority</option>
+                <option value="low">Low priority</option>
+              </select>
+              <button type="button" className={styles.removeMiniBtn} onClick={() => remove(index)}>Remove</button>
+            </div>
+            <div className={styles.buyerContextGrid}>
+              <textarea
+                className={styles.contextTextarea}
+                value={context.problem ?? ""}
+                onChange={(event) => update(index, { problem: event.target.value })}
+                placeholder="Problem or job-to-be-done"
+                rows={2}
+              />
+              <textarea
+                className={styles.contextTextarea}
+                value={context.desired_outcome ?? ""}
+                onChange={(event) => update(index, { desired_outcome: event.target.value })}
+                placeholder="Desired outcome"
+                rows={2}
+              />
+              <textarea
+                className={styles.contextTextarea}
+                value={context.constraints ?? ""}
+                onChange={(event) => update(index, { constraints: event.target.value })}
+                placeholder="Constraints, risks, objections, or special needs"
+                rows={2}
+              />
+              <textarea
+                className={styles.contextTextarea}
+                value={context.decision_criteria ?? ""}
+                onChange={(event) => update(index, { decision_criteria: event.target.value })}
+                placeholder="Decision criteria"
+                rows={2}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className={styles.secondaryBtn}
+        onClick={() => onChange([...safeContexts, defaultBuyerContext(DEFAULT)])}
+      >
+        Add buyer context
+      </button>
+    </section>
+  );
+}
+
 function Step3({
   profile,
   setProfile,
@@ -539,6 +732,20 @@ function Step3({
   function updateLocations(key: keyof ContextProfile["locations"], items: ContextItem[]) {
     setProfile({ ...profile, locations: { ...profile.locations, [key]: items } });
   }
+  function updateScanObjective(objective: string, custom?: string) {
+    setProfile({
+      ...profile,
+      scan_objective: {
+        objective,
+        label: objectiveLabel(objective),
+        custom: custom ?? profile.scan_objective?.custom ?? "",
+        source_url: "manual_onboarding",
+        confidence: 0.9,
+      },
+    });
+  }
+  const scanObjective = profile.scan_objective ?? defaultScanObjective();
+  const buyerContexts = profile.buyer_contexts ?? [];
   return (
     <div>
       <span className={styles.stepBadge}>Step 3 of 4 · Confirm context</span>
@@ -553,7 +760,36 @@ function Step3({
           {warnings.map((warning) => <span key={warning}>{warning}</span>)}
         </div>
       )}
+      <section className={styles.contextSection}>
+        <div className={styles.contextSectionHeader}>
+          <div>
+            <h3>Scan objective</h3>
+            <p>The primary outcome AISO should optimize the question bank around.</p>
+          </div>
+          <span>1</span>
+        </div>
+        <select
+          className="input"
+          value={scanObjective.objective}
+          onChange={(event) => updateScanObjective(event.target.value)}
+        >
+          {SCAN_OBJECTIVES.map((objective) => (
+            <option key={objective.id} value={objective.id}>{objective.label}</option>
+          ))}
+        </select>
+        <textarea
+          className={styles.contextTextarea}
+          value={scanObjective.custom ?? ""}
+          onChange={(event) => updateScanObjective(scanObjective.objective, event.target.value)}
+          placeholder="Optional custom objective"
+          rows={2}
+        />
+      </section>
       <div className={styles.contextGrid}>
+        <BuyerContextSection
+          contexts={buyerContexts}
+          onChange={(items) => setProfile({ ...profile, buyer_contexts: items })}
+        />
         <ContextSection
           title="Categories"
           hint="Broad business categories, not individual services."
@@ -665,6 +901,7 @@ function Step3({
 
 function Step4({
   form,
+  profile,
   set,
   onBack,
   onLaunch,
@@ -676,6 +913,7 @@ function Step4({
   onClearExternalError,
 }: {
   form: FormState;
+  profile: ContextProfile;
   set: (f: FormState) => void;
   onBack: () => void;
   onLaunch: () => void;
@@ -689,6 +927,8 @@ function Step4({
   const [keysOpen, setKeysOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [keySet, setKeySet] = useState<Partial<Record<Provider, boolean>>>({});
+  const competitorCount = competitorNamesFromProfile(profile).length;
+  const hasCompetitors = competitorCount > 0;
 
   function refreshKeyState() {
     const state: Partial<Record<Provider, boolean>> = {};
@@ -701,6 +941,12 @@ function Step4({
     const timer = window.setTimeout(refreshKeyState, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (hasCompetitors || !form.groups.includes("G3")) return;
+    const nextGroups = form.groups.filter((group) => group !== "G3");
+    set({ ...form, groups: nextGroups.length ? nextGroups : ["G1"] });
+  }, [form, hasCompetitors, set]);
 
   function handleKeyInput(provider: Provider, value: string) {
     const clean = value.trim();
@@ -724,8 +970,15 @@ function Step4({
     }
   };
   const toggleGroup = (id: string) => {
+    if (id === "G3" && !hasCompetitors) {
+      setValidationError("Add at least one competitor in Confirm context to enable G3 competitor coverage.");
+      return;
+    }
     const next = form.groups.includes(id) ? form.groups.filter((g) => g !== id) : [...form.groups, id];
-    if (next.length > 0) set({ ...form, groups: next });
+    if (next.length > 0) {
+      set({ ...form, groups: next });
+      setValidationError(null);
+    }
   };
 
   const selectedProviderKeysSet = form.providers.filter((id) => keySet[id as Provider]).length;
@@ -735,6 +988,10 @@ function Step4({
   const providerNames = form.providers.map(providerName).join(", ");
 
   function handleLaunchClick() {
+    if (form.groups.includes("G3") && !hasCompetitors) {
+      setValidationError("G3 needs at least one competitor. Add competitors in Confirm context or deselect G3.");
+      return;
+    }
     const currentState = refreshKeyState();
     const missing = form.providers.filter((id) => !currentState[id as Provider]);
     if (missing.length > 0) {
@@ -798,18 +1055,31 @@ function Step4({
             <span className={styles.labelHint}>{form.groups.length}/7 selected</span>
           </div>
           <div className={styles.groupTags}>
-            {GROUPS.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                title={g.desc}
-                className={`${styles.groupTag} ${form.groups.includes(g.id) ? styles.selected : ""}`}
-                onClick={() => toggleGroup(g.id)}
-              >
-                {g.id} · {g.label}
-              </button>
-            ))}
+            {GROUPS.map((g) => {
+              const disabled = g.id === "G3" && !hasCompetitors;
+              const reduced = g.id === "G7" && !hasCompetitors;
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  title={disabled ? "Add competitors to enable this group." : reduced ? "Runs method and service comparisons without business head-to-head rows." : g.desc}
+                  className={`${styles.groupTag} ${form.groups.includes(g.id) ? styles.selected : ""} ${disabled ? styles.disabledGroup : ""} ${reduced ? styles.reducedGroup : ""}`}
+                  onClick={() => toggleGroup(g.id)}
+                  disabled={disabled}
+                >
+                  <span>{g.id} · {g.label}</span>
+                  {disabled && <small>Needs competitors</small>}
+                  {reduced && <small>Reduced</small>}
+                </button>
+              );
+            })}
           </div>
+          {!hasCompetitors && (
+            <div className={styles.infoPanel}>
+              <strong>Competitor coverage is off</strong>
+              <span>G3 is unavailable until competitors are added. G7 will still run method and service comparisons, but business-vs-business rows are skipped.</span>
+            </div>
+          )}
         </div>
         <div className={styles.fieldGroup}>
           <button
@@ -881,6 +1151,8 @@ function Step4({
           {[
             { k: "Business", v: form.businessName },
             { k: "Website", v: form.websiteUrl },
+            { k: "Objective", v: profile.scan_objective?.label ?? objectiveLabel("high_intent_visibility") },
+            { k: "Competitors", v: hasCompetitors ? `${competitorCount} added` : "Not added" },
             { k: "Platforms", v: providerNames },
             { k: "Groups", v: form.groups.join(", ") },
           ].map(({ k, v }) => (
@@ -950,7 +1222,7 @@ export default function OnboardingPage() {
         if (!active || !loadedContext) return;
         setContext(loadedContext);
         if (loadedContext.profile_json) {
-          setProfile(loadedContext.profile_json);
+          setProfile(normalizedProfile(loadedContext.profile_json, nextForm));
           setWarnings(loadedContext.warnings_json ?? []);
         } else {
           setProfile(emptyProfile(nextForm));
@@ -972,7 +1244,7 @@ export default function OnboardingPage() {
       let discovered = await discoverClientContext(id);
       setContext(discovered);
       setWarnings(discovered.warnings_json ?? []);
-      setProfile(discovered.profile_json ?? emptyProfile(form));
+      setProfile(normalizedProfile(discovered.profile_json ?? emptyProfile(form), form));
 
       for (let attempt = 0; attempt < DISCOVERY_MAX_POLLS && discovered.status === "discovering"; attempt += 1) {
         await sleep(DISCOVERY_POLL_MS);
@@ -981,7 +1253,7 @@ export default function OnboardingPage() {
         discovered = latest;
         setContext(latest);
         setWarnings(latest.warnings_json ?? []);
-        setProfile(latest.profile_json ?? emptyProfile(form));
+        setProfile(normalizedProfile(latest.profile_json ?? emptyProfile(form), form));
       }
 
       if (discovered.status === "discovering") {
@@ -1007,7 +1279,7 @@ export default function OnboardingPage() {
       setClientId(client.id);
       const confirmedProfile = context?.profile_json;
       if (contextMatchesForm(context, form, client.id) && confirmedProfile) {
-        setProfile(confirmedProfile);
+        setProfile(normalizedProfile(confirmedProfile, form));
         setWarnings(context.warnings_json ?? []);
         setStep(3);
         return;
@@ -1029,13 +1301,24 @@ export default function OnboardingPage() {
       setError("Add at least one bookable or buyable offering before launching a scan.");
       return;
     }
+    const readyBuyerContexts = (profile.buyer_contexts ?? []).filter(buyerContextIsUsable);
+    if (!profile.scan_objective?.objective) {
+      setError("Choose a scan objective before configuring the scan.");
+      return;
+    }
+    if (readyBuyerContexts.length === 0) {
+      setError("Add at least one buyer intent context with a buyer, problem, outcome, constraint, or decision criteria.");
+      return;
+    }
     setSavingContext(true);
     setError(null);
     try {
-      const saved = await saveClientContext(clientId, profile, warnings);
+      const normalized = normalizedProfile({ ...profile, buyer_contexts: readyBuyerContexts }, form);
+      const saved = await saveClientContext(clientId, normalized, warnings);
       setContext(saved);
-      setProfile(saved.profile_json ?? profile);
+      setProfile(normalizedProfile(saved.profile_json ?? normalized, form));
       setWarnings(saved.warnings_json ?? warnings);
+      setForm({ ...form, competitors: competitorNamesFromProfile(normalized).join(", ") });
       setStep(4);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to confirm context.");
@@ -1066,6 +1349,11 @@ export default function OnboardingPage() {
     if (context?.status !== "confirmed") {
       setStep(3);
       setError("Confirm the client context before launching the scan.");
+      return;
+    }
+    if (!profile.scan_objective?.objective || !(profile.buyer_contexts ?? []).some(buyerContextIsUsable)) {
+      setStep(3);
+      setError("Confirm a scan objective and at least one buyer intent context before launching.");
       return;
     }
     setKeyError(null);
@@ -1164,6 +1452,7 @@ export default function OnboardingPage() {
         {step === 4 && (
           <Step4
             form={form}
+            profile={profile}
             set={setForm}
             onBack={() => setStep(3)}
             onLaunch={() => void handleLaunch()}

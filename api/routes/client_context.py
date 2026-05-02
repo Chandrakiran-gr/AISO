@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from api.auth import get_current_user_id
 from api.client_context_service import build_context_profile
 from api.database import Client, ClientContext, SessionLocal, get_db
+from api.scan_capabilities import profile_competitor_names
 from api.website_ingestion import IngestionConfig, URLSafetyError, discover_website
 
 router = APIRouter(tags=["client-context"])
@@ -129,7 +130,7 @@ async def get_client_context(
     user_id: str = Depends(get_current_user_id),
 ):
     """Return the current draft/confirmed context for a client."""
-    _ensure_client(db, client_id, user_id)
+    client = _ensure_client(db, client_id, user_id)
     context = db.query(ClientContext).filter(ClientContext.client_id == client_id).first()
     if not context:
         now = datetime.now(timezone.utc)
@@ -157,7 +158,7 @@ async def discover_client_context(
     user_id: str = Depends(get_current_user_id),
 ):
     """Schedule public website discovery and return immediately for polling."""
-    _ensure_client(db, client_id, user_id)
+    client = _ensure_client(db, client_id, user_id)
     context = _get_or_create_context(db, client_id)
     context.status = "discovering"
     context.warnings_json = json.dumps(
@@ -179,7 +180,7 @@ async def update_client_context(
     user_id: str = Depends(get_current_user_id),
 ):
     """Save edited context from onboarding/settings."""
-    _ensure_client(db, client_id, user_id)
+    client = _ensure_client(db, client_id, user_id)
     clean_status = str(payload.status or "").strip().lower()
     if clean_status not in VALID_STATUSES:
         raise HTTPException(status_code=422, detail="Unsupported context status")
@@ -191,6 +192,8 @@ async def update_client_context(
     context.profile_json = json.dumps(payload.profile_json, ensure_ascii=False, sort_keys=True)
     context.warnings_json = json.dumps(payload.warnings_json, ensure_ascii=False)
     context.updated_at = datetime.now(timezone.utc)
+    client.competitors = json.dumps(profile_competitor_names(payload.profile_json), ensure_ascii=False)
+    client.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(context)
     return _serialize_context(context)

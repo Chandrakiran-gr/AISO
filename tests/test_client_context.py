@@ -56,6 +56,8 @@ class ClientContextProfileTests(unittest.TestCase):
         self.assertIn("Deluxe Dermaplane Facial", {item["name"] for item in profile["offerings"]})
         self.assertIn("Face Reality", {item["name"] for item in profile["product_brands"]})
         self.assertEqual(profile["competitors"][0]["type"], "competitor_business")
+        self.assertEqual(profile["scan_objective"]["objective"], "high_intent_visibility")
+        self.assertTrue(profile["buyer_contexts"])
         self.assertNotIn("No services found.", warnings)
 
     def test_pempsa_style_real_pages_keep_groups_out_of_bookable_services(self):
@@ -139,7 +141,7 @@ class ClientContextProfileTests(unittest.TestCase):
         self.assertNotIn("home service", categories)
         self.assertNotIn("No services found.", warnings)
 
-    def test_persona_evidence_is_not_cut_mid_sentence(self):
+    def test_persona_evidence_is_cleaned_into_searchable_segments(self):
         client = Client(
             id="pempsa-persona",
             user_id="user-1",
@@ -150,7 +152,9 @@ class ClientContextProfileTests(unittest.TestCase):
         persona_text = (
             "✨ Ideal for sensitive skin or anyone wanting hydrated, radiant results without harsh abrasion. "
             "Removes unwanted hair from the chin area for a smooth, clean look. "
-            "We use gentle wax suitable for sensitive skin and first-time waxing clients. >Book Now"
+            "We use gentle wax suitable for sensitive skin and first-time waxing clients. "
+            "Ideal for mature to improve firmness. "
+            "Good for sensitive skin to minimize irritation. >Book Now"
         )
         evidence = {
             "pages": [
@@ -169,10 +173,104 @@ class ClientContextProfileTests(unittest.TestCase):
         profile, _, _ = build_context_profile(client, evidence)
 
         persona_names = [item["name"] for item in profile["personas"]]
-        expected = persona_text.replace(" >Book Now", "")
-        self.assertIn(expected, persona_names)
+        combined = " ".join(persona_names).casefold()
+
+        self.assertIn("sensitive skin", combined)
+        self.assertIn("mature skin", combined)
+        self.assertIn("first-time waxing clients", combined)
+        self.assertNotIn("sensitive skin to minimize irritation", persona_names)
         self.assertFalse(any("Book Now" in name for name in persona_names))
-        self.assertFalse(any(name.endswith("se") for name in persona_names))
+        self.assertFalse(any("Ideal for" in name for name in persona_names))
+        self.assertFalse(any("Removes unwanted hair" in name for name in persona_names))
+        self.assertFalse(any("✨" in name for name in persona_names))
+        self.assertFalse(
+            any(
+                name in {
+                    "your skin",
+                    "those",
+                    "anyone with light",
+                    "straight, light",
+                    "straight",
+                    "light",
+                    "regular skin maintenance",
+                    "regular maintenance with minimal irritation",
+                }
+                for name in persona_names
+            )
+        )
+
+    def test_scraped_marketing_copy_is_not_promoted_to_profile_entities(self):
+        client = Client(
+            id="pempsa-noise",
+            user_id="user-1",
+            name="PemSpa",
+            url="https://pempsa.example",
+            industry="boutique skincare spa",
+        )
+        evidence = {
+            "pages": [
+                {
+                    "url": "https://pempsa.example/services",
+                    "title": "Services",
+                    "headings": [
+                        "✨ Ideal for sensitive skin or anyone wanting hydrated, radiant results without harsh abrasion.",
+                        "Defined, lifted, and polished. Brow and lash treatments that frame the face.",
+                        "Brow, Lash, and Wax Treatments | PemSpa Newton",
+                        "ADDITIONAL Facial ADD-ONS:",
+                        "Chemical Peel",
+                    ],
+                    "text_blocks": [
+                        "We use gentle wax suitable for sensitive skin and first-time waxing clients.",
+                        "The Hydro Boost Add-On is the perfect solution, featuring PAIN-FREE extractions.",
+                        "Chemical Peel $175 50 minutes",
+                    ],
+                    "json_ld": [],
+                    "forms": [],
+                }
+            ],
+            "warnings": [],
+        }
+
+        profile, _, _ = build_context_profile(client, evidence)
+        entity_names = []
+        for key in ("categories", "offering_groups", "offerings", "product_brands", "personas"):
+            entity_names.extend(item["name"] for item in profile[key])
+        combined = "\n".join(entity_names)
+
+        self.assertIn("Chemical Peel", {item["name"] for item in profile["offerings"]})
+        self.assertNotIn("ADDITIONAL Facial ADD-ONS:", combined)
+        self.assertIn("Brow, Lash, and Wax Treatments", combined)
+        self.assertNotIn("Brow, Lash, and Wax Treatments | PemSpa Newton", combined)
+        self.assertNotIn("Defined, lifted, and polished", combined)
+        self.assertNotIn("Ideal for sensitive skin", combined)
+        self.assertNotIn("PAIN", {item["name"] for item in profile["product_brands"]})
+        self.assertFalse(any("✨" in name for name in entity_names))
+
+    def test_context_profile_does_not_use_internal_goal_placeholder(self):
+        client = Client(
+            id="goal-placeholder",
+            user_id="user-1",
+            name="PemSpa",
+            url="https://pempsa.example",
+            industry="boutique skincare spa",
+        )
+        evidence = {
+            "pages": [
+                {
+                    "url": "https://pempsa.example/services",
+                    "title": "Services",
+                    "headings": ["Chemical Peel"],
+                    "text_blocks": ["Chemical Peel $175 50 minutes"],
+                    "json_ld": [],
+                    "forms": [],
+                }
+            ],
+            "warnings": [],
+        }
+
+        profile, _, _ = build_context_profile(client, evidence)
+
+        self.assertNotIn("Choose the best provider", {item["name"] for item in profile["goals"]})
 
 
 class ClientContextApiTests(unittest.TestCase):
@@ -265,7 +363,11 @@ class ClientContextApiTests(unittest.TestCase):
                             "offering_groups": [],
                             "offerings": [{"name": "Visibility Scan", "type": "offering"}],
                             "product_brands": [],
-                            "competitors": [],
+                            "competitors": [
+                                {"name": "Competitor One", "type": "competitor_business"},
+                                {"name": "Competitor One", "type": "competitor_business"},
+                                {"name": "Competitor Two", "type": "competitor_business"},
+                            ],
                             "locations": {
                                 "physical_locations": [],
                                 "service_areas": [],
@@ -286,8 +388,10 @@ class ClientContextApiTests(unittest.TestCase):
 
             self.assertEqual(response.status, "confirmed")
             stored = session.query(ClientContext).one()
+            client = session.query(Client).filter(Client.id == "client-1").one()
             self.assertIsNotNone(stored.updated_at)
             self.assertEqual(json.loads(stored.profile_json)["business"]["name"], "AISO Demo")
+            self.assertEqual(json.loads(client.competitors), ["Competitor One", "Competitor Two"])
         finally:
             session.close()
 

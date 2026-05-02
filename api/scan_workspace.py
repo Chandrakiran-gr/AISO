@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 from pathlib import Path
 from typing import Iterable
 
 from api.database import Client
-from api.question_generation import QUERY_BANK_HEADERS, profile_to_question_rows
+from api.question_generation import DEFAULT_EXTENDED_GROUP_TARGETS, QUERY_BANK_HEADERS, profile_to_question_rows
+from api.scan_capabilities import competitor_names_for_scan
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENTS_ROOT = REPO_ROOT / "clients"
@@ -53,6 +55,10 @@ GROUP_LABELS = {
     "G6": "Fit: persona, occasion, constraint",
     "G7": "Head-to-head choice",
 }
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().casefold() in {"1", "true", "yes", "on"}
 
 
 def normalize_slug(raw: str) -> str:
@@ -98,7 +104,7 @@ def _question_templates() -> dict[str, list[str]]:
             "best {category} in {city}",
             "top rated {service} near {city}",
             "where to find trusted {category} in {region}",
-            "{category} near me with good reviews",
+            "{category} near {city} with good reviews",
             "recommended {service} providers in {city}",
             "affordable {category} options in {region}",
             "high quality {service} in {city}",
@@ -140,7 +146,7 @@ def _question_templates() -> dict[str, list[str]]:
             "book {service} in {city} {timeframe}",
             "{service} cost in {region}",
             "get a quote for {category} near {city}",
-            "same day {service} appointment near me",
+            "same day {service} appointment near {city}",
             "{category} under {price_or_budget}",
             "best place to buy {product} near {city}",
             "schedule {service} for {use_case}",
@@ -166,7 +172,7 @@ def _question_templates() -> dict[str, list[str]]:
         ],
         "G6": [
             "best {category} for {persona_or_occasion} in {city}",
-            "{service} for {persona_or_occasion} near me",
+            "{service} for {persona_or_occasion} near {city}",
             "is {client} good for {persona_or_occasion}",
             "best {category} for {audience}",
             "{service} for {use_case}",
@@ -197,7 +203,7 @@ def _question_templates() -> dict[str, list[str]]:
 
 def _profile_values(client: Client) -> dict[str, str]:
     competitors = _split_competitors(client.competitors)
-    competitor_a = competitors[0] if competitors else "a leading competitor"
+    competitor_a = competitors[0] if competitors else ""
     competitor_b = competitors[1] if len(competitors) > 1 else competitor_a
     city, region = _location_parts(client.location)
     category = _first_non_empty([client.industry], "business")
@@ -219,7 +225,7 @@ def _profile_values(client: Client) -> dict[str, str]:
         "region": region,
         "state_or_country": region,
         "zip_or_area": city,
-        "goal": "choose the best provider",
+        "goal": f"choose the right {category}",
         "use_case": "a near-term purchase decision",
         "persona_or_occasion": "first-time customers",
         "audience": "local customers",
@@ -294,6 +300,72 @@ def _context_profile_values(client: Client, profile: dict) -> dict[str, str]:
     }
 
 
+def _fallback_context_profile(client: Client, competitors: list[str]) -> dict:
+    """Build a minimal context profile when onboarding context is absent."""
+    values = _profile_values(client)
+    category = values["category"]
+    service = values["service"]
+    city = values["city"]
+    region = values["region"]
+    locations = {
+        "physical_locations": [],
+        "service_areas": [],
+        "visibility_markets": [],
+        "excluded_locations": [],
+    }
+    if city and city != "your area":
+        locations["service_areas"].append(
+            {"name": city, "type": "service_area", "confidence": 0.55, "source_url": client.url or ""}
+        )
+    if region and region not in {city, "your region"}:
+        locations["visibility_markets"].append(
+            {"name": region, "type": "visibility_market", "confidence": 0.5, "source_url": client.url or ""}
+        )
+
+    return {
+        "business": {"name": client.name, "website_url": client.url},
+        "categories": [{"name": category, "type": "category", "confidence": 0.5, "source_url": client.url or ""}],
+        "offering_groups": [],
+        "offerings": [{"name": service, "type": "offering", "bookable": True, "confidence": 0.45}],
+        "product_brands": [],
+        "competitors": [
+            {"name": competitor, "type": "competitor_business", "confidence": 0.75, "source_url": "manual"}
+            for competitor in competitors
+        ],
+        "locations": locations,
+        "goals": [
+            {
+                "name": f"choose the right {category}",
+                "type": "goal",
+                "confidence": 0.5,
+                "source_url": "manual",
+            }
+        ],
+        "personas": [{"name": "first-time buyers", "type": "persona", "confidence": 0.45, "source_url": "manual"}],
+        "buyer_contexts": [
+            {
+                "label": "Primary buyers",
+                "audience_type": "primary",
+                "problem": f"Need help choosing a trusted {category}",
+                "desired_outcome": "Find a provider they can confidently contact or book",
+                "trigger_event": "Near-term purchase research",
+                "constraints": "Trust, availability, proof, and fit",
+                "decision_criteria": "Reputation, relevant proof, pricing clarity, and local availability",
+                "priority": "high",
+                "source": "manual",
+                "confidence": 0.5,
+            }
+        ],
+        "scan_objective": {
+            "objective": "high_intent_visibility",
+            "label": "Improve high-intent buyer visibility",
+            "custom": "",
+        },
+        "differentiators": [],
+        "guardrails": [],
+    }
+
+
 def _render_question(template: str, values: dict[str, str]) -> str:
     result = template
     for key, value in values.items():
@@ -311,7 +383,7 @@ def prepare_scan_workspace(
     client_folder = CLIENTS_ROOT / slug
     client_folder.mkdir(parents=True, exist_ok=True)
 
-    competitors = _split_competitors(client.competitors)
+    competitors = competitor_names_for_scan(client, context_profile)
     profile = {
         "slug": slug,
         "display_name": client.name,
@@ -348,31 +420,25 @@ def prepare_scan_workspace(
         writer.writerow({key: values.get(key, "") for key in VALUE_BANK_HEADERS})
 
     bank_path = client_folder / "query_template_bank.csv"
-    if context_profile:
-        rows = profile_to_question_rows(
-            context_profile,
+    question_profile = context_profile or _fallback_context_profile(client, competitors)
+    rows = profile_to_question_rows(
+        question_profile,
+        selected_groups=selected_groups,
+        report_path=client_folder / "question_ranking_report.json",
+    )
+    if _env_flag("AISO_QUESTION_WRITE_EXTENDED_BANK"):
+        extended_rows = profile_to_question_rows(
+            question_profile,
             selected_groups=selected_groups,
-            report_path=client_folder / "question_ranking_report.json",
+            report_path=client_folder / "question_ranking_report_extended.json",
+            target_env_name="AISO_QUESTION_EXTENDED_GROUP_TARGETS",
+            total_env_name="AISO_QUESTION_EXTENDED_TOTAL",
+            default_group_targets=DEFAULT_EXTENDED_GROUP_TARGETS,
         )
-    else:
-        templates = _question_templates()
-        rows: list[dict[str, str | int | float]] = []
-        for group_id, group_templates in templates.items():
-            if selected_groups and group_id not in selected_groups:
-                continue
-            for rank, template in enumerate(group_templates, start=1):
-                rows.append(
-                    {
-                        "question": _render_question(template, values),
-                        "group": group_id,
-                        "group_label": GROUP_LABELS[group_id],
-                        "group_rank": rank,
-                        "intent_score": 7,
-                        "popularity_score": "",
-                        "cpc_proxy_score": 5,
-                        "rank_reason": "Generated from onboarding profile fallback for local-first scan launch.",
-                    }
-                )
+        with (client_folder / "query_template_bank_extended.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=QUERY_BANK_HEADERS)
+            writer.writeheader()
+            writer.writerows(extended_rows)
 
     with bank_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=QUERY_BANK_HEADERS)

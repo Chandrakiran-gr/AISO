@@ -156,7 +156,7 @@ class ScanWorkspaceTests(unittest.TestCase):
             url="https://pempsa.example",
             industry="Spa",
             location="Greater Boston",
-            competitors=json.dumps(["Bella Boutique Spa"]),
+            competitors=None,
         )
         context_profile = {
             "business": {"name": "Pempsa"},
@@ -183,16 +183,98 @@ class ScanWorkspaceTests(unittest.TestCase):
 
             profile = json.loads((folder / "client_profile.json").read_text())
             self.assertEqual(profile["confirmed_context"]["offerings"][0]["name"], "Chemical Peel")
+            self.assertEqual(profile["competitors"], ["Bella Boutique Spa"])
             self.assertTrue((folder / "question_ranking_report.json").exists())
 
             with (folder / "query_template_bank.csv").open(newline="", encoding="utf-8") as handle:
                 rows = list(csv.DictReader(handle))
 
             questions = {row["question"] for row in rows}
-            self.assertIn("Does Pempsa offer Chemical Peel?", questions)
+            self.assertIn("Pempsa chemical peel?", questions)
             self.assertNotIn("Chemical Peel vs Bella Boutique Spa: which is better?", questions)
             self.assertEqual({row["group"] for row in rows}, {"G2", "G4"})
             self.assertTrue(all(row["final_rank_score"] for row in rows))
+
+    def test_prepare_scan_workspace_g7_without_competitors_has_reduced_non_placeholder_coverage(self):
+        client = Client(
+            id="acme_widgets",
+            user_id="user-1",
+            name="Acme Widgets",
+            url="https://acme.example",
+            industry="Home repair service",
+            location="Boston, MA",
+            competitors=None,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("api.scan_workspace.CLIENTS_ROOT", Path(tmp)):
+                folder = prepare_scan_workspace(client, selected_groups=["G7"])
+
+            with (folder / "query_template_bank.csv").open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+
+        questions = "\n".join(row["question"] for row in rows).casefold()
+        self.assertTrue(rows)
+        self.assertEqual({row["group"] for row in rows}, {"G7"})
+        self.assertNotIn("another local business", questions)
+        self.assertNotIn("leading competitor", questions)
+        self.assertFalse(any(row["intent_subtype"] == "head_to_head" for row in rows))
+        self.assertTrue(any(row["intent_subtype"] in {"method_comparison", "adjacency"} for row in rows))
+
+    def test_prepare_scan_workspace_can_write_optional_extended_bank(self):
+        client = Client(
+            id="pempsa",
+            user_id="user-1",
+            name="Pempsa",
+            url="https://pempsa.example",
+            industry="Spa",
+            location="Greater Boston",
+            competitors=json.dumps(["Bella Boutique Spa"]),
+        )
+        context_profile = {
+            "business": {"name": "Pempsa"},
+            "categories": [{"name": "boutique skincare spa", "type": "category"}],
+            "offering_groups": [{"name": "Signature Facials", "type": "offering_group", "bookable": False}],
+            "offerings": [
+                {"name": "Chemical Peel", "type": "offering", "bookable": True},
+                {"name": "Deluxe Dermaplane Facial", "type": "offering", "bookable": True},
+            ],
+            "product_brands": [{"name": "Face Reality", "type": "product_brand"}],
+            "competitors": [{"name": "Bella Boutique Spa", "type": "competitor_business"}],
+            "locations": {
+                "physical_locations": [{"name": "Newton Centre, MA", "type": "physical_location"}],
+                "service_areas": [{"name": "Brookline", "type": "service_area"}],
+                "visibility_markets": [{"name": "Greater Boston", "type": "visibility_market"}],
+                "excluded_locations": [],
+            },
+            "goals": [{"name": "improve acne-prone skin", "type": "goal"}],
+            "personas": [{"name": "first-time facial clients", "type": "persona"}],
+            "differentiators": [],
+            "guardrails": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("api.scan_workspace.CLIENTS_ROOT", Path(tmp)):
+                with patch.dict(
+                    "os.environ",
+                    {
+                        "AISO_QUESTION_WRITE_EXTENDED_BANK": "1",
+                        "AISO_QUESTION_EXTENDED_GROUP_TARGETS": "G1:10,G2:10",
+                    },
+                    clear=False,
+                ):
+                    folder = prepare_scan_workspace(client, context_profile=context_profile, selected_groups=["G1", "G2"])
+
+            self.assertTrue((folder / "query_template_bank_extended.csv").exists())
+            self.assertTrue((folder / "question_ranking_report_extended.json").exists())
+
+            with (folder / "query_template_bank.csv").open(newline="", encoding="utf-8") as handle:
+                base_rows = list(csv.DictReader(handle))
+            with (folder / "query_template_bank_extended.csv").open(newline="", encoding="utf-8") as handle:
+                extended_rows = list(csv.DictReader(handle))
+
+            self.assertGreaterEqual(len(extended_rows), len(base_rows))
+            self.assertTrue(all(row["market_rationale"] for row in extended_rows))
 
 
 if __name__ == "__main__":

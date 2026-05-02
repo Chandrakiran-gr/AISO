@@ -277,6 +277,9 @@
 }
 
 .groupTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 14px;
   background: rgba(255,255,255,0.045);
   border: 1px solid rgba(255,255,255,0.14);
@@ -291,6 +294,12 @@
   filter: saturate(0.75);
 }
 
+.groupTag small {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 800;
+}
+
 .groupTag:hover {
   opacity: 1;
   background: rgba(255,255,255,0.07);
@@ -303,6 +312,23 @@
   color: var(--accent-teal);
   opacity: 1;
   filter: none;
+}
+
+.disabledGroup,
+.disabledGroup:hover {
+  cursor: not-allowed;
+  opacity: 0.42;
+  filter: grayscale(1);
+  background: rgba(255,255,255,0.025);
+  color: var(--text-muted);
+}
+
+.reducedGroup {
+  border-color: rgba(251,191,36,0.22);
+}
+
+.reducedGroup small {
+  color: #fbbf24;
 }
 
 /* Navigation buttons */
@@ -467,6 +493,23 @@
   font-size: 0.875rem;
 }
 
+.infoPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid rgba(99,102,241,0.16);
+  border-radius: var(--radius-md);
+  background: rgba(99,102,241,0.045);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.infoPanel strong {
+  color: var(--text-primary);
+}
+
 .contextGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -483,6 +526,10 @@
   border-radius: var(--radius-lg);
   background: rgba(15,17,23,0.42);
   padding: var(--space-md);
+}
+
+.fullWidthSection {
+  grid-column: 1 / -1;
 }
 
 .contextSectionHeader {
@@ -537,6 +584,60 @@
 .contextTextarea:focus {
   border-color: rgba(0,212,170,0.35);
   box-shadow: 0 0 0 3px rgba(0,212,170,0.08);
+}
+
+.compactInput,
+.compactSelect {
+  min-height: 40px;
+}
+
+.buyerContextList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.buyerContextCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.025);
+}
+
+.buyerContextTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px auto;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.buyerContextGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.removeMiniBtn {
+  min-height: 40px;
+  padding: 0 12px;
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.035);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.removeMiniBtn:hover {
+  border-color: rgba(248,113,113,0.28);
+  background: rgba(248,113,113,0.06);
+  color: #fca5a5;
 }
 
 .sourceChips {
@@ -846,7 +947,9 @@
   }
 
   .optionalGrid,
-  .contextGrid {
+  .contextGrid,
+  .buyerContextTop,
+  .buyerContextGrid {
     grid-template-columns: 1fr;
   }
 
