@@ -18,12 +18,15 @@ import csv
 from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, User
 from api.auth import get_current_user_id
 from api.scan_workspace import prepare_scan_workspace
+from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
 from api.storage import REPO_ROOT, local_storage_root
+from full_stack.gap_report import GapReportInput, build_gap_report
+from full_stack.scan_metrics import load_client_identity, read_collect_csv
 
 router = APIRouter(tags=["pipeline"])
 
 DEFAULT_PROVIDERS = ["openai", "claude", "perplexity", "gemini"]
-DEFAULT_GROUPS = ["G1", "G2", "G3"]
+DEFAULT_GROUPS = ["G1", "G2", "G4"]
 DEFAULT_ARTIFACT_ACCESS_EMAILS = {"admin@aisoglobal.com"}
 
 
@@ -51,8 +54,7 @@ class ScanCreate(BaseModel):
 
     @property
     def groups_valid(self) -> bool:
-        valid = {"G1", "G2", "G3", "G4", "G5", "G6", "G7"}
-        return all(g in valid for g in self.groups)
+        return all(g in VALID_SCAN_GROUPS for g in self.groups)
 
 
 class ScanResponse(BaseModel):
@@ -330,16 +332,7 @@ async def run_pipeline(
         if not client:
             raise RuntimeError("Client not found for scan workspace preparation.")
 
-        context = db.query(ClientContext).filter(
-            ClientContext.client_id == client_id,
-            ClientContext.status == "confirmed",
-        ).first()
-        context_profile = None
-        if context and context.profile_json:
-            try:
-                context_profile = json.loads(context.profile_json)
-            except json.JSONDecodeError:
-                context_profile = None
+        context_profile = _confirmed_context_profile(db, client_id)
 
         client_folder = prepare_scan_workspace(client, context_profile=context_profile, selected_groups=groups)
         print(f"[AISO Pipeline] Scan workspace ready: {client_folder}")
@@ -478,6 +471,11 @@ async def start_scan(
         raise HTTPException(status_code=422, detail="Invalid provider(s)")
     if not payload.groups_valid:
         raise HTTPException(status_code=422, detail="Invalid group(s)")
+    context_profile = _confirmed_context_profile(db, client_id)
+    competitor_names = competitor_names_for_scan(client, context_profile)
+    groups_ok, group_message = validate_scan_group_capabilities(payload.groups, competitor_names)
+    if not groups_ok:
+        raise HTTPException(status_code=400, detail=group_message)
 
     scan = Scan(
         id=str(uuid.uuid4()),
@@ -534,6 +532,20 @@ def _safe_json_dict(value: Optional[str]) -> Dict[str, int]:
         except (TypeError, ValueError):
             continue
     return result
+
+
+def _confirmed_context_profile(db: Session, client_id: str) -> Optional[dict]:
+    context = db.query(ClientContext).filter(
+        ClientContext.client_id == client_id,
+        ClientContext.status == "confirmed",
+    ).first()
+    if not context or not context.profile_json:
+        return None
+    try:
+        data = json.loads(context.profile_json)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _client_competitors(client: Client) -> List[str]:
@@ -723,6 +735,71 @@ async def get_client_metrics(
         provider_metrics=provider_metrics,
         group_metrics=group_metrics,
         competitors=competitors,
+    )
+
+
+@router.get("/clients/{client_id}/gap-report")
+async def get_client_gap_report(
+    client_id: str,
+    scan_id: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return appeared/missed queries, source gaps, and ranked fixes for a scan."""
+    client = db.query(Client).filter(
+        Client.id == client_id,
+        Client.user_id == user_id,
+    ).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    if scan_id:
+        scan = db.query(Scan).filter(
+            Scan.id == scan_id,
+            Scan.client_id == client_id,
+        ).first()
+    else:
+        scan = None
+        scans = db.query(Scan).filter(
+            Scan.client_id == client_id,
+        ).order_by(Scan.created_at.desc()).all()
+        for candidate in scans:
+            has_results = db.query(ScanResult.id).filter(
+                ScanResult.scan_id == candidate.id,
+                ScanResult.client_id == client_id,
+            ).first()
+            if has_results:
+                scan = candidate
+                break
+
+    if not scan:
+        raise HTTPException(status_code=404, detail="No completed scan results found")
+
+    artifact = db.query(ScanArtifact).filter(
+        ScanArtifact.scan_id == scan.id,
+        ScanArtifact.client_id == client_id,
+        ScanArtifact.artifact_type == "collect_csv",
+    ).order_by(ScanArtifact.created_at.desc()).first()
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Raw scan artifact not found for gap report")
+
+    artifact_path = _resolve_local_artifact_path(artifact)
+    rows, fieldnames = read_collect_csv(artifact_path)
+    identity = load_client_identity(
+        artifact_path.parent,
+        fallback_name=client.name,
+        fallback_competitors=_client_competitors(client),
+    )
+    return build_gap_report(
+        GapReportInput(
+            rows=rows,
+            fieldnames=fieldnames,
+            identity=identity,
+            client_url=client.url,
+            scan_id=scan.id,
+            client_id=client.id,
+            client_name=client.name,
+        )
     )
 
 
