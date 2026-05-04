@@ -14,6 +14,15 @@ import os
 from api.routes import auth as auth_routes
 from api.routes import actions, client_context, clients, health, pipeline
 
+
+def _csv_env(name: str, default: list[str]) -> list[str]:
+    """Read a comma-separated env var while keeping safe local defaults."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 # ── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="AISO API",
@@ -24,24 +33,39 @@ app = FastAPI(
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
-ALLOWED_ORIGINS = [
+ALLOWED_ORIGINS = _csv_env("AISO_ALLOWED_ORIGINS", [
     "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "https://sapienic.com",
     "https://app.sapienic.com",
-]
+])
+ALLOWED_ORIGIN_REGEX = os.getenv("AISO_ALLOWED_ORIGIN_REGEX") or None
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-AISO-Internal-Secret",
+        "X-Requested-With",
+        "X-User-Id",
+    ],
 )
 
 # ── Trusted hosts ────────────────────────────────────────────────────────────
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "sapienic.com", "*.sapienic.com"],
+    allowed_hosts=_csv_env("AISO_ALLOWED_HOSTS", [
+        "localhost",
+        "127.0.0.1",
+        "sapienic.com",
+        "*.sapienic.com",
+        "*.up.railway.app",
+    ]),
 )
 
 # ── Request timing middleware ─────────────────────────────────────────────────
