@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BACKEND_URL =
+  process.env.AISO_API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://localhost:8000";
 
 async function proxy(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const session = await auth();
@@ -20,6 +23,8 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
   const headers = new Headers(req.headers);
   headers.set("X-User-Id", userId);
   headers.delete("host"); // Let fetch set the proper host
+  headers.delete("connection");
+  headers.delete("content-length");
 
   // Can't pass body for GET/HEAD
   const hasBody = !["GET", "HEAD"].includes(req.method);
