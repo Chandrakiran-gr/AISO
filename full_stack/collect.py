@@ -374,6 +374,7 @@ def main():
         PROVIDER_CONCURRENCY,
     )
     from webish.providers.base import ProviderResult
+    from full_stack.source_intelligence import provider_result_to_evidence_records
 
     # ── Step 1: Parse CLI args ─────────────────────────────────────────────────
     parser = argparse.ArgumentParser(
@@ -662,7 +663,9 @@ def main():
 
     # ── Step 6: Determine output file path (timestamped) ──────────────────────
     out_path = client_folder / f"{slug}_aisodata_{ts}.csv"
+    evidence_path = client_folder / f"{slug}_source_evidence_{ts}.jsonl"
     print(f"  Output: {out_path.name}")
+    print(f"  Source evidence: {evidence_path.name}")
 
     # ── Step 7: Build CSV fieldnames ──────────────────────────────────────────
     # Include group + group_rank metadata if available (v2 mode)
@@ -762,6 +765,24 @@ def main():
     writer = csv.DictWriter(outfile, fieldnames=fieldnames, quoting=csv.QUOTE_NONNUMERIC)
     writer.writeheader()
     outfile.flush()
+    evidence_file = open(evidence_path, "w", encoding="utf-8")
+
+    def _write_source_evidence(q_idx: int, provider_name: str, result: ProviderResult) -> None:
+        """Stream structured source evidence sidecar rows for one provider answer."""
+        q_text = questions[q_idx]
+        meta = question_metadata.get(q_text, {})
+        records = provider_result_to_evidence_records(
+            result=result,
+            provider_name=provider_name,
+            question=q_text,
+            group=meta.get("group") or None,
+            scan_id=os.environ.get("AISO_SCAN_ID", "").strip() or None,
+            client_id=os.environ.get("AISO_CLIENT_ID", "").strip() or slug,
+        )
+        for record in records:
+            evidence_file.write(json.dumps(record, ensure_ascii=True, sort_keys=True) + "\n")
+        if records:
+            evidence_file.flush()
 
     # Submit all (question_idx × provider) tasks as a flat pool
     executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
@@ -833,6 +854,7 @@ def main():
             # Aggregate round 1
             pending[q_idx][provider_name] = result
             provider_done[provider_name] += 1
+            _write_source_evidence(q_idx, provider_name, result)
 
             # Aggregate round 2 (if multi-turn)
             if followup_result is not None:
@@ -879,19 +901,23 @@ def main():
         print(f"\n\nInterrupted. {rows_written}/{total_questions} rows written to {out_path.name}")
         executor.shutdown(wait=False, cancel_futures=True)
         outfile.close()
+        evidence_file.close()
         sys.exit(0)
     except Exception:
         executor.shutdown(wait=False, cancel_futures=True)
         outfile.close()
+        evidence_file.close()
         raise
     else:
         executor.shutdown(wait=True)
         outfile.close()
+        evidence_file.close()
 
     print("\n\nDone.")
     print(f"  Rows written : {rows_written} / {total_questions}")
     print(f"  API calls    : {tasks_succeeded} succeeded, {tasks_failed} failed")
     print(f"  Output       : {out_path}")
+    print(f"  Evidence     : {evidence_path}")
 
     scan_id = os.environ.get("AISO_SCAN_ID", "").strip()
     scan_client_id = os.environ.get("AISO_CLIENT_ID", "").strip() or slug

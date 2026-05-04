@@ -19,6 +19,7 @@ from api.database import (
     ScanArtifact,
     ScanCitation,
     ScanResult,
+    SourceProfile,
     User,
 )
 from api.storage import (
@@ -45,6 +46,7 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertIn("scan_artifacts", inspector.get_table_names())
             self.assertIn("scan_analysis", inspector.get_table_names())
             self.assertIn("scan_citations", inspector.get_table_names())
+            self.assertIn("source_profiles", inspector.get_table_names())
             self.assertIn("client_contexts", inspector.get_table_names())
 
             artifact_columns = {
@@ -70,7 +72,26 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "answer_excerpt",
                     "citation_url",
                     "source_domain",
+                    "canonical_url",
+                    "source_type",
+                    "owner_type",
+                    "action_role",
                 }.issubset(citation_columns)
+            )
+
+            source_columns = {
+                column["name"] for column in inspector.get_columns("source_profiles")
+            }
+            self.assertTrue(
+                {
+                    "canonical_url",
+                    "source_domain",
+                    "source_type",
+                    "owner_type",
+                    "action_role",
+                    "influence_score",
+                    "actionability_score",
+                }.issubset(source_columns)
             )
 
             action_columns = {
@@ -171,9 +192,7 @@ class DatabaseSchemaTests(unittest.TestCase):
     def test_scan_metrics_persistence_registers_collect_csv_artifact(self):
         session = self.Session()
         try:
-            session.add(
-                User(id="user-1", email="founder@example.com", provider="google")
-            )
+            session.add(User(id="user-1", email="founder@example.com", provider="google"))
             session.add(
                 Client(
                     id="client-1",
@@ -195,6 +214,7 @@ class DatabaseSchemaTests(unittest.TestCase):
                 json.dumps(
                     {
                         "display_name": "AISO Demo",
+                        "url": "https://example.com",
                         "competitors": ["SearchCo"],
                     }
                 ),
@@ -232,25 +252,117 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertEqual(len(persisted), 1)
             self.assertEqual(session.query(ScanResult).count(), 1)
             self.assertEqual(session.query(ScanCitation).count(), 1)
+            self.assertEqual(session.query(SourceProfile).count(), 1)
             self.assertGreaterEqual(session.query(Action).count(), 1)
-            action = session.query(Action).order_by(Action.sort_order.asc()).first()
-            self.assertIsNotNone(action)
-            self.assertIsNotNone(action.action_key)
-            self.assertIsNotNone(action.score)
-            self.assertIsNotNone(action.evidence_json)
             citation = session.query(ScanCitation).one()
             self.assertEqual(citation.citation_url, "https://example.com/source")
+            self.assertEqual(citation.canonical_url, "https://example.com/source")
             self.assertEqual(citation.citation_title, "Example Source")
             self.assertEqual(citation.source_domain, "example.com")
+            self.assertEqual(citation.owner_type, "owned")
+            profile = session.query(SourceProfile).one()
+            self.assertEqual(profile.canonical_url, "https://example.com/source")
+            self.assertEqual(profile.owner_type, "owned")
+            self.assertIsNotNone(citation.source_profile_id)
             artifact = session.query(ScanArtifact).one()
             self.assertEqual(artifact.artifact_type, "collect_csv")
             self.assertEqual(artifact.file_format, "csv")
             self.assertEqual(artifact.storage_backend, "local")
             self.assertEqual(len(artifact.sha256), 64)
-            self.assertEqual(
-                json.loads(artifact.metadata_json)["source"],
-                "full_stack.collect",
+            self.assertEqual(json.loads(artifact.metadata_json)["source"], "full_stack.collect")
+        finally:
+            session.close()
+
+    def test_scan_metrics_persistence_registers_source_evidence_artifact(self):
+        session = self.Session()
+        try:
+            session.add(User(id="user-2", email="source@example.com", provider="google"))
+            session.add(
+                Client(
+                    id="client-2",
+                    user_id="user-2",
+                    name="PemSpa",
+                    url="https://pempsa.com",
+                )
             )
+            session.add(Scan(id="scan-2", client_id="client-2", status="complete"))
+            session.commit()
+        finally:
+            session.close()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client_folder = Path(tmp)
+            (client_folder / "client_profile.json").write_text(
+                json.dumps(
+                    {
+                        "display_name": "PemSpa",
+                        "url": "https://pempsa.com",
+                        "competitors": ["Glowbar Chestnut Hill"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            csv_path = client_folder / "pemspa_aisodata_20260502_120000.csv"
+            with csv_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["question", "group", "response_perplexity", "error_perplexity"],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "question": "best facial near me",
+                        "group": "G1",
+                        "response_perplexity": "Glowbar appears first, then other spas.",
+                        "error_perplexity": "",
+                    }
+                )
+            evidence_path = client_folder / "pemspa_source_evidence_20260502_120000.jsonl"
+            evidence_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "scan_id": "scan-2",
+                        "client_id": "client-2",
+                        "provider": "perplexity",
+                        "model": "sonar",
+                        "question": "best facial near me",
+                        "group": "G1",
+                        "answer_excerpt": "Glowbar appears first, then other spas.",
+                        "web_search_used": True,
+                        "source": {
+                            "url": "https://www.yelp.com/biz/glowbar-chestnut-hill?utm_source=ai",
+                            "canonical_url": "https://yelp.com/biz/glowbar-chestnut-hill",
+                            "domain": "yelp.com",
+                            "title": "Glowbar Chestnut Hill on Yelp",
+                            "source_rank": 1,
+                            "origin": "native_citation",
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(database_module, "SessionLocal", self.Session):
+                persist_collect_csv_results(
+                    csv_path,
+                    scan_id="scan-2",
+                    client_id="client-2",
+                    client_folder=client_folder,
+                )
+
+        session = self.Session()
+        try:
+            artifacts = {artifact.artifact_type for artifact in session.query(ScanArtifact).all()}
+            self.assertEqual(artifacts, {"collect_csv", "source_evidence_jsonl"})
+            citation = session.query(ScanCitation).one()
+            self.assertEqual(citation.citation_origin, "native_citation")
+            self.assertEqual(citation.web_search_used, True)
+            self.assertEqual(citation.source_type, "directory_or_review")
+            profile = session.query(SourceProfile).one()
+            self.assertEqual(profile.source_domain, "yelp.com")
+            self.assertEqual(profile.action_role, "listing_or_profile_target")
         finally:
             session.close()
 

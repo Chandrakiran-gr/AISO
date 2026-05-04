@@ -138,6 +138,157 @@ def _citation_summary(citations: Iterable[Any]) -> dict[str, Any]:
     }
 
 
+def _source_key(citation: Any) -> str:
+    return str(
+        getattr(citation, "canonical_url", None)
+        or getattr(citation, "citation_url", None)
+        or getattr(citation, "source_domain", None)
+        or "unknown"
+    )
+
+
+def _source_intelligence_candidates(citations: Iterable[Any]) -> list[ActionCandidate]:
+    buckets: dict[tuple[str, str], dict[str, Any]] = {}
+    for citation in citations:
+        action_role = str(getattr(citation, "action_role", "") or "")
+        if action_role not in {
+            "listing_or_profile_target",
+            "direct_citation_target",
+            "partnership_or_pr_target",
+            "content_gap_signal",
+            "competitive_evidence",
+        }:
+            continue
+        source_type = str(getattr(citation, "source_type", "") or "unknown")
+        owner_type = str(getattr(citation, "owner_type", "") or "unknown")
+        bucket = buckets.setdefault(
+            (action_role, source_type),
+            {
+                "citations": 0,
+                "questions": set(),
+                "providers": set(),
+                "groups": set(),
+                "domains": set(),
+                "urls": set(),
+                "owner_types": set(),
+                "confidence": [],
+                "actionability": [],
+            },
+        )
+        bucket["citations"] += 1
+        if getattr(citation, "question", None):
+            bucket["questions"].add(str(getattr(citation, "question")))
+        if getattr(citation, "provider", None):
+            bucket["providers"].add(str(getattr(citation, "provider")))
+        if getattr(citation, "group", None):
+            bucket["groups"].add(str(getattr(citation, "group")))
+        if getattr(citation, "source_domain", None):
+            bucket["domains"].add(str(getattr(citation, "source_domain")))
+        key = _source_key(citation)
+        if key != "unknown":
+            bucket["urls"].add(key)
+        bucket["owner_types"].add(owner_type)
+        if getattr(citation, "confidence_score", None) is not None:
+            bucket["confidence"].append(float(getattr(citation, "confidence_score")))
+        if getattr(citation, "actionability_score", None) is not None:
+            bucket["actionability"].append(float(getattr(citation, "actionability_score")))
+
+    candidates: list[ActionCandidate] = []
+    for (action_role, source_type), bucket in buckets.items():
+        citation_count = _as_int(bucket["citations"])
+        prompt_count = len(bucket["questions"])
+        provider_count = len(bucket["providers"])
+        avg_actionability = (
+            sum(bucket["actionability"]) / len(bucket["actionability"])
+            if bucket["actionability"]
+            else 5.0
+        )
+        avg_confidence = (
+            sum(bucket["confidence"]) / len(bucket["confidence"])
+            if bucket["confidence"]
+            else 6.0
+        )
+        base_score = (
+            min(prompt_count, 12) * 5.0
+            + min(provider_count, 4) * 5.5
+            + min(citation_count, 16) * 1.7
+            + avg_actionability * 3.5
+            + avg_confidence * 1.5
+        )
+        source_domains = sorted(bucket["domains"])[:6]
+        evidence = {
+            "kind": "source_intelligence",
+            "action_role": action_role,
+            "source_type": source_type,
+            "owner_types": sorted(bucket["owner_types"]),
+            "source_domains": source_domains,
+            "source_urls": sorted(bucket["urls"])[:6],
+            "example_questions": sorted(bucket["questions"])[:4],
+            "providers": sorted(bucket["providers"]),
+            "groups": sorted(bucket["groups"]),
+            "citation_count": citation_count,
+            "prompt_count": prompt_count,
+            "provider_count": provider_count,
+            "avg_actionability_score": round(avg_actionability, 2),
+            "avg_confidence_score": round(avg_confidence, 2),
+        }
+
+        if action_role in {"listing_or_profile_target", "direct_citation_target", "partnership_or_pr_target"}:
+            label = "listing/profile" if action_role == "listing_or_profile_target" else "third-party citation"
+            candidates.append(
+                ActionCandidate(
+                    action_key=f"source:{action_role}:{source_type}:improve",
+                    title=f"Improve {label} sources AI already trusts",
+                    description=(
+                        f"AI cited {len(source_domains)} actionable source domains across {prompt_count} prompts. "
+                        "Claim, complete, or improve these profiles/pages so the next scan has stronger proof for the business."
+                    ),
+                    priority="high" if prompt_count >= 3 or provider_count >= 2 else "medium",
+                    category="source",
+                    impact_pts="+4-9 pts",
+                    effort="1-4 hours",
+                    score=base_score + 16,
+                    evidence=evidence,
+                )
+            )
+        elif action_role == "content_gap_signal":
+            candidates.append(
+                ActionCandidate(
+                    action_key=f"source:{source_type}:content-gap",
+                    title="Create content around authority-backed source gaps",
+                    description=(
+                        f"AI cited authority/reference sources for {prompt_count} buyer questions. "
+                        "Build service, FAQ, or educational content that answers those topics with business-specific proof."
+                    ),
+                    priority="high" if prompt_count >= 4 else "medium",
+                    category="content",
+                    impact_pts="+3-7 pts",
+                    effort="2-5 hours",
+                    score=base_score + 10,
+                    evidence=evidence,
+                )
+            )
+        elif action_role == "competitive_evidence":
+            candidates.append(
+                ActionCandidate(
+                    action_key=f"source:{source_type}:competitive-evidence",
+                    title="Reverse-engineer competitor-owned sources influencing AI",
+                    description=(
+                        f"Competitor-owned sources appeared across {prompt_count} prompts. "
+                        "Use them as evidence of why competitors are being recommended, then create clearer comparison and proof content."
+                    ),
+                    priority="medium",
+                    category="competitor",
+                    impact_pts="+2-6 pts",
+                    effort="1-3 hours",
+                    score=base_score * 0.8,
+                    evidence=evidence,
+                )
+            )
+
+    return candidates
+
+
 def _overall_candidate(overall: float, total_questions: int) -> ActionCandidate | None:
     if overall < 35:
         return ActionCandidate(
@@ -427,7 +578,8 @@ def build_action_recommendations(
     overall = _score(total_mentions, total_questions)
     group_buckets = _result_buckets(results, "group")
     provider_buckets = _result_buckets(results, "provider")
-    summary = _citation_summary(citations or [])
+    citation_rows = list(citations or [])
+    summary = _citation_summary(citation_rows)
 
     candidates: list[ActionCandidate] = []
     overall_candidate = _overall_candidate(overall, total_questions)
@@ -439,6 +591,7 @@ def build_action_recommendations(
     competitor_candidate = _competitor_candidate(results, overall, total_questions)
     if competitor_candidate:
         candidates.append(competitor_candidate)
+    candidates.extend(_source_intelligence_candidates(citation_rows))
 
     citation_candidate = _citation_candidate(
         summary,

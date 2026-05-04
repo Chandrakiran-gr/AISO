@@ -207,6 +207,12 @@
   color: var(--text-muted);
 }
 
+.fieldHelp {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
 /* Provider checkboxes */
 .providerGrid {
   display: grid;
@@ -493,6 +499,39 @@
   font-size: 0.875rem;
 }
 
+.reviewGuide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.reviewGuide div {
+  min-width: 0;
+  padding: var(--space-md);
+  border: 1px solid rgba(0,212,170,0.14);
+  border-radius: var(--radius-md);
+  background: rgba(0,212,170,0.045);
+}
+
+.reviewGuide strong,
+.reviewGuide span {
+  display: block;
+}
+
+.reviewGuide strong {
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  margin-bottom: 5px;
+}
+
+.reviewGuide span {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
 .infoPanel {
   display: flex;
   flex-direction: column;
@@ -543,6 +582,15 @@
   color: var(--text-primary);
   font-size: 0.9375rem;
   font-weight: 700;
+}
+
+.contextSectionHeader h3 em {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .contextSectionHeader p {
@@ -597,6 +645,27 @@
   gap: var(--space-sm);
 }
 
+.optionalEmptyState {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-md);
+  border: 1px dashed rgba(255,255,255,0.14);
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.025);
+}
+
+.optionalEmptyState strong {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.optionalEmptyState span {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
 .buyerContextCard {
   display: flex;
   flex-direction: column;
@@ -618,6 +687,21 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-sm);
+}
+
+.buyerField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.buyerField span {
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .removeMiniBtn {
@@ -948,6 +1032,7 @@
 
   .optionalGrid,
   .contextGrid,
+  .reviewGuide,
   .buyerContextTop,
   .buyerContextGrid {
     grid-template-columns: 1fr;

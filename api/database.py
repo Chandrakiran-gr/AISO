@@ -162,6 +162,40 @@ class ScanAnalysis(Base):
     created_at           = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class SourceProfile(Base):
+    """Client-specific source graph profile across scans."""
+    __tablename__ = "source_profiles"
+    __table_args__ = (
+        Index("ix_source_profiles_client_domain", "client_id", "source_domain"),
+        Index("ix_source_profiles_owner", "client_id", "owner_type"),
+        Index("ix_source_profiles_action_role", "client_id", "action_role"),
+        Index("ix_source_profiles_source_type", "client_id", "source_type"),
+        Index("ix_source_profiles_client_url", "client_id", "canonical_url", unique=True),
+    )
+
+    id                         = Column(String, primary_key=True)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    canonical_url              = Column(Text, nullable=False)
+    source_domain              = Column(String, nullable=True)
+    source_title               = Column(Text, nullable=True)
+    owner_type                 = Column(String, nullable=True)
+    source_type                = Column(String, nullable=True)
+    action_role                = Column(String, nullable=True)
+    actionability_score        = Column(Float, nullable=True)
+    influence_score            = Column(Float, nullable=True)
+    relevance_score            = Column(Float, nullable=True)
+    client_mentioned           = Column(Boolean, nullable=True)
+    competitors_mentioned_json = Column(Text, nullable=True)
+    topics_json                = Column(Text, nullable=True)
+    fetch_status               = Column(String, nullable=True)
+    last_fetched_at            = Column(DateTime, nullable=True)
+    last_enriched_at           = Column(DateTime, nullable=True)
+    classification_reason      = Column(Text, nullable=True)
+    metadata_json              = Column(Text, nullable=True)
+    created_at                 = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at                 = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class ScanCitation(Base):
     """Source-level evidence cited by provider answers."""
     __tablename__ = "scan_citations"
@@ -174,6 +208,7 @@ class ScanCitation(Base):
     id             = Column(String, primary_key=True)           # UUID
     client_id      = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
     scan_id        = Column(String, ForeignKey("scans.id"), nullable=False, index=True)
+    source_profile_id = Column(String, ForeignKey("source_profiles.id"), nullable=True, index=True)
     provider       = Column(String, nullable=False)             # LLM provider id
     group          = Column(String, nullable=True)
     question       = Column(Text, nullable=True)
@@ -182,6 +217,18 @@ class ScanCitation(Base):
     citation_title = Column(Text, nullable=True)
     source_domain  = Column(String, nullable=True)
     source_rank    = Column(Integer, nullable=True)
+    canonical_url  = Column(Text, nullable=True)
+    citation_origin = Column(String, nullable=True)
+    cited_text     = Column(Text, nullable=True)
+    web_search_used = Column(Boolean, nullable=True)
+    source_type    = Column(String, nullable=True)
+    owner_type     = Column(String, nullable=True)
+    action_role    = Column(String, nullable=True)
+    actionability_score = Column(Float, nullable=True)
+    influence_score = Column(Float, nullable=True)
+    relevance_score = Column(Float, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    classification_reason = Column(Text, nullable=True)
     metadata_json  = Column(Text, nullable=True)                # JSON provider citation metadata
     created_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 

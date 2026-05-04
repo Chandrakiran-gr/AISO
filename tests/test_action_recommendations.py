@@ -37,6 +37,34 @@ def citation(provider: str, group: str, domain: str) -> ExtractedCitation:
     )
 
 
+def classified_citation(
+    provider: str,
+    group: str,
+    domain: str,
+    *,
+    source_type: str,
+    owner_type: str,
+    action_role: str,
+) -> ExtractedCitation:
+    return ExtractedCitation(
+        provider=provider,
+        group=group,
+        question=f"How should I compare source proof for {domain}?",
+        answer_excerpt=f"{domain} was cited as evidence.",
+        citation_url=f"https://{domain}/proof",
+        citation_title="Proof",
+        source_domain=domain,
+        source_rank=1,
+        metadata={},
+        canonical_url=f"https://{domain}/proof",
+        source_type=source_type,
+        owner_type=owner_type,
+        action_role=action_role,
+        actionability_score=8.2,
+        confidence_score=8.0,
+    )
+
+
 class ActionRecommendationTests(unittest.TestCase):
     def action_keys(self, actions: list[dict]) -> set[str]:
         return {str(action["action_key"]) for action in actions}
@@ -93,6 +121,65 @@ class ActionRecommendationTests(unittest.TestCase):
         ])
 
         self.assertIn("proof:citeable-sources", self.action_keys(actions))
+
+    def test_listing_sources_create_source_action(self):
+        actions = build_action_recommendations(
+            [result("perplexity", "G4", 10, 6)],
+            citations=[
+                classified_citation(
+                    "perplexity",
+                    "G4",
+                    "booksy.com",
+                    source_type="marketplace_or_booking",
+                    owner_type="third_party",
+                    action_role="listing_or_profile_target",
+                ),
+                classified_citation(
+                    "openai",
+                    "G4",
+                    "fresha.com",
+                    source_type="marketplace_or_booking",
+                    owner_type="third_party",
+                    action_role="listing_or_profile_target",
+                ),
+            ],
+        )
+
+        self.assertIn("source:listing_or_profile_target:marketplace_or_booking:improve", self.action_keys(actions))
+
+    def test_authority_sources_create_content_gap_action(self):
+        actions = build_action_recommendations(
+            [result("perplexity", "G6", 10, 6)],
+            citations=[
+                classified_citation(
+                    "perplexity",
+                    "G6",
+                    "aad.org",
+                    source_type="authority_reference",
+                    owner_type="third_party",
+                    action_role="content_gap_signal",
+                )
+            ],
+        )
+
+        self.assertIn("source:authority_reference:content-gap", self.action_keys(actions))
+
+    def test_competitor_owned_sources_create_competitive_evidence_action(self):
+        actions = build_action_recommendations(
+            [result("perplexity", "G7", 10, 6)],
+            citations=[
+                classified_citation(
+                    "perplexity",
+                    "G7",
+                    "glowbar.com",
+                    source_type="competitor_site",
+                    owner_type="competitor_owned",
+                    action_role="competitive_evidence",
+                )
+            ],
+        )
+
+        self.assertIn("source:competitor_site:competitive-evidence", self.action_keys(actions))
 
     def test_strong_scan_creates_maintenance_action_when_evidence_is_healthy(self):
         actions = build_action_recommendations(

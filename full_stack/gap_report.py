@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit
 
+from full_stack.source_intelligence import classify_source
 from full_stack.scan_metrics import (
     ClientIdentity,
     aggregate_scan_results,
@@ -122,16 +123,36 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
     providers = _provider_names(payload.fieldnames)
     client_domain = _client_domain(payload.client_url)
     aggregate_rows = aggregate_scan_results(payload.rows, payload.fieldnames, payload.identity)
-    citation_rows = extract_scan_citations(payload.rows, payload.fieldnames)
+    citation_rows = extract_scan_citations(
+        payload.rows,
+        payload.fieldnames,
+        identity=payload.identity,
+        client_domain=client_domain,
+    )
     citations_by_answer: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
 
     for citation in citation_rows:
+        classification = classify_source(
+            citation.canonical_url or citation.citation_url,
+            title=citation.citation_title,
+            client_domain=client_domain,
+            competitors=payload.identity.competitors,
+        )
         citations_by_answer[_citation_key(citation.provider, citation.group, citation.question)].append(
             {
                 "url": citation.citation_url,
                 "title": citation.citation_title,
                 "domain": citation.source_domain,
                 "rank": citation.source_rank,
+                "canonical_url": citation.canonical_url or citation.citation_url,
+                "citation_origin": citation.citation_origin,
+                "web_search_used": citation.web_search_used,
+                "owner_type": citation.owner_type or classification.owner_type,
+                "source_type": citation.source_type or classification.source_type,
+                "action_role": citation.action_role or classification.action_role,
+                "actionability_score": citation.actionability_score or classification.actionability_score,
+                "confidence_score": citation.confidence_score or classification.confidence_score,
+                "classification_reason": citation.classification_reason or classification.classification_reason,
             }
         )
 
@@ -173,6 +194,12 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
                             "groups": set(),
                             "example_questions": [],
                             "top_urls": [],
+                            "owner_type": source.get("owner_type"),
+                            "source_type": source.get("source_type"),
+                            "action_role": source.get("action_role"),
+                            "actionability_score": float(source.get("actionability_score") or 0),
+                            "confidence_score": float(source.get("confidence_score") or 0),
+                            "classification_reason": source.get("classification_reason"),
                         },
                     )
                     source_bucket["missed_query_count"] += 1
@@ -182,6 +209,14 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
                         source_bucket["example_questions"].append(question)
                     if source.get("url") and source["url"] not in source_bucket["top_urls"]:
                         source_bucket["top_urls"].append(source["url"])
+                    source_bucket["actionability_score"] = max(
+                        float(source_bucket.get("actionability_score") or 0),
+                        float(source.get("actionability_score") or 0),
+                    )
+                    source_bucket["confidence_score"] = max(
+                        float(source_bucket.get("confidence_score") or 0),
+                        float(source.get("confidence_score") or 0),
+                    )
 
                 for competitor in competitors:
                     pressure = competitor_pressure.setdefault(
@@ -246,9 +281,43 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
                 "groups": sorted(source["groups"]),
                 "example_questions": source["example_questions"][:3],
                 "top_urls": source["top_urls"][:3],
+                "owner_type": source.get("owner_type") or "unknown",
+                "source_type": source.get("source_type") or "unknown_review_needed",
+                "action_role": source.get("action_role") or "direct_citation_target",
+                "actionability_score": round(float(source.get("actionability_score") or 0), 2),
+                "confidence_score": round(float(source.get("confidence_score") or 0), 2),
+                "classification_reason": source.get("classification_reason"),
             }
         )
-    source_opportunities.sort(key=lambda item: item["missed_query_count"], reverse=True)
+    source_opportunities.sort(
+        key=lambda item: (item["actionability_score"], item["missed_query_count"]),
+        reverse=True,
+    )
+
+    listing_targets = [
+        source for source in source_opportunities
+        if source["action_role"] == "listing_or_profile_target"
+    ]
+    direct_targets = [
+        source for source in source_opportunities
+        if source["action_role"] in {"direct_citation_target", "listing_or_profile_target"}
+    ]
+    publisher_targets = [
+        source for source in source_opportunities
+        if source["action_role"] == "partnership_or_pr_target"
+    ]
+    authority_content_gaps = [
+        source for source in source_opportunities
+        if source["action_role"] == "content_gap_signal"
+    ]
+    competitive_evidence = [
+        source for source in source_opportunities
+        if source["action_role"] == "competitive_evidence" or source["owner_type"] == "competitor_owned"
+    ]
+    noise_sources = [
+        source for source in source_opportunities
+        if source["action_role"] == "ignore" or source["source_type"] == "low_value_or_noise"
+    ]
 
     competitor_gaps = []
     for pressure in competitor_pressure.values():
@@ -284,7 +353,7 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
             }
         )
 
-    for source in source_opportunities[:3]:
+    for source in direct_targets[:3]:
         score = min(9.5, 6.5 + source["missed_query_count"] * 0.4)
         priority_fixes.append(
             {
@@ -292,9 +361,34 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
                 "impact": _impact_label(score),
                 "score": round(score, 2),
                 "why": f"{source['domain']} was cited on {source['missed_query_count']} missed query results.",
-                "next_step": "Earn, update, or align proof on this source so AI systems can connect it back to the business.",
+                "next_step": (
+                    "Create or improve the listing/profile if accessible, then align service, review, "
+                    "and proof language to the missed query intents."
+                    if source["action_role"] == "listing_or_profile_target"
+                    else "Earn, update, or align proof on this source so AI systems can connect it back to the business."
+                ),
                 "evidence": {
                     "domain": source["domain"],
+                    "source_type": source["source_type"],
+                    "action_role": source["action_role"],
+                    "example_questions": source["example_questions"][:2],
+                    "top_urls": source["top_urls"][:2],
+                },
+            }
+        )
+
+    for source in authority_content_gaps[:2]:
+        score = min(9.0, 6.2 + source["missed_query_count"] * 0.35)
+        priority_fixes.append(
+            {
+                "title": f"Create content proof for topics AI supports with {source['domain']}",
+                "impact": _impact_label(score),
+                "score": round(score, 2),
+                "why": f"{source['domain']} influenced {source['missed_query_count']} missed results as an authority/reference source.",
+                "next_step": "Build first-party FAQ or service content that answers the same buyer concern using client-specific proof.",
+                "evidence": {
+                    "domain": source["domain"],
+                    "source_type": source["source_type"],
                     "example_questions": source["example_questions"][:2],
                     "top_urls": source["top_urls"][:2],
                 },
@@ -318,6 +412,13 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
         )
 
     priority_fixes.sort(key=lambda item: item["score"], reverse=True)
+    web_search_known = [
+        source
+        for row_sources in citations_by_answer.values()
+        for source in row_sources
+        if source.get("web_search_used") is not None
+    ]
+    web_search_used_count = sum(1 for source in web_search_known if source.get("web_search_used"))
 
     return {
         "client_id": payload.client_id,
@@ -330,6 +431,15 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
             "appearance_rate": round((appeared_count / total_queries) * 100, 2) if total_queries else 0.0,
             "source_opportunity_count": len(source_opportunities),
             "competitor_gap_count": len(competitor_gaps),
+            "actionable_source_count": len(direct_targets) + len(publisher_targets),
+            "competitive_evidence_count": len(competitive_evidence),
+            "content_gap_count": len(authority_content_gaps),
+            "low_confidence_source_count": sum(1 for item in source_opportunities if item["confidence_score"] < 6),
+            "web_search_coverage": {
+                "known_source_count": len(web_search_known),
+                "used_source_count": web_search_used_count,
+                "coverage_rate": round((web_search_used_count / len(web_search_known)) * 100, 2) if web_search_known else 0.0,
+            },
         },
         "coverage": [
             {
@@ -343,6 +453,17 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
         ],
         "weak_segments": weak_segments,
         "source_opportunities": source_opportunities[:20],
+        "source_intelligence": {
+            "direct_targets": direct_targets[:20],
+            "listing_targets": listing_targets[:20],
+            "publisher_targets": publisher_targets[:20],
+            "authority_content_gaps": authority_content_gaps[:20],
+            "competitive_evidence": competitive_evidence[:20],
+            "noise_sources": noise_sources[:20],
+        },
+        "competitive_evidence": competitive_evidence[:20],
+        "authority_content_gaps": authority_content_gaps[:20],
+        "noise_sources": noise_sources[:20],
         "competitor_gaps": competitor_gaps[:20],
         "priority_fixes": priority_fixes[:8],
         "query_results": sorted(query_rows, key=lambda item: (item["appeared"], -item["priority_score"]))[:200],

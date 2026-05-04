@@ -18,7 +18,7 @@ const GROUPS = INTENT_GROUPS;
 const STEPS = [
   { num: 1, label: "Business" },
   { num: 2, label: "Discover" },
-  { num: 3, label: "Context" },
+  { num: 3, label: "Review" },
   { num: 4, label: "Launch" },
 ];
 
@@ -179,16 +179,15 @@ function objectiveLabel(id: string): string {
   return SCAN_OBJECTIVES.find((objective) => objective.id === id)?.label ?? SCAN_OBJECTIVES[0].label;
 }
 
-function defaultBuyerContext(form: FormState): BuyerContext {
-  const category = form.industry.trim() || "this category";
+function blankBuyerContext(): BuyerContext {
   return {
-    label: "Primary buyer",
+    label: "",
     audience_type: "Target customer",
-    problem: `Find a trusted ${category}`,
-    desired_outcome: `Choose the right ${category}`,
+    problem: "",
+    desired_outcome: "",
     trigger_event: "",
     constraints: "",
-    decision_criteria: "Trust, relevance, proof, and availability",
+    decision_criteria: "",
     priority: "medium",
     source_url: "manual_onboarding",
     confidence: 0.9,
@@ -202,14 +201,17 @@ function buyerContextIsUsable(context: BuyerContext): boolean {
   );
 }
 
-function normalizedProfile(profile: ContextProfile, form: FormState): ContextProfile {
+function normalizedProfile(profile: ContextProfile): ContextProfile {
   const scanObjective = profile.scan_objective ?? defaultScanObjective();
-  const buyerContexts = (profile.buyer_contexts?.length ? profile.buyer_contexts : [defaultBuyerContext(form)]).map((context) => ({
-    ...context,
-    priority: context.priority || "medium",
-    source_url: context.source_url || "manual_onboarding",
-    confidence: typeof context.confidence === "number" ? context.confidence : 0.9,
-  }));
+  const sourceBuyerContexts = Array.isArray(profile.buyer_contexts) ? profile.buyer_contexts : [];
+  const buyerContexts = sourceBuyerContexts
+    .filter(buyerContextIsUsable)
+    .map((context) => ({
+      ...context,
+      priority: context.priority || "medium",
+      source_url: context.source_url || "manual_onboarding",
+      confidence: typeof context.confidence === "number" ? context.confidence : 0.9,
+    }));
   return {
     ...profile,
     scan_objective: {
@@ -251,7 +253,7 @@ function emptyProfile(form: FormState): ContextProfile {
     goals: [manualItem(`Choose the right ${form.industry.trim() || "provider"}`, "goal")],
     personas: [manualItem("Local customers", "persona")],
     scan_objective: defaultScanObjective(),
-    buyer_contexts: [defaultBuyerContext(form)],
+    buyer_contexts: [],
     differentiators: [],
     guardrails: [
       "Do not compare product brands as competitors.",
@@ -290,20 +292,41 @@ function linesToItems(raw: string, type: string, extra: Partial<ContextItem> = {
     .map((name) => manualItem(name, type, extra));
 }
 
-function confidenceLabel(item: ContextItem): string {
-  if (typeof item.confidence !== "number") return "Manual confidence";
-  return `Confidence ${Math.round(item.confidence * 100)}%`;
-}
-
 function sourceLabel(source?: string): string {
   if (!source) return "No source";
   if (source === "manual_onboarding" || source === "fallback") return "Manual entry";
   try {
     const url = new URL(source);
-    return `Source ${url.hostname.replace(/^www\./, "")}`;
+    return url.hostname.replace(/^www\./, "");
   } catch {
-    return `Source ${source}`;
+    return source;
   }
+}
+
+function evidenceLabels(items: ContextItem[]): string[] {
+  if (items.length === 0) return [];
+
+  const domains = Array.from(
+    new Set(
+      items
+        .map((item) => item.source_url)
+        .filter((source): source is string => Boolean(source) && source !== "manual_onboarding" && source !== "fallback")
+        .map(sourceLabel),
+    ),
+  ).slice(0, 2);
+  const manualCount = items.filter((item) => item.source_url === "manual_onboarding" || !item.source_url).length;
+  const confidenceValues = items
+    .map((item) => item.confidence)
+    .filter((confidence): confidence is number => typeof confidence === "number");
+  const averageConfidence = confidenceValues.length
+    ? Math.round((confidenceValues.reduce((total, confidence) => total + confidence, 0) / confidenceValues.length) * 100)
+    : null;
+
+  const labels: string[] = [];
+  if (domains.length > 0) labels.push(`Website evidence: ${domains.join(", ")}`);
+  if (manualCount > 0) labels.push(`${manualCount} manual entr${manualCount === 1 ? "y" : "ies"}`);
+  if (averageConfidence !== null) labels.push(`Avg confidence: ${averageConfidence}%`);
+  return labels;
 }
 
 function contextMatchesForm(context: ClientContextData | null, form: FormState, clientId: string): boolean {
@@ -418,9 +441,9 @@ function Step1({
   return (
     <form onSubmit={(e) => { e.preventDefault(); if (valid && status !== "loading") onNext(); }}>
       <span className={styles.stepBadge}>Step 1 of 4 · Business basics</span>
-      <h2 className={styles.stepTitle}>Start with the public business identity</h2>
+      <h2 className={styles.stepTitle}>Tell AISO which business to analyze</h2>
       <p className={styles.stepSubtitle}>
-        AISO will read the public website and turn it into a structured profile before generating scan questions.
+        The website is the source of truth. These details help AISO understand the business faster if the site is vague.
       </p>
       {error && <div className={styles.validationError} role="alert">{error}</div>}
       <div className={styles.fields}>
@@ -450,47 +473,56 @@ function Step1({
         </div>
         <div className={styles.optionalGrid}>
           <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="ob-industry">Fallback category</label>
+            <div className={styles.labelRow}>
+              <label className={styles.label} htmlFor="ob-industry">Business category</label>
+              <span className={styles.labelHint}>Optional</span>
+            </div>
             <input
               id="ob-industry"
               className="input"
               type="text"
-              placeholder="Used only if the website is unclear"
+              placeholder="Facial spa, B2B SaaS, roofing company"
               value={form.industry}
               onChange={(e) => set({ ...form, industry: e.target.value })}
             />
+            <p className={styles.fieldHelp}>Used to avoid generic questions if the website does not clearly explain the category.</p>
           </div>
           <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="ob-location">Fallback market</label>
+            <div className={styles.labelRow}>
+              <label className={styles.label} htmlFor="ob-location">Primary market</label>
+              <span className={styles.labelHint}>Optional</span>
+            </div>
             <input
               id="ob-location"
               className="input"
               type="text"
-              placeholder="City, region, or service area"
+              placeholder="Newton, Greater Boston, United States"
               value={form.location}
               onChange={(e) => set({ ...form, location: e.target.value })}
             />
+            <p className={styles.fieldHelp}>Used for location-aware questions when the website has broad or unclear service areas.</p>
           </div>
         </div>
         <div className={styles.fieldGroup}>
           <div className={styles.labelRow}>
-            <label className={styles.label} htmlFor="ob-competitors">Known competitors</label>
-            <span className={styles.labelHint}>Recommended for competitor and head-to-head insights</span>
+            <label className={styles.label} htmlFor="ob-competitors">Competitors to compare against</label>
+            <span className={styles.labelHint}>Recommended</span>
           </div>
           <input
             id="ob-competitors"
             className="input"
             type="text"
-            placeholder="Competitor A, Competitor B"
+            placeholder="Competitor A, Competitor B, Competitor C"
             value={form.competitors}
             onChange={(e) => set({ ...form, competitors: e.target.value })}
           />
+          <p className={styles.fieldHelp}>Add competitors only if you know them. AISO will skip competitor-only coverage when this is blank.</p>
         </div>
       </div>
       <div className={styles.navRow}>
         <div />
         <button type="submit" className={styles.nextBtn} disabled={!valid || status === "loading"} id="ob-step1-next">
-          {status === "loading" ? "Saving..." : "Discover website"}
+          {status === "loading" ? "Saving..." : "Read website and build profile"}
         </button>
       </div>
     </form>
@@ -514,7 +546,6 @@ function Step2({
   onManual: () => void;
   onNext: () => void;
 }) {
-  const warnings = context?.warnings_json ?? [];
   const pageCount = context?.evidence_json?.page_count ?? context?.evidence_json?.pages?.length ?? 0;
   const status = context?.status ?? (discovering ? "discovering" : "not_started");
   const isRunning = discovering || status === "discovering";
@@ -549,13 +580,6 @@ function Step2({
       )}
 
       {error && <div className={styles.validationError} role="alert">{error}</div>}
-
-      {warnings.length > 0 && (
-        <div className={styles.warningPanel}>
-          <strong>Review warnings</strong>
-          {warnings.map((warning) => <span key={warning}>{warning}</span>)}
-        </div>
-      )}
 
       <div className={styles.navRow}>
         <button type="button" className={styles.backBtn} onClick={onBack}>Back</button>
@@ -607,10 +631,8 @@ function ContextSection({
       />
       {items.length > 0 && (
         <div className={styles.sourceChips}>
-          {items.slice(0, 4).map((item) => (
-            <span key={`${item.name}-${item.source_url}`}>
-              {sourceLabel(item.source_url)} · {confidenceLabel(item)}
-            </span>
+          {evidenceLabels(items).map((label) => (
+            <span key={label}>{label}</span>
           ))}
         </div>
       )}
@@ -625,85 +647,103 @@ function BuyerContextSection({
   contexts: BuyerContext[];
   onChange: (contexts: BuyerContext[]) => void;
 }) {
-  const safeContexts = contexts.length ? contexts : [defaultBuyerContext(DEFAULT)];
+  const safeContexts = contexts;
   function update(index: number, patch: Partial<BuyerContext>) {
     onChange(safeContexts.map((context, i) => (i === index ? { ...context, ...patch } : context)));
   }
   function remove(index: number) {
-    const next = safeContexts.filter((_, i) => i !== index);
-    onChange(next.length ? next : [defaultBuyerContext(DEFAULT)]);
+    onChange(safeContexts.filter((_, i) => i !== index));
   }
   return (
     <section className={`${styles.contextSection} ${styles.fullWidthSection}`}>
       <div className={styles.contextSectionHeader}>
         <div>
-          <h3>Buyer intent contexts</h3>
-          <p>Who the buyer is, what they need, and what would make them choose.</p>
+          <h3>Target customers <em>Optional</em></h3>
+          <p>Add this only when you want AISO to test specific buyer needs, occasions, or constraints.</p>
         </div>
         <span>{safeContexts.length}</span>
       </div>
-      <div className={styles.buyerContextList}>
-        {safeContexts.map((context, index) => (
-          <div key={`${context.label}-${index}`} className={styles.buyerContextCard}>
-            <div className={styles.buyerContextTop}>
-              <input
-                className={`input ${styles.compactInput}`}
-                value={context.label}
-                onChange={(event) => update(index, { label: event.target.value })}
-                placeholder="Buyer label"
-                aria-label="Buyer label"
-              />
-              <select
-                className={`input ${styles.compactSelect}`}
-                value={context.priority || "medium"}
-                onChange={(event) => update(index, { priority: event.target.value })}
-                aria-label="Buyer context priority"
-              >
-                <option value="high">High priority</option>
-                <option value="medium">Medium priority</option>
-                <option value="low">Low priority</option>
-              </select>
-              <button type="button" className={styles.removeMiniBtn} onClick={() => remove(index)}>Remove</button>
+      {safeContexts.length === 0 ? (
+        <div className={styles.optionalEmptyState}>
+          <strong>No target customers added</strong>
+          <span>AISO will still scan using the website, offerings, locations, competitors, and scan objective.</span>
+        </div>
+      ) : (
+        <div className={styles.buyerContextList}>
+          {safeContexts.map((context, index) => (
+            <div key={`${context.label}-${index}`} className={styles.buyerContextCard}>
+              <div className={styles.buyerContextTop}>
+                <input
+                  className={`input ${styles.compactInput}`}
+                  value={context.label}
+                  onChange={(event) => update(index, { label: event.target.value })}
+                  placeholder="Customer type, e.g. Sensitive skin"
+                  aria-label="Buyer label"
+                />
+                <select
+                  className={`input ${styles.compactSelect}`}
+                  value={context.priority || "medium"}
+                  onChange={(event) => update(index, { priority: event.target.value })}
+                  aria-label="Buyer context priority"
+                >
+                  <option value="high">High priority</option>
+                  <option value="medium">Medium priority</option>
+                  <option value="low">Low priority</option>
+                </select>
+                <button type="button" className={styles.removeMiniBtn} onClick={() => remove(index)}>Remove</button>
+              </div>
+              <div className={styles.buyerContextGrid}>
+                <label className={styles.buyerField}>
+                  <span>Need or problem</span>
+                  <textarea
+                    className={styles.contextTextarea}
+                    value={context.problem ?? ""}
+                    onChange={(event) => update(index, { problem: event.target.value })}
+                    placeholder="What this customer is trying to solve"
+                    rows={2}
+                  />
+                </label>
+                <label className={styles.buyerField}>
+                  <span>Desired outcome</span>
+                  <textarea
+                    className={styles.contextTextarea}
+                    value={context.desired_outcome ?? ""}
+                    onChange={(event) => update(index, { desired_outcome: event.target.value })}
+                    placeholder="What result they want"
+                    rows={2}
+                  />
+                </label>
+                <label className={styles.buyerField}>
+                  <span>Concerns or constraints</span>
+                  <textarea
+                    className={styles.contextTextarea}
+                    value={context.constraints ?? ""}
+                    onChange={(event) => update(index, { constraints: event.target.value })}
+                    placeholder="Risks, objections, budget, timing, special needs"
+                    rows={2}
+                  />
+                </label>
+                <label className={styles.buyerField}>
+                  <span>Decision criteria</span>
+                  <textarea
+                    className={styles.contextTextarea}
+                    value={context.decision_criteria ?? ""}
+                    onChange={(event) => update(index, { decision_criteria: event.target.value })}
+                    placeholder="What would make them choose"
+                    rows={2}
+                  />
+                </label>
+              </div>
             </div>
-            <div className={styles.buyerContextGrid}>
-              <textarea
-                className={styles.contextTextarea}
-                value={context.problem ?? ""}
-                onChange={(event) => update(index, { problem: event.target.value })}
-                placeholder="Problem or job-to-be-done"
-                rows={2}
-              />
-              <textarea
-                className={styles.contextTextarea}
-                value={context.desired_outcome ?? ""}
-                onChange={(event) => update(index, { desired_outcome: event.target.value })}
-                placeholder="Desired outcome"
-                rows={2}
-              />
-              <textarea
-                className={styles.contextTextarea}
-                value={context.constraints ?? ""}
-                onChange={(event) => update(index, { constraints: event.target.value })}
-                placeholder="Constraints, risks, objections, or special needs"
-                rows={2}
-              />
-              <textarea
-                className={styles.contextTextarea}
-                value={context.decision_criteria ?? ""}
-                onChange={(event) => update(index, { decision_criteria: event.target.value })}
-                placeholder="Decision criteria"
-                rows={2}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
       <button
         type="button"
         className={styles.secondaryBtn}
-        onClick={() => onChange([...safeContexts, defaultBuyerContext(DEFAULT)])}
+        onClick={() => onChange([...safeContexts, blankBuyerContext()])}
       >
-        Add buyer context
+        Add target customer
       </button>
     </section>
   );
@@ -712,7 +752,6 @@ function BuyerContextSection({
 function Step3({
   profile,
   setProfile,
-  warnings,
   onBack,
   onConfirm,
   saving,
@@ -720,7 +759,6 @@ function Step3({
 }: {
   profile: ContextProfile;
   setProfile: (profile: ContextProfile) => void;
-  warnings: string[];
   onBack: () => void;
   onConfirm: () => void;
   saving: boolean;
@@ -748,23 +786,31 @@ function Step3({
   const buyerContexts = profile.buyer_contexts ?? [];
   return (
     <div>
-      <span className={styles.stepBadge}>Step 3 of 4 · Confirm context</span>
-      <h2 className={styles.stepTitle}>Confirm what AISO should ask about</h2>
+      <span className={styles.stepBadge}>Step 3 of 4 · Review business profile</span>
+      <h2 className={styles.stepTitle}>Review what AISO learned before scanning</h2>
       <p className={styles.stepSubtitle}>
-        Clean context prevents category, service, product brand, competitor, and location mix-ups before the scan starts.
+        AISO uses this profile to create the question bank. Fix anything that looks wrong before launching.
       </p>
-      {error && <div className={styles.validationError} role="alert">{error}</div>}
-      {warnings.length > 0 && (
-        <div className={styles.warningPanel}>
-          <strong>Needs review</strong>
-          {warnings.map((warning) => <span key={warning}>{warning}</span>)}
+      <div className={styles.reviewGuide}>
+        <div>
+          <strong>1. Check the profile</strong>
+          <span>Each box is editable. Keep one item per line and remove anything that is not real.</span>
         </div>
-      )}
+        <div>
+          <strong>2. Separate meanings</strong>
+          <span>Services, service groups, product brands, competitors, and locations are used differently.</span>
+        </div>
+        <div>
+          <strong>3. Continue when clean</strong>
+          <span>Target customers are optional. The next step chooses providers, intent groups, API keys, and launches.</span>
+        </div>
+      </div>
+      {error && <div className={styles.validationError} role="alert">{error}</div>}
       <section className={styles.contextSection}>
         <div className={styles.contextSectionHeader}>
           <div>
-            <h3>Scan objective</h3>
-            <p>The primary outcome AISO should optimize the question bank around.</p>
+            <h3>What should this scan optimize for?</h3>
+            <p>This changes which buyer questions are prioritized in the final bank.</p>
           </div>
           <span>1</span>
         </div>
@@ -822,7 +868,7 @@ function Step3({
         />
         <ContextSection
           title="Competitors"
-          hint="Only competing businesses."
+          hint="Recommended for competitor and head-to-head insights. Leave blank to skip competitor-only coverage."
           items={profile.competitors}
           type="competitor_business"
           onChange={(items) => update("competitors", items)}
@@ -858,7 +904,7 @@ function Step3({
         />
         <ContextSection
           title="Personas"
-          hint="Customer types, occasions, or constraints."
+          hint="Customer types, occasions, constraints, or use cases. These become customer-intent prompts."
           items={profile.personas}
           type="persona"
           onChange={(items) => update("personas", items)}
@@ -870,29 +916,11 @@ function Step3({
           type="differentiator"
           onChange={(items) => update("differentiators", items)}
         />
-        <section className={styles.contextSection}>
-          <div className={styles.contextSectionHeader}>
-            <div>
-              <h3>Guardrails</h3>
-              <p>Rules used by the question generator.</p>
-            </div>
-            <span>{profile.guardrails.length}</span>
-          </div>
-          <textarea
-            className={styles.contextTextarea}
-            value={profile.guardrails.join("\n")}
-            onChange={(event) => setProfile({
-              ...profile,
-              guardrails: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean),
-            })}
-            rows={5}
-          />
-        </section>
       </div>
       <div className={styles.navRow}>
         <button type="button" className={styles.backBtn} onClick={onBack}>Back</button>
         <button type="button" className={styles.nextBtn} onClick={onConfirm} disabled={saving || profile.offerings.length === 0}>
-          {saving ? "Saving context..." : "Confirm and configure scan"}
+          {saving ? "Saving profile..." : "Looks good, configure scan"}
         </button>
       </div>
     </div>
@@ -1222,7 +1250,7 @@ export default function OnboardingPage() {
         if (!active || !loadedContext) return;
         setContext(loadedContext);
         if (loadedContext.profile_json) {
-          setProfile(normalizedProfile(loadedContext.profile_json, nextForm));
+          setProfile(normalizedProfile(loadedContext.profile_json));
           setWarnings(loadedContext.warnings_json ?? []);
         } else {
           setProfile(emptyProfile(nextForm));
@@ -1244,7 +1272,7 @@ export default function OnboardingPage() {
       let discovered = await discoverClientContext(id);
       setContext(discovered);
       setWarnings(discovered.warnings_json ?? []);
-      setProfile(normalizedProfile(discovered.profile_json ?? emptyProfile(form), form));
+      setProfile(normalizedProfile(discovered.profile_json ?? emptyProfile(form)));
 
       for (let attempt = 0; attempt < DISCOVERY_MAX_POLLS && discovered.status === "discovering"; attempt += 1) {
         await sleep(DISCOVERY_POLL_MS);
@@ -1253,7 +1281,7 @@ export default function OnboardingPage() {
         discovered = latest;
         setContext(latest);
         setWarnings(latest.warnings_json ?? []);
-        setProfile(normalizedProfile(latest.profile_json ?? emptyProfile(form), form));
+        setProfile(normalizedProfile(latest.profile_json ?? emptyProfile(form)));
       }
 
       if (discovered.status === "discovering") {
@@ -1279,7 +1307,7 @@ export default function OnboardingPage() {
       setClientId(client.id);
       const confirmedProfile = context?.profile_json;
       if (contextMatchesForm(context, form, client.id) && confirmedProfile) {
-        setProfile(normalizedProfile(confirmedProfile, form));
+        setProfile(normalizedProfile(confirmedProfile));
         setWarnings(context.warnings_json ?? []);
         setStep(3);
         return;
@@ -1306,17 +1334,13 @@ export default function OnboardingPage() {
       setError("Choose a scan objective before configuring the scan.");
       return;
     }
-    if (readyBuyerContexts.length === 0) {
-      setError("Add at least one buyer intent context with a buyer, problem, outcome, constraint, or decision criteria.");
-      return;
-    }
     setSavingContext(true);
     setError(null);
     try {
-      const normalized = normalizedProfile({ ...profile, buyer_contexts: readyBuyerContexts }, form);
+      const normalized = normalizedProfile({ ...profile, buyer_contexts: readyBuyerContexts });
       const saved = await saveClientContext(clientId, normalized, warnings);
       setContext(saved);
-      setProfile(normalizedProfile(saved.profile_json ?? normalized, form));
+      setProfile(normalizedProfile(saved.profile_json ?? normalized));
       setWarnings(saved.warnings_json ?? warnings);
       setForm({ ...form, competitors: competitorNamesFromProfile(normalized).join(", ") });
       setStep(4);
@@ -1351,9 +1375,9 @@ export default function OnboardingPage() {
       setError("Confirm the client context before launching the scan.");
       return;
     }
-    if (!profile.scan_objective?.objective || !(profile.buyer_contexts ?? []).some(buyerContextIsUsable)) {
+    if (!profile.scan_objective?.objective) {
       setStep(3);
-      setError("Confirm a scan objective and at least one buyer intent context before launching.");
+      setError("Choose a scan objective before launching.");
       return;
     }
     setKeyError(null);
@@ -1442,7 +1466,6 @@ export default function OnboardingPage() {
           <Step3
             profile={profile}
             setProfile={setProfile}
-            warnings={warnings}
             onBack={() => setStep(context ? 2 : 1)}
             onConfirm={() => void handleConfirmContext()}
             saving={savingContext}

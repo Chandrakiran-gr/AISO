@@ -6,7 +6,85 @@ Every provider module exposes a single function:
 """
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
+
+
+SENSITIVE_METADATA_KEYS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "cookie",
+    "key",
+    "password",
+    "secret",
+    "token",
+}
+
+
+def _sanitize_metadata(value: Any) -> Any:
+    """Return provider metadata with obvious secrets removed."""
+    if isinstance(value, dict):
+        clean: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            lowered = key_text.lower()
+            if any(marker in lowered for marker in SENSITIVE_METADATA_KEYS):
+                clean[key_text] = "[redacted]"
+            else:
+                clean[key_text] = _sanitize_metadata(item)
+        return clean
+    if isinstance(value, list):
+        return [_sanitize_metadata(item) for item in value[:50]]
+    if isinstance(value, tuple):
+        return [_sanitize_metadata(item) for item in value[:50]]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+@dataclass
+class ProviderCitation:
+    """Structured citation/source evidence returned by a provider."""
+
+    url: str
+    title: str | None = None
+    cited_text: str | None = None
+    source_rank: int | None = None
+    origin: str = "native_citation"
+    raw_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "url": self.url,
+            "title": self.title,
+            "cited_text": self.cited_text,
+            "source_rank": self.source_rank,
+            "origin": self.origin,
+            "raw_metadata": _sanitize_metadata(self.raw_metadata),
+        }
+
+
+@dataclass
+class ProviderSearchResult:
+    """Structured search result evidence returned by a provider."""
+
+    url: str
+    title: str | None = None
+    snippet: str | None = None
+    query: str | None = None
+    result_rank: int | None = None
+    raw_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "url": self.url,
+            "title": self.title,
+            "snippet": self.snippet,
+            "query": self.query,
+            "result_rank": self.result_rank,
+            "raw_metadata": _sanitize_metadata(self.raw_metadata),
+        }
 
 
 @dataclass
@@ -14,6 +92,22 @@ class ProviderResult:
     """Uniform return type for every provider."""
     response: str = ""
     error: str = ""
+    provider: str | None = None
+    model: str | None = None
+    web_search_used: bool | None = None
+    search_queries: list[str] = field(default_factory=list)
+    citations: list[ProviderCitation] = field(default_factory=list)
+    search_results: list[ProviderSearchResult] = field(default_factory=list)
+    usage_metadata: dict[str, Any] = field(default_factory=dict)
+    raw_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def safe_raw_metadata(self) -> dict[str, Any]:
+        metadata = _sanitize_metadata(self.raw_metadata)
+        return metadata if isinstance(metadata, dict) else {"value": metadata}
+
+    def safe_usage_metadata(self) -> dict[str, Any]:
+        metadata = _sanitize_metadata(self.usage_metadata)
+        return metadata if isinstance(metadata, dict) else {"value": metadata}
 
 
 def extract_markdown_links(text: str) -> list[tuple[str, str]]:
