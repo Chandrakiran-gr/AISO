@@ -15,7 +15,7 @@ import json
 import os
 import csv
 
-from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, User
+from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, SourceProfile, User
 from api.auth import get_current_user_id
 from api.scan_workspace import prepare_scan_workspace
 from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
@@ -103,10 +103,45 @@ class CitationResponse(BaseModel):
     citation_title: Optional[str]
     source_domain: Optional[str]
     source_rank: Optional[int]
+    canonical_url: Optional[str] = None
+    citation_origin: Optional[str] = None
+    cited_text: Optional[str] = None
+    web_search_used: Optional[bool] = None
+    source_type: Optional[str] = None
+    owner_type: Optional[str] = None
+    action_role: Optional[str] = None
+    actionability_score: Optional[float] = None
+    influence_score: Optional[float] = None
+    relevance_score: Optional[float] = None
+    confidence_score: Optional[float] = None
+    classification_reason: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class SourceProfileResponse(BaseModel):
+    id: str
+    canonical_url: str
+    source_domain: Optional[str]
+    source_title: Optional[str]
+    owner_type: Optional[str]
+    source_type: Optional[str]
+    action_role: Optional[str]
+    actionability_score: Optional[float]
+    influence_score: Optional[float]
+    relevance_score: Optional[float]
+    client_mentioned: Optional[bool]
+    competitors_mentioned: List[str] = Field(default_factory=list)
+    topics: List[str] = Field(default_factory=list)
+    fetch_status: Optional[str]
+    classification_reason: Optional[str]
+    citation_count: int = 0
+    prompt_count: int = 0
+    provider_count: int = 0
+    example_questions: List[str] = Field(default_factory=list)
+    top_urls: List[str] = Field(default_factory=list)
 
 
 class ProviderMetric(BaseModel):
@@ -437,6 +472,18 @@ async def run_pipeline(
             scan.error = json.dumps({"skipped_providers": skipped_providers})
         db.commit()
         print(f"[AISO Pipeline] Scan {scan_id} complete. Ran: {active_providers}")
+        try:
+            from full_stack.source_enrichment import enrich_source_profiles_for_scan
+
+            enrichment = enrich_source_profiles_for_scan(scan_id, client_id)
+            if enrichment.enabled:
+                print(
+                    "[AISO Pipeline] Source enrichment: "
+                    f"{enrichment.enriched}/{enrichment.attempted} enriched, "
+                    f"{enrichment.failed} failed, {enrichment.skipped} skipped."
+                )
+        except Exception as enrichment_error:
+            print(f"[AISO Pipeline] Source enrichment skipped safely: {enrichment_error}")
     except Exception as e:
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         if scan:
@@ -967,3 +1014,109 @@ async def list_scan_citations(
         ScanCitation.question.asc(),
         ScanCitation.source_rank.asc(),
     ).all()
+
+
+@router.get(
+    "/clients/{client_id}/sources",
+    response_model=List[SourceProfileResponse],
+)
+async def list_client_sources(
+    client_id: str,
+    scan_id: Optional[str] = Query(default=None),
+    owner_type: Optional[str] = Query(default=None),
+    source_type: Optional[str] = Query(default=None),
+    action_role: Optional[str] = Query(default=None),
+    min_actionability: Optional[float] = Query(default=None, ge=0, le=10),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """List classified source graph profiles for a client."""
+    client = db.query(Client).filter(
+        Client.id == client_id,
+        Client.user_id == user_id,
+    ).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    query = db.query(SourceProfile).filter(SourceProfile.client_id == client_id)
+    if scan_id:
+        scan = db.query(Scan).filter(
+            Scan.id == scan_id,
+            Scan.client_id == client_id,
+        ).first()
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        urls = [
+            row[0]
+            for row in db.query(ScanCitation.canonical_url).filter(
+                ScanCitation.client_id == client_id,
+                ScanCitation.scan_id == scan_id,
+                ScanCitation.canonical_url.isnot(None),
+            ).distinct().all()
+        ]
+        if not urls:
+            return []
+        query = query.filter(SourceProfile.canonical_url.in_(urls))
+    if owner_type:
+        query = query.filter(SourceProfile.owner_type == owner_type)
+    if source_type:
+        query = query.filter(SourceProfile.source_type == source_type)
+    if action_role:
+        query = query.filter(SourceProfile.action_role == action_role)
+    if min_actionability is not None:
+        query = query.filter(SourceProfile.actionability_score >= min_actionability)
+
+    profiles = query.order_by(
+        SourceProfile.influence_score.desc().nullslast(),
+        SourceProfile.actionability_score.desc().nullslast(),
+        SourceProfile.source_domain.asc(),
+    ).offset(offset).limit(limit).all()
+
+    def _json_list(raw: str | None) -> list:
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        return data if isinstance(data, list) else []
+
+    def _json_dict(raw: str | None) -> dict:
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    responses: list[SourceProfileResponse] = []
+    for profile in profiles:
+        metadata = _json_dict(profile.metadata_json)
+        responses.append(
+            SourceProfileResponse(
+                id=profile.id,
+                canonical_url=profile.canonical_url,
+                source_domain=profile.source_domain,
+                source_title=profile.source_title,
+                owner_type=profile.owner_type,
+                source_type=profile.source_type,
+                action_role=profile.action_role,
+                actionability_score=profile.actionability_score,
+                influence_score=profile.influence_score,
+                relevance_score=profile.relevance_score,
+                client_mentioned=profile.client_mentioned,
+                competitors_mentioned=_json_list(profile.competitors_mentioned_json),
+                topics=_json_list(profile.topics_json),
+                fetch_status=profile.fetch_status,
+                classification_reason=profile.classification_reason,
+                citation_count=int(metadata.get("citation_count") or 0),
+                prompt_count=int(metadata.get("unique_question_count") or 0),
+                provider_count=int(metadata.get("provider_count") or 0),
+                example_questions=list(metadata.get("example_questions") or [])[:5],
+                top_urls=list(metadata.get("top_urls") or [])[:5],
+            )
+        )
+    return responses

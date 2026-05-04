@@ -14,9 +14,11 @@ Citation extraction notes:
 """
 import os
 import re
-from webish.providers.base import ProviderResult, with_retries
+from typing import Any
 
-MODEL = "sonar"
+from webish.providers.base import ProviderCitation, ProviderResult, ProviderSearchResult, with_retries
+
+MODEL = os.environ.get("AISO_PERPLEXITY_MODEL", "sonar")
 BASE_URL = "https://api.perplexity.ai"
 
 
@@ -56,6 +58,41 @@ def _inline_citations(text: str, citations: list[str]) -> str:
     return text
 
 
+def _structured_citations(citations: list[str]) -> list[ProviderCitation]:
+    return [
+        ProviderCitation(
+            url=url,
+            source_rank=index + 1,
+            origin="native_citation",
+            raw_metadata={"source": "model_extra.citations"},
+        )
+        for index, url in enumerate(citations)
+        if url
+    ]
+
+
+def _structured_search_results(raw_results: Any) -> list[ProviderSearchResult]:
+    results: list[ProviderSearchResult] = []
+    if not isinstance(raw_results, list):
+        return results
+    for index, item in enumerate(raw_results):
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url:
+            continue
+        results.append(
+            ProviderSearchResult(
+                url=url,
+                title=str(item.get("title") or "").strip() or None,
+                snippet=str(item.get("snippet") or item.get("description") or "").strip() or None,
+                result_rank=index + 1,
+                raw_metadata=item,
+            )
+        )
+    return results
+
+
 def query(question: str) -> ProviderResult:
     """Query Perplexity Sonar API with correct citation extraction."""
     api_key = os.environ.get("PERPLEXITY_API_KEY", "").strip()
@@ -74,11 +111,23 @@ def query(question: str) -> ProviderResult:
         # Citations live in model_extra (non-standard Perplexity field).
         # getattr(response, 'citations') does NOT work with the OpenAI SDK.
         citations: list[str] = []
+        search_results: list[ProviderSearchResult] = []
+        raw_metadata = {}
         if hasattr(response, "model_extra") and response.model_extra:
+            raw_metadata = dict(response.model_extra)
             citations = response.model_extra.get("citations") or []
+            search_results = _structured_search_results(response.model_extra.get("search_results"))
 
         formatted = _inline_citations(text, citations)
-        return ProviderResult(response=formatted)
+        return ProviderResult(
+            response=formatted,
+            provider="perplexity",
+            model=MODEL,
+            web_search_used=bool(citations or search_results),
+            citations=_structured_citations(citations),
+            search_results=search_results,
+            raw_metadata=raw_metadata,
+        )
 
     return with_retries(_call)
 
@@ -105,10 +154,22 @@ def query_with_followup(question: str, followup: str) -> tuple[ProviderResult, P
         )
         text1 = resp1.choices[0].message.content or ""
         citations1 = []
+        search_results1: list[ProviderSearchResult] = []
+        raw_metadata1 = {}
         if hasattr(resp1, "model_extra") and resp1.model_extra:
+            raw_metadata1 = dict(resp1.model_extra)
             citations1 = resp1.model_extra.get("citations") or []
+            search_results1 = _structured_search_results(resp1.model_extra.get("search_results"))
         formatted1 = _inline_citations(text1, citations1)
-        r1 = ProviderResult(response=formatted1)
+        r1 = ProviderResult(
+            response=formatted1,
+            provider="perplexity",
+            model=MODEL,
+            web_search_used=bool(citations1 or search_results1),
+            citations=_structured_citations(citations1),
+            search_results=search_results1,
+            raw_metadata=raw_metadata1,
+        )
 
         if not text1.strip():
             return r1, ProviderResult(error="round1_empty")
@@ -124,12 +185,23 @@ def query_with_followup(question: str, followup: str) -> tuple[ProviderResult, P
         )
         text2 = resp2.choices[0].message.content or ""
         citations2 = []
+        search_results2: list[ProviderSearchResult] = []
+        raw_metadata2 = {}
         if hasattr(resp2, "model_extra") and resp2.model_extra:
+            raw_metadata2 = dict(resp2.model_extra)
             citations2 = resp2.model_extra.get("citations") or []
+            search_results2 = _structured_search_results(resp2.model_extra.get("search_results"))
         formatted2 = _inline_citations(text2, citations2)
-        r2 = ProviderResult(response=formatted2)
+        r2 = ProviderResult(
+            response=formatted2,
+            provider="perplexity",
+            model=MODEL,
+            web_search_used=bool(citations2 or search_results2),
+            citations=_structured_citations(citations2),
+            search_results=search_results2,
+            raw_metadata=raw_metadata2,
+        )
 
         return r1, r2
 
     return with_retries(_call)
-

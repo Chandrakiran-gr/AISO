@@ -4,7 +4,8 @@ python-dotenv
 alembic>=1.18.0        # Database migrations
 playwright
 anthropic        # Claude provider
-google-generativeai     # Gemini provider
+google-genai            # Gemini provider with Google Search grounding
+google-generativeai     # Gemini fallback provider while migration stabilizes
 pytrends         # Google Trends popularity scoring (setup2.py score_popularity)
 requests         # HTTP dependency for pytrends
 ollama           # Local LLM via Ollama  (setup2.py --llm local, optional)

@@ -134,18 +134,6 @@ export default function Sidebar({
           ))}
         </nav>
 
-        <div className={styles.brandCard} aria-label="Current brand summary">
-          <span className={styles.brandMeta}>Current brand</span>
-          <div className={styles.brandRow}>
-            <span className={styles.brandName}>Your brand</span>
-            <span className={styles.brandScore}>0</span>
-          </div>
-          <span className={styles.brandTrack}>
-            <span className={styles.brandTrackValue} />
-          </span>
-          <span className={styles.brandDate}>First scan pending</span>
-        </div>
-
         <div className={styles.account}>
           <span className={styles.accountDot} aria-hidden="true" />
           <span className={styles.accountName}>{accountLabel}</span>
