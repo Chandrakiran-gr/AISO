@@ -198,7 +198,9 @@ export function proxy(request: NextRequest) {
   }
 
   // 4. Injection detection on URL
-  if (detectInjection(request.nextUrl)) {
+  // Skip /api/auth — NextAuth handles its own security and OAuth callback
+  // params (code, scope, state) trigger false positives in pattern matching.
+  if (!pathname.startsWith("/api/auth") && detectInjection(request.nextUrl)) {
     console.warn(`[AISO Security] Injection attempt from ${ip} on ${pathname}`);
     return new NextResponse("Bad Request", { status: 400 });
   }
