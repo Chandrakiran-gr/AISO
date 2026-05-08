@@ -23,6 +23,7 @@ from api.auth import (
     verify_password,
 )
 from api.database import Client, User, get_db
+from api.entitlements import apply_account_entitlements
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -88,6 +89,8 @@ class AuthUserResponse(BaseModel):
     email: str
     name: Optional[str]
     provider: str
+    plan_tier: str
+    account_role: str
     created_at: datetime
     is_active: bool
 
@@ -136,6 +139,7 @@ def signup_with_credentials(
         provider="credentials",
         is_active=True,
     )
+    apply_account_entitlements(user)
     db.add(user)
     try:
         db.commit()
@@ -162,6 +166,9 @@ def verify_credentials(
     ):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    apply_account_entitlements(user)
+    db.commit()
+    db.refresh(user)
     return user
 
 
@@ -189,8 +196,10 @@ def upsert_oauth_user(
             password_hash=None,
             is_active=True,
         )
+        apply_account_entitlements(user)
         db.add(user)
         db.flush()
+    apply_account_entitlements(user)
 
     _migrate_legacy_client_owner(db, legacy_user_id=email, user_id=user.id)
     try:

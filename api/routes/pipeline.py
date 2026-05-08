@@ -17,6 +17,7 @@ import csv
 
 from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, SourceProfile, User
 from api.auth import get_current_user_id
+from api.entitlements import entitlements_for_user
 from api.scan_workspace import prepare_scan_workspace
 from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
 from api.storage import (
@@ -32,7 +33,6 @@ router = APIRouter(tags=["pipeline"])
 
 DEFAULT_PROVIDERS = ["openai", "claude", "perplexity", "gemini"]
 DEFAULT_GROUPS = ["G1", "G2", "G4"]
-DEFAULT_ARTIFACT_ACCESS_EMAILS = {"admin@aisoglobal.com"}
 
 
 class BYOKKeys(BaseModel):
@@ -157,23 +157,11 @@ class ProviderMetric(BaseModel):
     avg_position: Optional[float]
 
 
-def _configured_artifact_access_emails() -> set[str]:
-    configured = {
-        email.strip().lower()
-        for email in os.getenv("AISO_ARTIFACT_ACCESS_EMAILS", "").split(",")
-        if email.strip()
-    }
-    return DEFAULT_ARTIFACT_ACCESS_EMAILS | configured
-
-
 def _can_download_artifacts(db: Session, user_id: str) -> bool:
-    plan = os.getenv("AISO_PLAN", os.getenv("NEXT_PUBLIC_AISO_PLAN", "free")).strip().lower()
-    if plan in {"pro", "agency"}:
-        return True
-
     user = db.query(User).filter(User.id == user_id).first()
-    email = (user.email if user else "").strip().lower()
-    return bool(email and email in _configured_artifact_access_emails())
+    if not user:
+        return False
+    return entitlements_for_user(user).can_download_artifacts
 
 
 def _resolve_local_artifact_path(artifact: ScanArtifact) -> Path:
@@ -412,11 +400,13 @@ async def run_pipeline(
         sub_env["AISO_CLIENT_ID"] = client_id
         sub_env["AISO_SCAN_ID"]   = scan_id
 
+        workspace_arg = str(client_folder)
+
         async def run_script(script: pathlib.Path, extra_args: list[str] | None = None) -> tuple[int, str]:
             if not script.exists():
                 print(f"[AISO Pipeline] Script not found: {script} — skipping")
                 return 0, ""
-            command = [sys.executable, str(script), client_id]
+            command = [sys.executable, str(script), workspace_arg]
             if extra_args:
                 command.extend(extra_args)
             proc = await asyncio.create_subprocess_exec(
