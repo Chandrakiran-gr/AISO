@@ -682,15 +682,22 @@ def persist_collect_csv_results(
     source_profiles = _source_profile_payloads(citations, identity, client_domain)
 
     from api.database import Action, ScanArtifact, ScanCitation, ScanResult, SessionLocal, SourceProfile
-    from api.storage import describe_local_artifact
+    from api.storage import describe_configured_artifact
 
     db = SessionLocal()
     try:
         db.query(ScanResult).filter(ScanResult.scan_id == scan_id).delete()
         db.query(Action).filter(Action.scan_id == scan_id).delete()
+        registered_artifact_types = [
+            "question_bank_csv",
+            "question_ranking_report_json",
+            "collect_questions_csv",
+            "collect_csv",
+            "source_evidence_jsonl",
+        ]
         db.query(ScanArtifact).filter(
             ScanArtifact.scan_id == scan_id,
-            ScanArtifact.artifact_type.in_(["collect_csv", "source_evidence_jsonl"]),
+            ScanArtifact.artifact_type.in_(registered_artifact_types),
         ).delete()
         db.query(ScanCitation).filter(ScanCitation.scan_id == scan_id).delete()
         for result in results:
@@ -708,30 +715,56 @@ def persist_collect_csv_results(
                     competitor_data=json.dumps(result.competitor_data),
                 )
             )
-        artifact = describe_local_artifact(
-            csv_path,
-            artifact_type="collect_csv",
-            metadata={
-                "source": "full_stack.collect",
-                "description": "Raw provider responses used to aggregate scan metrics.",
-            },
-        )
-        db.add(
-            ScanArtifact(
-                id=str(uuid.uuid4()),
-                scan_id=scan_id,
-                client_id=client_id,
-                **artifact,
+        artifact_specs = [
+            (
+                client_folder / "query_template_bank.csv",
+                "question_bank_csv",
+                "Final selected question bank used by collect.py.",
+            ),
+            (
+                client_folder / "question_ranking_report.json",
+                "question_ranking_report_json",
+                "Transparent local ranking report for generated questions.",
+            ),
+        ]
+        collect_question_name = csv_path.name.replace("_aisodata_", "_collect_questions_")
+        if collect_question_name != csv_path.name:
+            artifact_specs.append(
+                (
+                    csv_path.with_name(collect_question_name),
+                    "collect_questions_csv",
+                    "Questions selected for this scan run.",
+                )
+            )
+        artifact_specs.append(
+            (
+                csv_path,
+                "collect_csv",
+                "Raw provider responses used to aggregate scan metrics.",
             )
         )
         if evidence_path and evidence_path.exists():
-            evidence_artifact = describe_local_artifact(
-                evidence_path,
-                artifact_type="source_evidence_jsonl",
+            artifact_specs.append(
+                (
+                    evidence_path,
+                    "source_evidence_jsonl",
+                    "Structured provider citation and source evidence.",
+                )
+            )
+
+        for artifact_path, artifact_type, description in artifact_specs:
+            if not artifact_path.exists():
+                continue
+            artifact = describe_configured_artifact(
+                artifact_path,
+                artifact_type=artifact_type,
+                client_name=identity.focal_name,
+                client_id=client_id,
+                scan_id=scan_id,
                 metadata={
                     "source": "full_stack.collect",
-                    "description": "Structured provider citation and source evidence.",
-                    "schema_version": 1,
+                    "description": description,
+                    **({"schema_version": 1} if artifact_type == "source_evidence_jsonl" else {}),
                 },
             )
             db.add(
@@ -739,7 +772,7 @@ def persist_collect_csv_results(
                     id=str(uuid.uuid4()),
                     scan_id=scan_id,
                     client_id=client_id,
-                    **evidence_artifact,
+                    **artifact,
                 )
             )
 

@@ -22,7 +22,14 @@ class ArtifactAccessTests(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
 
-    def _seed_artifact(self, session, email: str, storage_path: str) -> None:
+    def _seed_artifact(
+        self,
+        session,
+        email: str,
+        storage_path: str,
+        *,
+        storage_backend: str = "local",
+    ) -> None:
         session.add(User(id="user-1", email=email, provider="credentials", is_active=True))
         session.add(Client(id="client-1", user_id="user-1", name="AISO Demo", url="https://example.com"))
         session.add(Scan(id="scan-1", client_id="client-1", status="complete"))
@@ -33,7 +40,7 @@ class ArtifactAccessTests(unittest.TestCase):
                 scan_id="scan-1",
                 artifact_type="collect_csv",
                 file_format="csv",
-                storage_backend="local",
+                storage_backend=storage_backend,
                 storage_path=storage_path,
                 original_filename="scan-results.csv",
                 mime_type="text/csv",
@@ -66,6 +73,34 @@ class ArtifactAccessTests(unittest.TestCase):
                 self.assertEqual(Path(response.path).resolve(), artifact_path.resolve())
             finally:
                 session.close()
+
+    def test_admin_email_can_download_onedrive_artifact_on_free_plan(self):
+        session = self.Session()
+        try:
+            self._seed_artifact(
+                session,
+                "admin@aisoglobal.com",
+                "onedrive://drive-1/item-1",
+                storage_backend="onedrive",
+            )
+            with patch.dict("os.environ", {"AISO_PLAN": "free"}), patch(
+                "api.routes.pipeline.download_onedrive_artifact",
+                return_value=b"question\none\n",
+            ):
+                response = asyncio.run(
+                    download_scan_artifact(
+                        "client-1",
+                        "scan-1",
+                        "artifact-1",
+                        db=session,
+                        user_id="user-1",
+                    )
+                )
+
+            self.assertEqual(response.body, b"question\none\n")
+            self.assertEqual(response.media_type, "text/csv")
+        finally:
+            session.close()
 
     def test_non_entitled_free_user_cannot_download_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:

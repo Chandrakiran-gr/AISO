@@ -65,6 +65,10 @@ function formatStatus(value: string): string {
 function artifactTitle(artifact: ArtifactData): string {
   const labels: Record<string, string> = {
     collect_csv: "Scan results export",
+    collect_questions_csv: "Questions run in this scan",
+    question_bank_csv: "Selected question bank",
+    question_ranking_report_json: "Question ranking report",
+    source_evidence_jsonl: "Source evidence export",
     report: "Visibility report",
     question_log: "Question set export",
   };

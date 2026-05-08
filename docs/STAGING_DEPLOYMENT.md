@@ -46,6 +46,32 @@ AISO_SOURCE_ENRICHMENT_MAX_BYTES=1000000
 AISO_SOURCE_ENRICHMENT_CONCURRENCY=3
 ```
 
+For OneDrive artifact storage, generate the refresh token locally:
+
+```bash
+MICROSOFT_CLIENT_ID=<application-client-id> \
+MICROSOFT_CLIENT_SECRET=<client-secret> \
+MICROSOFT_TENANT=consumers \
+.venv/bin/python scripts/onedrive_auth.py
+```
+
+Then add these Railway backend variables:
+
+```env
+AISO_STORAGE_BACKEND=onedrive
+AISO_ONEDRIVE_BASE_PATH=/AISO
+MICROSOFT_TENANT=consumers
+MICROSOFT_CLIENT_ID=<application-client-id>
+MICROSOFT_CLIENT_SECRET=<client-secret>
+MICROSOFT_REFRESH_TOKEN=<refresh-token-from-helper>
+```
+
+Artifacts will be uploaded under:
+
+```text
+/AISO/clients/<client-slug>--<client-id-prefix>/scans/<scan-id>/
+```
+
 For managed Pro/Custom scans, also set provider keys on Railway:
 
 ```env
