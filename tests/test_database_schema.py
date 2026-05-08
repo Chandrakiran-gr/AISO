@@ -67,6 +67,16 @@ class DatabaseSchemaTests(unittest.TestCase):
                 }.issubset(artifact_columns)
             )
 
+            user_columns = {
+                column["name"] for column in inspector.get_columns("users")
+            }
+            self.assertTrue(
+                {
+                    "plan_tier",
+                    "account_role",
+                }.issubset(user_columns)
+            )
+
             citation_columns = {
                 column["name"] for column in inspector.get_columns("scan_citations")
             }
@@ -412,8 +422,9 @@ class StorageHelperTests(unittest.TestCase):
         first = client_artifact_slug("PemSpa Skincare & Wellness", "client-abcdef123")
         second = client_artifact_slug("PemSpa Skincare & Wellness", "client-999999999")
 
-        self.assertEqual(first, "pemspa-skincare-wellness--client-a")
+        self.assertEqual(first, "pemspa-skincare-wellness--6e2864c9")
         self.assertNotEqual(first, second)
+        self.assertNotIn("client-abcdef123", first)
 
     def test_onedrive_remote_dir_uses_client_slug_and_scan_id(self):
         with patch.dict("os.environ", {"AISO_ONEDRIVE_BASE_PATH": "/AISO"}):
@@ -423,7 +434,7 @@ class StorageHelperTests(unittest.TestCase):
                 "scan-1",
             )
 
-        self.assertEqual(remote_dir, "/AISO/clients/pemspa-skincare-wellness--client-a/scans/scan-1")
+        self.assertEqual(remote_dir, "/AISO/clients/pemspa-skincare-wellness--6e2864c9/scans/scan-1")
 
     def test_configured_artifact_uploads_to_onedrive_without_public_link_or_secret(self):
         with tempfile.TemporaryDirectory() as tmp:

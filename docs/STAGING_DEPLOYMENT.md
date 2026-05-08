@@ -35,9 +35,10 @@ DATABASE_URL=<Railway Postgres public or private connection string>
 AISO_AUTO_CREATE_TABLES=0
 AISO_INTERNAL_API_SECRET=<strong random secret>
 AUTH_SECRET=<same value as Vercel AUTH_SECRET or another strong shared secret>
+AISO_ADMIN_EMAILS=admin@aisoglobal.com
+AISO_DEFAULT_PLAN_TIER=pro
 AISO_ALLOWED_ORIGINS=https://<your-vercel-staging-domain>
 AISO_ALLOWED_HOSTS=<your-railway-api-domain>,*.up.railway.app
-AISO_ARTIFACT_ACCESS_EMAILS=admin@aisoglobal.com
 AISO_INGEST_RENDERED=0
 AISO_SOURCE_ENRICHMENT_ENABLED=1
 AISO_SOURCE_ENRICHMENT_MAX_SOURCES=20
@@ -120,8 +121,7 @@ AUTH_GOOGLE_SECRET=<google oauth secret>
 AISO_INTERNAL_API_SECRET=<same value used by backend>
 NEXT_PUBLIC_API_URL=https://<your-railway-api-domain>
 AISO_API_URL=https://<your-railway-api-domain>
-NEXT_PUBLIC_AISO_PLAN=free
-NEXT_PUBLIC_AISO_ARTIFACT_ACCESS_EMAILS=admin@aisoglobal.com
+NEXT_PUBLIC_AISO_PLAN=pro
 ```
 
 `AISO_API_URL` is server-only and is the preferred value for the Next.js proxy.

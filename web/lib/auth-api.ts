@@ -5,6 +5,8 @@ type AuthUser = {
   email: string;
   name: string | null;
   provider: string;
+  plan_tier: "free" | "pro" | "custom";
+  account_role: "user" | "admin";
 };
 
 type AuthPayload = Record<string, string | null | undefined>;

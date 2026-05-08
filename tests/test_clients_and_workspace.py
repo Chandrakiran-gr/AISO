@@ -133,12 +133,13 @@ class ScanWorkspaceTests(unittest.TestCase):
             with patch("api.scan_workspace.CLIENTS_ROOT", Path(tmp)):
                 folder = prepare_scan_workspace(client)
 
-            self.assertEqual(folder.name, "acme_widgets")
+            self.assertEqual(folder.name, "acme_widgets__c994aab0")
             self.assertTrue((folder / "client_profile.json").exists())
             self.assertTrue((folder / "value_bank.csv").exists())
             self.assertTrue((folder / "query_template_bank.csv").exists())
 
             profile = json.loads((folder / "client_profile.json").read_text())
+            self.assertEqual(profile["slug"], "acme_widgets")
             self.assertEqual(profile["display_name"], "Acme Widgets")
             self.assertEqual(profile["competitors"], ["WidgetCo", "Parts Plus"])
 
@@ -147,6 +148,29 @@ class ScanWorkspaceTests(unittest.TestCase):
 
             self.assertGreaterEqual(len(rows), 7)
             self.assertEqual({row["group"] for row in rows}, {"G1", "G2", "G3", "G4", "G5", "G6", "G7"})
+
+    def test_prepare_scan_workspace_uses_current_business_name_for_public_slug(self):
+        client = Client(
+            id="pemspa",
+            user_id="user-1",
+            name="AISO Global",
+            url="https://aisoglobal.com",
+            industry="AI visibility software",
+            location="United States",
+            competitors=json.dumps(["Profound", "Scrunch"]),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("api.scan_workspace.CLIENTS_ROOT", Path(tmp)):
+                folder = prepare_scan_workspace(client)
+
+            profile = json.loads((folder / "client_profile.json").read_text())
+            config = json.loads((folder / "config.json").read_text())
+
+        self.assertTrue(folder.name.startswith("aiso_global__"))
+        self.assertNotIn("pemspa", folder.name)
+        self.assertEqual(profile["slug"], "aiso_global")
+        self.assertEqual(config["slug"], "aiso_global")
 
     def test_prepare_scan_workspace_uses_confirmed_context_profile(self):
         client = Client(

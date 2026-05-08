@@ -62,7 +62,9 @@ def configured_storage_backend() -> str:
 def client_artifact_slug(client_name: str, client_id: str) -> str:
     """Build a stable, readable, collision-resistant client artifact slug."""
     readable = safe_storage_part(str(client_name or "client").lower())
-    suffix = safe_storage_part(str(client_id or "client")[:8].lower())
+    # Hash the internal id so old/reused ids do not leak into user-visible
+    # storage folders after a single-client account changes businesses.
+    suffix = hashlib.sha256(str(client_id or "client").encode("utf-8")).hexdigest()[:8]
     return f"{readable}--{suffix}"
 
 

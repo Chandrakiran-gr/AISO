@@ -49,7 +49,7 @@ class ArtifactAccessTests(unittest.TestCase):
         )
         session.commit()
 
-    def test_admin_email_can_download_local_artifact_on_free_plan(self):
+    def test_private_beta_user_can_download_local_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact_path = Path(tmp) / "clients" / "client-1" / "scans" / "scan-1" / "raw" / "scan-results.csv"
             artifact_path.parent.mkdir(parents=True)
@@ -57,8 +57,8 @@ class ArtifactAccessTests(unittest.TestCase):
 
             session = self.Session()
             try:
-                self._seed_artifact(session, "admin@aisoglobal.com", str(artifact_path))
-                with patch.dict("os.environ", {"AISO_STORAGE_ROOT": tmp, "AISO_PLAN": "free"}):
+                self._seed_artifact(session, "free@example.com", str(artifact_path))
+                with patch.dict("os.environ", {"AISO_STORAGE_ROOT": tmp}):
                     response = asyncio.run(
                         download_scan_artifact(
                             "client-1",
@@ -74,19 +74,16 @@ class ArtifactAccessTests(unittest.TestCase):
             finally:
                 session.close()
 
-    def test_admin_email_can_download_onedrive_artifact_on_free_plan(self):
+    def test_private_beta_user_can_download_onedrive_artifact(self):
         session = self.Session()
         try:
             self._seed_artifact(
                 session,
-                "admin@aisoglobal.com",
+                "free@example.com",
                 "onedrive://drive-1/item-1",
                 storage_backend="onedrive",
             )
-            with patch.dict("os.environ", {"AISO_PLAN": "free"}), patch(
-                "api.routes.pipeline.download_onedrive_artifact",
-                return_value=b"question\none\n",
-            ):
+            with patch("api.routes.pipeline.download_onedrive_artifact", return_value=b"question\none\n"):
                 response = asyncio.run(
                     download_scan_artifact(
                         "client-1",
@@ -102,30 +99,38 @@ class ArtifactAccessTests(unittest.TestCase):
         finally:
             session.close()
 
-    def test_non_entitled_free_user_cannot_download_artifact(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            artifact_path = Path(tmp) / "clients" / "client-1" / "scans" / "scan-1" / "raw" / "scan-results.csv"
-            artifact_path.parent.mkdir(parents=True)
-            artifact_path.write_text("question\none\n", encoding="utf-8")
+    def test_missing_user_cannot_download_artifact(self):
+        session = self.Session()
+        try:
+            session.add(Client(id="client-1", user_id="user-1", name="AISO Demo", url="https://example.com"))
+            session.add(Scan(id="scan-1", client_id="client-1", status="complete"))
+            session.add(
+                ScanArtifact(
+                    id="artifact-1",
+                    client_id="client-1",
+                    scan_id="scan-1",
+                    artifact_type="collect_csv",
+                    file_format="csv",
+                    storage_backend="local",
+                    storage_path="/tmp/missing.csv",
+                )
+            )
+            session.commit()
 
-            session = self.Session()
-            try:
-                self._seed_artifact(session, "free@example.com", str(artifact_path))
-                with patch.dict("os.environ", {"AISO_STORAGE_ROOT": tmp, "AISO_PLAN": "free"}):
-                    with self.assertRaises(HTTPException) as ctx:
-                        asyncio.run(
-                            download_scan_artifact(
-                                "client-1",
-                                "scan-1",
-                                "artifact-1",
-                                db=session,
-                                user_id="user-1",
-                            )
-                        )
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(
+                    download_scan_artifact(
+                        "client-1",
+                        "scan-1",
+                        "artifact-1",
+                        db=session,
+                        user_id="user-1",
+                    )
+                )
 
-                self.assertEqual(ctx.exception.status_code, 403)
-            finally:
-                session.close()
+            self.assertEqual(ctx.exception.status_code, 403)
+        finally:
+            session.close()
 
 
 if __name__ == "__main__":

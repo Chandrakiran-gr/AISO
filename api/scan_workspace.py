@@ -8,6 +8,7 @@ calling an LLM, so a fresh local user can launch a scan with zero extra infra.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import re
@@ -66,6 +67,18 @@ def normalize_slug(raw: str) -> str:
     slug = str(raw or "").lower().strip()
     slug = re.sub(r"[^a-z0-9]+", "_", slug)
     return slug.strip("_") or "client"
+
+
+def scan_workspace_slugs(client: Client) -> tuple[str, str]:
+    """Return (workspace folder slug, public file slug) for a client scan.
+
+    The public file slug follows the current business name so generated files
+    do not keep stale onboarding ids after the single-client profile is edited.
+    The workspace folder adds a short opaque hash for concurrent-scan safety.
+    """
+    public_slug = normalize_slug(client.name or client.id)
+    suffix = hashlib.sha256(str(client.id or public_slug).encode("utf-8")).hexdigest()[:8]
+    return f"{public_slug}__{suffix}", public_slug
 
 
 def _split_competitors(value: str | None) -> list[str]:
@@ -379,13 +392,13 @@ def prepare_scan_workspace(
     selected_groups: list[str] | None = None,
 ) -> Path:
     """Create/update the local client folder needed by collect.py."""
-    slug = normalize_slug(client.id)
-    client_folder = CLIENTS_ROOT / slug
+    workspace_slug, public_slug = scan_workspace_slugs(client)
+    client_folder = CLIENTS_ROOT / workspace_slug
     client_folder.mkdir(parents=True, exist_ok=True)
 
     competitors = competitor_names_for_scan(client, context_profile)
     profile = {
-        "slug": slug,
+        "slug": public_slug,
         "display_name": client.name,
         "name": client.name,
         "website_url": client.url,
@@ -402,7 +415,7 @@ def prepare_scan_workspace(
     (client_folder / "config.json").write_text(
         json.dumps(
             {
-                "slug": slug,
+                "slug": public_slug,
                 "display_name": client.name,
                 "business_name": client.name,
                 "url": client.url,

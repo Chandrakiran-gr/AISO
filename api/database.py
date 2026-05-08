@@ -46,6 +46,8 @@ class User(Base):
     name          = Column(String, nullable=True)
     password_hash = Column(String, nullable=True)             # Null for OAuth users
     provider      = Column(String, default="credentials")     # "google" | "credentials"
+    plan_tier     = Column(String, default="pro", nullable=False)  # free | pro | custom
+    account_role  = Column(String, default="user", nullable=False) # user | admin
     created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_active     = Column(Boolean, default=True)
 

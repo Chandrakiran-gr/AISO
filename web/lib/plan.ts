@@ -25,7 +25,7 @@ export const PLAN_ENTITLEMENTS: Record<PlanId, PlanEntitlements> = {
 };
 
 export const PRO_UPGRADE_HREF = "/dashboard/upgrade?feature=exports";
-const DEFAULT_ARTIFACT_ACCESS_EMAILS = ["admin@aisoglobal.com"];
+const PRIVATE_BETA_FULL_ACCESS = true;
 
 function normalizePlan(value: string | undefined): PlanId {
   const plan = value?.toLowerCase();
@@ -33,18 +33,11 @@ function normalizePlan(value: string | undefined): PlanId {
   return "free";
 }
 
-function artifactAccessEmails(): Set<string> {
-  const configured = (process.env.NEXT_PUBLIC_AISO_ARTIFACT_ACCESS_EMAILS ?? "")
-    .split(",")
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-  return new Set([...DEFAULT_ARTIFACT_ACCESS_EMAILS, ...configured]);
-}
-
-export const CURRENT_PLAN = normalizePlan(process.env.NEXT_PUBLIC_AISO_PLAN);
+export const CURRENT_PLAN = normalizePlan(process.env.NEXT_PUBLIC_AISO_PLAN ?? "pro");
 
 export function canAccessRawArtifacts(plan: PlanId, email?: string | null): boolean {
+  void email;
+  if (PRIVATE_BETA_FULL_ACCESS) return true;
   if (PLAN_ENTITLEMENTS[plan].rawArtifactExport) return true;
-  const normalizedEmail = email?.trim().toLowerCase();
-  return Boolean(normalizedEmail && artifactAccessEmails().has(normalizedEmail));
+  return false;
 }
