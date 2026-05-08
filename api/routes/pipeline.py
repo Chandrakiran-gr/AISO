@@ -4,7 +4,7 @@ Wraps setup2.py → collect.py → analysis1.py → analysis2.py
 """
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
@@ -19,7 +19,12 @@ from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, Scan
 from api.auth import get_current_user_id
 from api.scan_workspace import prepare_scan_workspace
 from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
-from api.storage import REPO_ROOT, local_storage_root
+from api.storage import (
+    ArtifactStorageError,
+    download_onedrive_artifact,
+    materialize_artifact_file,
+    resolve_local_artifact_path,
+)
 from full_stack.gap_report import GapReportInput, build_gap_report
 from full_stack.scan_metrics import load_client_identity, read_collect_csv
 
@@ -174,19 +179,10 @@ def _can_download_artifacts(db: Session, user_id: str) -> bool:
 def _resolve_local_artifact_path(artifact: ScanArtifact) -> Path:
     if artifact.storage_backend != "local":
         raise HTTPException(status_code=404, detail="Artifact is not available locally")
-
-    raw_path = Path(artifact.storage_path).expanduser()
-    candidate = raw_path if raw_path.is_absolute() else REPO_ROOT / raw_path
-    resolved = candidate.resolve()
-    allowed_roots = [
-        local_storage_root().resolve(),
-        (REPO_ROOT / "clients").resolve(),
-    ]
-    if not any(resolved == root or root in resolved.parents for root in allowed_roots):
-        raise HTTPException(status_code=404, detail="Artifact path is not available")
-    if not resolved.is_file():
-        raise HTTPException(status_code=404, detail="Artifact file not found")
-    return resolved
+    try:
+        return resolve_local_artifact_path(artifact.storage_path)
+    except ArtifactStorageError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 class GroupMetric(BaseModel):
@@ -830,13 +826,16 @@ async def get_client_gap_report(
     if not artifact:
         raise HTTPException(status_code=404, detail="Raw scan artifact not found for gap report")
 
-    artifact_path = _resolve_local_artifact_path(artifact)
-    rows, fieldnames = read_collect_csv(artifact_path)
-    identity = load_client_identity(
-        artifact_path.parent,
-        fallback_name=client.name,
-        fallback_competitors=_client_competitors(client),
-    )
+    try:
+        with materialize_artifact_file(artifact) as artifact_path:
+            rows, fieldnames = read_collect_csv(artifact_path)
+            identity = load_client_identity(
+                artifact_path.parent,
+                fallback_name=client.name,
+                fallback_competitors=_client_competitors(client),
+            )
+    except ArtifactStorageError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return build_gap_report(
         GapReportInput(
             rows=rows,
@@ -972,12 +971,29 @@ async def download_scan_artifact(
     if not _can_download_artifacts(db, user_id):
         raise HTTPException(status_code=403, detail="Artifact export requires Pro access")
 
-    path = _resolve_local_artifact_path(artifact)
-    return FileResponse(
-        path,
-        media_type=artifact.mime_type or "application/octet-stream",
-        filename=artifact.original_filename or path.name,
-    )
+    if artifact.storage_backend == "local":
+        path = _resolve_local_artifact_path(artifact)
+        return FileResponse(
+            path,
+            media_type=artifact.mime_type or "application/octet-stream",
+            filename=artifact.original_filename or path.name,
+        )
+    if artifact.storage_backend == "onedrive":
+        try:
+            content = download_onedrive_artifact(artifact.storage_path)
+        except ArtifactStorageError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        headers = {
+            "Content-Disposition": (
+                f'attachment; filename="{artifact.original_filename or "aiso-artifact"}"'
+            )
+        }
+        return Response(
+            content=content,
+            media_type=artifact.mime_type or "application/octet-stream",
+            headers=headers,
+        )
+    raise HTTPException(status_code=404, detail="Artifact storage backend is not supported")
 
 
 @router.get(

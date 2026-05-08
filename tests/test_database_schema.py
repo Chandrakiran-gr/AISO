@@ -23,8 +23,13 @@ from api.database import (
     User,
 )
 from api.storage import (
+    ArtifactStorageError,
+    OneDriveUploadResult,
     build_scan_artifact_path,
+    client_artifact_slug,
+    describe_configured_artifact,
     describe_local_artifact,
+    onedrive_remote_dir,
     safe_storage_part,
 )
 from full_stack.scan_metrics import persist_collect_csv_results
@@ -402,6 +407,84 @@ class StorageHelperTests(unittest.TestCase):
     def test_rejects_empty_storage_segments(self):
         with self.assertRaises(ValueError):
             safe_storage_part("../")
+
+    def test_onedrive_client_slug_is_deterministic_and_separate_per_client(self):
+        first = client_artifact_slug("PemSpa Skincare & Wellness", "client-abcdef123")
+        second = client_artifact_slug("PemSpa Skincare & Wellness", "client-999999999")
+
+        self.assertEqual(first, "pemspa-skincare-wellness--client-a")
+        self.assertNotEqual(first, second)
+
+    def test_onedrive_remote_dir_uses_client_slug_and_scan_id(self):
+        with patch.dict("os.environ", {"AISO_ONEDRIVE_BASE_PATH": "/AISO"}):
+            remote_dir = onedrive_remote_dir(
+                "PemSpa Skincare & Wellness",
+                "client-abcdef123",
+                "scan-1",
+            )
+
+        self.assertEqual(remote_dir, "/AISO/clients/pemspa-skincare-wellness--client-a/scans/scan-1")
+
+    def test_configured_artifact_uploads_to_onedrive_without_public_link_or_secret(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "responses.csv"
+            csv_path.write_text("question,response\nhello,world\n", encoding="utf-8")
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "AISO_STORAGE_BACKEND": "onedrive",
+                    "AISO_ONEDRIVE_BASE_PATH": "/AISO",
+                    "MICROSOFT_REFRESH_TOKEN": "secret-refresh-token",
+                },
+            ), patch(
+                "api.storage.upload_file_to_onedrive",
+                return_value=OneDriveUploadResult(
+                    drive_id="drive-1",
+                    item_id="item-1",
+                    remote_path="/AISO/clients/aiso-demo--client-1/scans/scan-1/responses.csv",
+                    web_url="https://onedrive.example/private",
+                ),
+            ):
+                metadata = describe_configured_artifact(
+                    csv_path,
+                    artifact_type="collect_csv",
+                    client_name="AISO Demo",
+                    client_id="client-1",
+                    scan_id="scan-1",
+                    metadata={"source": "test"},
+                )
+
+        stored_metadata = json.loads(metadata["metadata_json"])
+        self.assertEqual(metadata["storage_backend"], "onedrive")
+        self.assertEqual(metadata["storage_path"], "onedrive://drive-1/item-1")
+        self.assertEqual(stored_metadata["upload_status"], "uploaded")
+        self.assertEqual(stored_metadata["remote_path"], "/AISO/clients/aiso-demo--client-1/scans/scan-1/responses.csv")
+        self.assertNotIn("webUrl", stored_metadata)
+        self.assertNotIn("secret-refresh-token", json.dumps(stored_metadata))
+
+    def test_onedrive_upload_failure_falls_back_to_local_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "responses.csv"
+            csv_path.write_text("question,response\nhello,world\n", encoding="utf-8")
+
+            with patch.dict("os.environ", {"AISO_STORAGE_BACKEND": "onedrive"}), patch(
+                "api.storage.upload_file_to_onedrive",
+                side_effect=ArtifactStorageError("OneDrive unavailable"),
+            ):
+                metadata = describe_configured_artifact(
+                    csv_path,
+                    artifact_type="collect_csv",
+                    client_name="AISO Demo",
+                    client_id="client-1",
+                    scan_id="scan-1",
+                )
+
+        stored_metadata = json.loads(metadata["metadata_json"])
+        self.assertEqual(metadata["storage_backend"], "local")
+        self.assertEqual(stored_metadata["upload_backend"], "onedrive")
+        self.assertEqual(stored_metadata["upload_status"], "failed")
+        self.assertEqual(stored_metadata["upload_error"], "OneDrive unavailable")
 
 
 if __name__ == "__main__":
