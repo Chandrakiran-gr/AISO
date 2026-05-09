@@ -142,6 +142,35 @@ type SourceProfile = {
   top_urls: string[];
 };
 
+type ProofTab = "overview" | "fixes" | "missed" | "sources" | "raw";
+type SourceTab = "listings" | "content" | "competitive" | "monitor";
+
+const PROOF_TABS: { id: ProofTab; label: string; description: string }[] = [
+  { id: "overview", label: "Overview", description: "Executive readout" },
+  { id: "fixes", label: "Fixes", description: "What to improve" },
+  { id: "missed", label: "Missed Questions", description: "Queries AI missed" },
+  { id: "sources", label: "Sources", description: "Citation targets" },
+  { id: "raw", label: "Raw Evidence", description: "Audit trail" },
+];
+
+const SOURCE_TABS: { id: SourceTab; label: string }[] = [
+  { id: "listings", label: "Listings" },
+  { id: "content", label: "Content gaps" },
+  { id: "competitive", label: "Competitive evidence" },
+  { id: "monitor", label: "Monitor / ignore" },
+];
+
+function initialProofTab(): ProofTab {
+  if (typeof window === "undefined") return "overview";
+  const tab = new URLSearchParams(window.location.search).get("tab");
+  return PROOF_TABS.some((item) => item.id === tab) ? (tab as ProofTab) : "overview";
+}
+
+function initialProviderFilter(): string {
+  if (typeof window === "undefined") return "all";
+  return new URLSearchParams(window.location.search).get("provider") ?? "all";
+}
+
 function artifactTitle(artifact: ArtifactData): string {
   const labels: Record<string, string> = {
     collect_csv: "Scan results export",
@@ -179,15 +208,18 @@ function formatProvider(provider: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-function compactDomainList(
-  sources: { domain?: string | null; url?: string | null; title?: string | null }[],
-): string {
-  const labels = sources
-    .map((source) => source.domain ?? source.title)
-    .filter((label): label is string => Boolean(label));
-  const uniqueLabels = Array.from(new Set(labels));
-  if (!uniqueLabels.length) return "No sources captured";
-  return uniqueLabels.slice(0, 3).join(", ");
+function safeUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return null;
+}
+
+function sourcePrimaryUrl(source: GapSource): string | null {
+  return source.top_urls.map(safeUrl).find((url): url is string => Boolean(url)) ?? null;
+}
+
+function citationPrimaryUrl(source: { url?: string | null }): string | null {
+  return safeUrl(source.url);
 }
 
 function humanizeToken(value?: string | null): string {
@@ -206,6 +238,31 @@ function roleCopy(role?: string | null): string {
     ignore: "Ignore",
   };
   return labels[role ?? ""] ?? humanizeToken(role);
+}
+
+function sourceActionLabel(source: GapSource): string {
+  if (source.action_role === "competitive_evidence") return "Review evidence";
+  if (source.action_role === "content_gap_signal") return "Open cited page";
+  if (source.source_type === "directory_or_review" || source.action_role === "listing_or_profile_target") {
+    return `Open ${source.domain} profile`;
+  }
+  return "Open cited source";
+}
+
+function sourceWhy(source: GapSource): string {
+  if (source.action_role === "competitive_evidence") {
+    return "Competitor-owned or competitor-heavy proof. Study it, but do not treat it as a listing target.";
+  }
+  if (source.action_role === "content_gap_signal") {
+    return "Authority or reference source shaping the answer. Use it to decide what content needs to exist on your site.";
+  }
+  if (source.action_role === "listing_or_profile_target") {
+    return "Profile or listing source that can often be claimed, improved, or aligned with stronger proof.";
+  }
+  if (source.action_role === "ignore") {
+    return "Low-value source captured for audit only. It is not a recommended action.";
+  }
+  return source.classification_reason ?? "Cited source that influenced a missed AI answer.";
 }
 
 function impactClass(impact: string): string {
@@ -378,6 +435,11 @@ export default function ResponsesPage() {
   const [gapReport, setGapReport] = useState<GapReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ProofTab>(initialProofTab);
+  const [sourceTab, setSourceTab] = useState<SourceTab>("listings");
+  const [providerFilter, setProviderFilter] = useState<string>(initialProviderFilter);
+  const [selectedQuery, setSelectedQuery] = useState<GapQuery | null>(null);
+  const [selectedSource, setSelectedSource] = useState<GapSource | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -439,6 +501,30 @@ export default function ResponsesPage() {
     };
   }, []);
 
+  function selectTab(tab: ProofTab) {
+    setActiveTab(tab);
+    setSelectedQuery(null);
+    setSelectedSource(null);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }
+
+  function selectProviderFilter(provider: string) {
+    setProviderFilter(provider);
+    setSelectedQuery(null);
+    setSelectedSource(null);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (provider === "all") {
+      url.searchParams.delete("provider");
+    } else {
+      url.searchParams.set("provider", provider);
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }
+
   const missedQueries = gapReport?.query_results.filter((item) => !item.appeared) ?? [];
   const clientName = client?.name ?? "your brand";
   const totalResults = gapReport?.summary.total_provider_question_results ?? 0;
@@ -453,12 +539,49 @@ export default function ResponsesPage() {
   const publisherTargets = gapReport?.source_intelligence?.publisher_targets ?? [];
   const authorityGaps = gapReport?.source_intelligence?.authority_content_gaps ?? gapReport?.authority_content_gaps ?? [];
   const competitiveEvidence = gapReport?.source_intelligence?.competitive_evidence ?? gapReport?.competitive_evidence ?? [];
+  const monitorSources = [
+    ...(gapReport?.source_intelligence?.noise_sources ?? gapReport?.noise_sources ?? []),
+    ...sources
+      .filter((source) => source.action_role === "monitor_only" || source.action_role === "ignore")
+      .map((source) => ({
+        domain: source.source_domain ?? "Unknown source",
+        missed_query_count: source.prompt_count,
+        providers: [],
+        groups: source.topics ?? [],
+        example_questions: source.example_questions ?? [],
+        top_urls: source.top_urls ?? [],
+        owner_type: source.owner_type ?? undefined,
+        source_type: source.source_type ?? undefined,
+        action_role: source.action_role ?? undefined,
+        actionability_score: source.actionability_score ?? undefined,
+        confidence_score: source.relevance_score ?? undefined,
+        classification_reason: source.classification_reason,
+      })),
+  ];
   const groupedSourceOpportunityCount = directTargets.length + listingTargets.length + publisherTargets.length + authorityGaps.length;
   const sourceOpportunityCount = groupedSourceOpportunityCount || gapReport?.summary.source_opportunity_count || fallbackActionableSources;
   const competitiveSources = competitiveEvidence.length || gapReport?.summary.competitive_evidence_count || sources.filter((source) => source.action_role === "competitive_evidence").length;
   const recommendedFixes = gapReport
     ? groupRecommendedFixes(gapReport.priority_fixes, clientName, missedQueries)
     : [];
+  const sourceRows =
+    sourceTab === "listings"
+      ? [...listingTargets, ...directTargets, ...publisherTargets]
+      : sourceTab === "content"
+        ? authorityGaps
+        : sourceTab === "competitive"
+          ? competitiveEvidence
+          : monitorSources;
+  const providerOptions = Array.from(new Set([
+    ...missedQueries.map((item) => item.provider.toLowerCase()),
+    ...sourceRows.flatMap((source) => source.providers.map((provider) => provider.toLowerCase())),
+  ])).sort();
+  const visibleMissedQueries = providerFilter === "all"
+    ? missedQueries
+    : missedQueries.filter((item) => item.provider.toLowerCase() === providerFilter);
+  const visibleSourceRows = providerFilter === "all"
+    ? sourceRows
+    : sourceRows.filter((source) => source.providers.some((provider) => provider.toLowerCase() === providerFilter));
 
   return (
     <div className={styles.page}>
@@ -530,8 +653,94 @@ export default function ResponsesPage() {
 
             {gapReport && (
               <>
-                <section className={styles.proofDecisionGrid}>
-                  <article className={`${styles.card} ${styles.proofPanelLarge} ${styles.recommendedFixPanel}`}>
+                <nav className={styles.proofTabs} aria-label="Proof report sections">
+                  {PROOF_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className={`${styles.tabButton} ${activeTab === tab.id ? styles.tabButtonActive : ""}`}
+                      onClick={() => selectTab(tab.id)}
+                      aria-current={activeTab === tab.id ? "page" : undefined}
+                    >
+                      <span>{tab.label}</span>
+                      <small>{tab.description}</small>
+                    </button>
+                  ))}
+                </nav>
+
+                {activeTab === "overview" && (
+                  <section className={styles.proofOverviewGrid}>
+                    <article className={`${styles.card} ${styles.overviewHeroCard}`}>
+                      <span className={styles.cardLabelWarning}>Start here</span>
+                      <h2>{recommendedFixes[0]?.title ?? "No urgent proof gaps found"}</h2>
+                      <p>{recommendedFixes[0]?.why ?? "AISO did not generate a priority fix for this scan."}</p>
+                      {recommendedFixes[0] && (
+                        <div className={styles.overviewNextStep}>
+                          <span>Recommended next step</span>
+                          <strong>{recommendedFixes[0].nextStep}</strong>
+                        </div>
+                      )}
+                      <button type="button" className={styles.primaryButton} onClick={() => selectTab("fixes")}>
+                        Review fixes
+                      </button>
+                    </article>
+
+                    <article className={`${styles.card} ${styles.overviewListCard}`}>
+                      <div className={styles.proofSectionHeader}>
+                        <div>
+                          <span className={styles.cardLabelViolet}>Missed by AI</span>
+                          <h2>Highest-priority missed questions</h2>
+                        </div>
+                        <span>{missedQueries.length} misses</span>
+                      </div>
+                      <div className={styles.compactEvidenceList}>
+                        {missedQueries.slice(0, 5).map((item) => (
+                          <button
+                            key={`overview-${item.provider}-${item.group}-${item.question}`}
+                            type="button"
+                            className={styles.compactEvidenceRow}
+                            onClick={() => setSelectedQuery(item)}
+                          >
+                            <span>{formatProvider(item.provider)} · {item.group}</span>
+                            <strong>{item.question}</strong>
+                          </button>
+                        ))}
+                      </div>
+                      <button type="button" className={styles.secondaryButton} onClick={() => selectTab("missed")}>
+                        Open missed questions
+                      </button>
+                    </article>
+
+                    <article className={`${styles.card} ${styles.overviewListCard}`}>
+                      <div className={styles.proofSectionHeader}>
+                        <div>
+                          <span className={styles.cardLabelTeal}>Source opportunities</span>
+                          <h2>Best places to improve proof</h2>
+                        </div>
+                        <span>{sourceOpportunityCount} targets</span>
+                      </div>
+                      <div className={styles.compactEvidenceList}>
+                        {[...listingTargets, ...directTargets].slice(0, 5).map((source) => (
+                          <button
+                            key={`overview-source-${source.domain}`}
+                            type="button"
+                            className={styles.compactEvidenceRow}
+                            onClick={() => setSelectedSource(source)}
+                          >
+                            <span>{source.missed_query_count} missed answers</span>
+                            <strong>{source.domain}</strong>
+                          </button>
+                        ))}
+                      </div>
+                      <button type="button" className={styles.secondaryButton} onClick={() => selectTab("sources")}>
+                        Review source opportunities
+                      </button>
+                    </article>
+                  </section>
+                )}
+
+                {activeTab === "fixes" && (
+                  <section className={`${styles.card} ${styles.proofPanelLarge} ${styles.recommendedFixPanel}`}>
                     <div className={styles.proofSectionHeader}>
                       <div>
                         <span className={styles.cardLabelWarning}>Recommended fixes</span>
@@ -571,11 +780,11 @@ export default function ResponsesPage() {
                                 ))}
                               </div>
                               {example && (
-                                <div>
+                                <button type="button" className={styles.fixEvidenceButton} onClick={() => setSelectedQuery(example)}>
                                   <span>Example missed question</span>
                                   <strong>{example.question}</strong>
                                   <small>{formatProvider(example.provider)} · {example.group}</small>
-                                </div>
+                                </button>
                               )}
                               {providers.length > 0 && (
                                 <div>
@@ -592,223 +801,342 @@ export default function ResponsesPage() {
                         </p>
                       )}
                     </div>
-                  </article>
+                  </section>
+                )}
 
-                  <aside className={`${styles.card} ${styles.proofPanelSide} ${styles.missedQuestionPanel}`}>
+                {activeTab === "missed" && (
+                  <section className={`${styles.card} ${styles.tablePanel}`}>
                     <div className={styles.proofSectionHeader}>
                       <div>
-                        <span className={styles.cardLabelViolet}>Missed by AI</span>
-                        <h2>Example questions behind the fixes</h2>
+                        <span className={styles.cardLabelViolet}>Missed Questions</span>
+                        <h2>Questions where AI did not recommend {clientName}</h2>
                       </div>
-                      <span>{missedQueries.length} misses</span>
+                      <span>{visibleMissedQueries.length} misses</span>
                     </div>
-                    <div className={styles.proofQueryList}>
-                      {missedQueries.length ? (
-                        missedQueries.slice(0, 8).map((item) => (
-                          <div key={`${item.provider}-${item.group}-${item.question}`} className={styles.proofQueryRow}>
-                            <div className={styles.proofQueryMeta}>
-                              <span>{formatProvider(item.provider)}</span>
-                              <span>{item.group}</span>
-                              <span>{Math.round(item.priority_score)} priority</span>
-                            </div>
+                    {providerOptions.length > 1 && (
+                      <div className={styles.filterBar} aria-label="Filter missed questions by provider">
+                        <button
+                          type="button"
+                          className={providerFilter === "all" ? styles.filterChipActive : styles.filterChip}
+                          onClick={() => selectProviderFilter("all")}
+                        >
+                          All providers
+                        </button>
+                        {providerOptions.map((provider) => (
+                          <button
+                            key={`missed-filter-${provider}`}
+                            type="button"
+                            className={providerFilter === provider ? styles.filterChipActive : styles.filterChip}
+                            onClick={() => selectProviderFilter(provider)}
+                          >
+                            {formatProvider(provider)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className={styles.missedTable}>
+                      <div className={styles.missedTableHeader}>
+                        <span>Question</span>
+                        <span>Provider</span>
+                        <span>Sources cited instead</span>
+                        <span>Priority</span>
+                      </div>
+                      {visibleMissedQueries.length ? visibleMissedQueries.map((item) => (
+                        <div key={`missed-${item.provider}-${item.group}-${item.question}`} className={styles.missedTableRow}>
+                          <button type="button" className={styles.tableRowButton} onClick={() => setSelectedQuery(item)}>
                             <strong>{item.question}</strong>
-                            <div className={styles.proofSourceLine}>
-                              <span>AI cited instead</span>
-                              <small>{compactDomainList(item.cited_sources)}</small>
-                            </div>
+                            <small>{item.group_label || item.group}</small>
+                          </button>
+                          <span>{formatProvider(item.provider)}</span>
+                          <div className={styles.sourceLinkList}>
+                            {item.cited_sources.slice(0, 3).map((source, index) => {
+                              const url = citationPrimaryUrl(source);
+                              const label = source.domain ?? source.title ?? "Source";
+                              return url ? (
+                                <a key={`${item.question}-${label}-${index}`} href={url} target="_blank" rel="noopener noreferrer">
+                                  {label}
+                                </a>
+                              ) : (
+                                <span key={`${item.question}-${label}-${index}`}>{label}</span>
+                              );
+                            })}
+                            {!item.cited_sources.length && <span>No sources captured</span>}
                           </div>
-                        ))
-                      ) : (
+                          <strong>{Math.round(item.priority_score)}</strong>
+                        </div>
+                      )) : (
                         <p className={styles.proofEmptyState}>
-                          Every provider-question result mentioned {clientName} in this scan.
+                          No missed questions match this provider filter.
                         </p>
                       )}
                     </div>
-                  </aside>
-                </section>
+                  </section>
+                )}
 
-                <section className={styles.proofWorkspace}>
-                  <article className={`${styles.card} ${styles.proofPanelLarge}`}>
+                {activeTab === "sources" && (
+                  <section className={`${styles.card} ${styles.tablePanel}`}>
                     <div className={styles.proofSectionHeader}>
                       <div>
-                        <span className={styles.cardLabelTeal}>Source opportunities</span>
-                        <h2>Profiles and listings to improve</h2>
+                        <span className={styles.cardLabelTeal}>Source Intelligence</span>
+                        <h2>Citation sources grouped by what the user can do</h2>
                       </div>
-                      <span>{listingTargets.length} targets</span>
+                      <span>{visibleSourceRows.length} sources</span>
                     </div>
-                    <div className={styles.proofSourceList}>
-                      {listingTargets.length ? listingTargets.slice(0, 6).map((source) => (
-                        <div key={`listing-${source.domain}`} className={styles.proofSourceRow}>
-                          <div>
-                            <strong>{source.domain}</strong>
-                            <small>{source.classification_reason ?? "Listing/profile source"}</small>
-                          </div>
-                          <span>{source.missed_query_count} misses</span>
-                          {source.top_urls[0] && (
-                            <a href={source.top_urls[0]} target="_blank" rel="noopener noreferrer">Open source</a>
-                          )}
-                        </div>
-                      )) : (
-                        <p className={styles.proofEmptyState}>No listing or profile targets were isolated in this scan.</p>
-                      )}
+                    <div className={styles.sourceTabs} role="tablist" aria-label="Source categories">
+                      {SOURCE_TABS.map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          className={`${styles.sourceTabButton} ${sourceTab === tab.id ? styles.sourceTabButtonActive : ""}`}
+                          onClick={() => setSourceTab(tab.id)}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
                     </div>
-                  </article>
-
-                  <article className={`${styles.card} ${styles.proofPanelLarge}`}>
-                    <div className={styles.proofSectionHeader}>
-                      <div>
-                        <span className={styles.cardLabelViolet}>Content gaps</span>
-                        <h2>Topics to cover on the website</h2>
-                      </div>
-                      <span>{authorityGaps.length} gaps</span>
-                    </div>
-                    <div className={styles.proofSourceList}>
-                      {authorityGaps.length ? authorityGaps.slice(0, 6).map((source) => (
-                        <div key={`authority-${source.domain}`} className={styles.proofSourceRow}>
-                          <div>
-                            <strong>{source.domain}</strong>
-                            <small>{source.example_questions[0] ?? source.classification_reason ?? "Authority content signal"}</small>
-                          </div>
-                          <span>{source.missed_query_count} misses</span>
-                          {source.top_urls[0] && (
-                            <a href={source.top_urls[0]} target="_blank" rel="noopener noreferrer">Open source</a>
-                          )}
-                        </div>
-                      )) : (
-                        <p className={styles.proofEmptyState}>No authority-driven content gaps were isolated in this scan.</p>
-                      )}
-                    </div>
-                  </article>
-
-                  <aside className={`${styles.card} ${styles.proofPanelSide}`}>
-                    <div className={styles.proofSectionHeader}>
-                      <div>
-                        <span className={styles.cardLabelWarning}>Competitive evidence</span>
-                        <h2>Competitor proof to study</h2>
-                      </div>
-                      <span>{competitiveEvidence.length} sources</span>
-                    </div>
-                    <div className={styles.proofSourceList}>
-                      {competitiveEvidence.length ? competitiveEvidence.slice(0, 6).map((source) => (
-                        <div key={`competitive-${source.domain}`} className={styles.proofSourceRow}>
-                          <div>
-                            <strong>{source.domain}</strong>
-                            <small>Do not treat as a listing target. Use it to reverse-engineer proof gaps.</small>
-                          </div>
-                          <span>{source.missed_query_count} misses</span>
-                          {source.top_urls[0] && (
-                            <a href={source.top_urls[0]} target="_blank" rel="noopener noreferrer">Open evidence</a>
-                          )}
-                        </div>
-                      )) : (
-                        <p className={styles.proofEmptyState}>No competitor-owned source blockers were isolated in this scan.</p>
-                      )}
-                    </div>
-                  </aside>
-                </section>
-
-                <section className={styles.proofLedgerGrid}>
-                  <details className={`${styles.card} ${styles.proofPanelLarge} ${styles.proofLedgerDetails}`}>
-                    <summary className={styles.proofLedgerSummary}>
-                      <div>
-                        <span className={styles.cardLabel}>Raw evidence</span>
-                        <h2>Open citation audit trail</h2>
-                        <p>Use this when you need to inspect exact AI answers and every captured citation.</p>
-                      </div>
-                      <span>{citations.length} citations</span>
-                    </summary>
-                    <div className={styles.citationList}>
-                      {citations.length ? (
-                        citations.slice(0, 12).map((citation) => (
-                          <article
-                            key={citation.id}
-                            className={styles.citationCard}
+                    {providerOptions.length > 1 && (
+                      <div className={styles.filterBar} aria-label="Filter sources by provider">
+                        <button
+                          type="button"
+                          className={providerFilter === "all" ? styles.filterChipActive : styles.filterChip}
+                          onClick={() => selectProviderFilter("all")}
+                        >
+                          All providers
+                        </button>
+                        {providerOptions.map((provider) => (
+                          <button
+                            key={`source-filter-${provider}`}
+                            type="button"
+                            className={providerFilter === provider ? styles.filterChipActive : styles.filterChip}
+                            onClick={() => selectProviderFilter(provider)}
                           >
-                            <div className={styles.citationMeta}>
-                              <span>
-                                {formatProvider(citation.provider)}{citation.group ? ` · ${citation.group}` : ""}
-                                {citation.web_search_used === false ? " · web-search proof missing" : ""}
-                              </span>
-                              <a
-                                href={citation.citation_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={styles.citationLink}
-                              >
-                                {citation.source_domain ?? citation.citation_title ?? "Open source"}
-                              </a>
-                            </div>
-                            <div className={styles.proofQueryMeta}>
-                              <span>{roleCopy(citation.action_role)}</span>
-                              <span>{humanizeToken(citation.source_type)}</span>
-                              <span>{humanizeToken(citation.owner_type)}</span>
-                            </div>
-                            {citation.question && (
-                              <p className={styles.citationQuestion}>{citation.question}</p>
-                            )}
-                            {citation.answer_excerpt && (
-                              <p className={styles.citationExcerpt}>{citation.answer_excerpt}</p>
-                            )}
-                          </article>
-                        ))
-                      ) : (
-                        <p className={styles.heroSub}>
-                          Citation rows are not available for this scan yet. Raw response artifacts are listed beside this panel.
-                        </p>
-                      )}
-                    </div>
-                  </details>
-
-                  <aside className={`${styles.card} ${styles.proofPanelSide}`}>
-                    <div className={styles.proofSectionHeader}>
-                      <div>
-                        <span className={styles.cardLabelTeal}>Raw exports</span>
-                        <h2>Downloadable scan files</h2>
+                            {formatProvider(provider)}
+                          </button>
+                        ))}
                       </div>
-                    </div>
-                    <p className={styles.proofPanelCopy}>
-                      Use these only when you need the underlying CSV or audit artifacts. The readable gap report above is the primary workflow.
-                    </p>
-                    <div className={styles.actionList}>
-                      {scan.artifacts?.length ? (
-                        scan.artifacts.map((artifact) => (
-                          <div
-                            key={artifact.id}
-                            className={rawArtifactsUnlocked ? styles.exportRow : styles.lockedArtifactRow}
-                          >
-                            <span className={styles.exportIcon}>
-                              {(artifact.file_format ?? "file").slice(0, 3).toUpperCase()}
-                            </span>
-                            <span className={styles.exportText}>
-                              <span>{artifactTitle(artifact)}</span>
-                              <small>{artifactMeta(artifact)}</small>
-                            </span>
-                            {rawArtifactsUnlocked ? (
-                              <a
-                                href={`${API}/v1/clients/${client?.id}/scans/${scan.id}/artifacts/${artifact.id}/download`}
-                                className={styles.artifactUpgradeLink}
-                              >
-                                Download
+                    )}
+                    <div className={styles.sourceTable}>
+                      <div className={styles.sourceTableHeader}>
+                        <span>Source</span>
+                        <span>Role</span>
+                        <span>Misses</span>
+                        <span>Example</span>
+                        <span>Action</span>
+                      </div>
+                      {visibleSourceRows.length ? visibleSourceRows.map((source, index) => {
+                        const url = sourcePrimaryUrl(source);
+                        return (
+                          <div key={`${sourceTab}-${source.domain}-${index}`} className={styles.sourceTableRow}>
+                            <button type="button" className={styles.tableRowButton} onClick={() => setSelectedSource(source)}>
+                              <strong>{source.domain}</strong>
+                              <small>{humanizeToken(source.source_type)}</small>
+                            </button>
+                            <span>{roleCopy(source.action_role)}</span>
+                            <strong>{source.missed_query_count}</strong>
+                            <span>{source.example_questions[0] ?? source.classification_reason ?? "No example question captured"}</span>
+                            {url ? (
+                              <a href={url} target="_blank" rel="noopener noreferrer">
+                                {sourceActionLabel(source)}
                               </a>
                             ) : (
-                              <>
-                                <strong className={styles.lockedBadge}>Pro export</strong>
-                                <Link href={PRO_UPGRADE_HREF} className={styles.artifactUpgradeLink}>
-                                  Get it
-                                </Link>
-                              </>
+                              <span>No URL</span>
                             )}
                           </div>
-                        ))
-                      ) : (
-                        <p className={styles.heroSub}>No raw response artifact has been saved for this scan.</p>
+                        );
+                      }) : (
+                        <p className={styles.proofEmptyState}>No sources are available in this category for the selected scan.</p>
                       )}
                     </div>
-                    <Link href={`/dashboard/scans/${scan.id}`} className={styles.primaryButton}>
-                      Open scan detail
-                    </Link>
-                  </aside>
-                </section>
+                  </section>
+                )}
+
+                {activeTab === "raw" && (
+                  <section className={styles.proofLedgerGrid}>
+                    <details className={`${styles.card} ${styles.proofPanelLarge} ${styles.proofLedgerDetails}`} open>
+                      <summary className={styles.proofLedgerSummary}>
+                        <div>
+                          <span className={styles.cardLabel}>Advanced audit trail</span>
+                          <h2>Raw citations and AI answer excerpts</h2>
+                          <p>Use this when you need to inspect exact AI answers and every captured citation.</p>
+                        </div>
+                        <span>{citations.length} citations</span>
+                      </summary>
+                      <div className={styles.citationList}>
+                        {citations.length ? (
+                          citations.slice(0, 24).map((citation) => (
+                            <article key={citation.id} className={styles.citationCard}>
+                              <div className={styles.citationMeta}>
+                                <span>
+                                  {formatProvider(citation.provider)}{citation.group ? ` · ${citation.group}` : ""}
+                                  {citation.web_search_used === false ? " · web-search proof missing" : ""}
+                                </span>
+                                <a
+                                  href={citation.citation_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={styles.citationLink}
+                                >
+                                  {citation.source_domain ?? citation.citation_title ?? "Open cited source"}
+                                </a>
+                              </div>
+                              <div className={styles.proofQueryMeta}>
+                                <span>{roleCopy(citation.action_role)}</span>
+                                <span>{humanizeToken(citation.source_type)}</span>
+                                <span>{humanizeToken(citation.owner_type)}</span>
+                              </div>
+                              {citation.question && (
+                                <p className={styles.citationQuestion}>{citation.question}</p>
+                              )}
+                              {citation.answer_excerpt && (
+                                <p className={styles.citationExcerpt}>{citation.answer_excerpt}</p>
+                              )}
+                            </article>
+                          ))
+                        ) : (
+                          <p className={styles.heroSub}>
+                            Citation rows are not available for this scan yet. Raw response artifacts are listed beside this panel.
+                          </p>
+                        )}
+                      </div>
+                    </details>
+
+                    <aside className={`${styles.card} ${styles.proofPanelSide}`}>
+                      <div className={styles.proofSectionHeader}>
+                        <div>
+                          <span className={styles.cardLabelTeal}>Raw exports</span>
+                          <h2>Downloadable scan files</h2>
+                        </div>
+                      </div>
+                      <p className={styles.proofPanelCopy}>
+                        Use these only when you need the underlying CSV or audit artifacts. The readable report tabs are the primary workflow.
+                      </p>
+                      <div className={styles.actionList}>
+                        {scan.artifacts?.length ? (
+                          scan.artifacts.map((artifact) => (
+                            <div
+                              key={artifact.id}
+                              className={rawArtifactsUnlocked ? styles.exportRow : styles.lockedArtifactRow}
+                            >
+                              <span className={styles.exportIcon}>
+                                {(artifact.file_format ?? "file").slice(0, 3).toUpperCase()}
+                              </span>
+                              <span className={styles.exportText}>
+                                <span>{artifactTitle(artifact)}</span>
+                                <small>{artifactMeta(artifact)}</small>
+                              </span>
+                              {rawArtifactsUnlocked ? (
+                                <a
+                                  href={`${API}/v1/clients/${client?.id}/scans/${scan.id}/artifacts/${artifact.id}/download`}
+                                  className={styles.artifactUpgradeLink}
+                                >
+                                  Download
+                                </a>
+                              ) : (
+                                <>
+                                  <strong className={styles.lockedBadge}>Pro export</strong>
+                                  <Link href={PRO_UPGRADE_HREF} className={styles.artifactUpgradeLink}>
+                                    Get it
+                                  </Link>
+                                </>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <p className={styles.heroSub}>No raw response artifact has been saved for this scan.</p>
+                        )}
+                      </div>
+                      <Link href={`/dashboard/scans/${scan.id}`} className={styles.primaryButton}>
+                        Open scan detail
+                      </Link>
+                    </aside>
+                  </section>
+                )}
+
+                {(selectedQuery || selectedSource) && (
+                  <div className={styles.sidePanelLayer} role="presentation">
+                    <button
+                      type="button"
+                      className={styles.sidePanelBackdrop}
+                      aria-label="Close detail panel"
+                      onClick={() => {
+                        setSelectedQuery(null);
+                        setSelectedSource(null);
+                      }}
+                    />
+                    <aside className={styles.sidePanel} role="dialog" aria-modal="true">
+                      <button
+                        type="button"
+                        className={styles.sidePanelClose}
+                        onClick={() => {
+                          setSelectedQuery(null);
+                          setSelectedSource(null);
+                        }}
+                      >
+                        Close
+                      </button>
+
+                      {selectedQuery && (
+                        <>
+                          <span className={styles.cardLabelViolet}>Missed question</span>
+                          <h2>{selectedQuery.question}</h2>
+                          <div className={styles.sidePanelMeta}>
+                            <span>{formatProvider(selectedQuery.provider)}</span>
+                            <span>{selectedQuery.group_label || selectedQuery.group}</span>
+                            <span>{Math.round(selectedQuery.priority_score)} priority</span>
+                          </div>
+                          <div className={styles.sidePanelSection}>
+                            <h3>AI cited instead</h3>
+                            <div className={styles.sourceLinkList}>
+                              {selectedQuery.cited_sources.map((source, index) => {
+                                const url = citationPrimaryUrl(source);
+                                const label = source.domain ?? source.title ?? "Source";
+                                return url ? (
+                                  <a key={`${label}-${index}`} href={url} target="_blank" rel="noopener noreferrer">
+                                    {label}
+                                  </a>
+                                ) : (
+                                  <span key={`${label}-${index}`}>{label}</span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {selectedSource && (
+                        <>
+                          <span className={styles.cardLabelTeal}>Source detail</span>
+                          <h2>{selectedSource.domain}</h2>
+                          <div className={styles.sidePanelMeta}>
+                            <span>{roleCopy(selectedSource.action_role)}</span>
+                            <span>{humanizeToken(selectedSource.source_type)}</span>
+                            <span>{selectedSource.missed_query_count} misses</span>
+                          </div>
+                          <div className={styles.sidePanelSection}>
+                            <h3>Why it matters</h3>
+                            <p>{sourceWhy(selectedSource)}</p>
+                          </div>
+                          <div className={styles.sidePanelSection}>
+                            <h3>Example questions</h3>
+                            {selectedSource.example_questions.slice(0, 4).map((question) => (
+                              <p key={question}>{question}</p>
+                            ))}
+                            {!selectedSource.example_questions.length && <p>No example question captured.</p>}
+                          </div>
+                          <div className={styles.sidePanelSection}>
+                            <h3>Top URLs</h3>
+                            <div className={styles.sourceLinkList}>
+                              {selectedSource.top_urls.slice(0, 4).map((url) => (
+                                <a key={url} href={url} target="_blank" rel="noopener noreferrer">{url}</a>
+                              ))}
+                              {!selectedSource.top_urls.length && <span>No source URL captured.</span>}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </aside>
+                  </div>
+                )}
 
                 <p className={styles.proofFootnote}>
                   Readout based on {totalResults} provider-question results from the selected scan.
