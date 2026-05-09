@@ -1,6 +1,5 @@
 """Tests for onboarding crawler — consent, URL utilities, policy, and API."""
 
-import json
 import unittest
 
 from api.crawler.consent import validate_crawl_request
@@ -16,6 +15,30 @@ from api.crawler.url_utils import (
     is_internal_url,
     normalize_url,
 )
+
+
+def _ensure_profile_review_columns(engine):
+    """Allow crawler API tests to run after another test created old tables."""
+    import sqlalchemy as sa
+
+    inspector = sa.inspect(engine)
+    if "crawl_business_profiles" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("crawl_business_profiles")}
+    with engine.begin() as connection:
+        if "profile_status" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE crawl_business_profiles "
+                "ADD COLUMN profile_status VARCHAR DEFAULT 'draft_extracted'"
+            )
+        if "approved_at" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE crawl_business_profiles ADD COLUMN approved_at DATETIME"
+            )
+        if "approved_by_user_id" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE crawl_business_profiles ADD COLUMN approved_by_user_id VARCHAR"
+            )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -346,14 +369,21 @@ class CrawlerAPITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import os
+        try:
+            os.remove("test_crawler.db")
+        except FileNotFoundError:
+            pass
         os.environ.setdefault("DATABASE_URL", "sqlite:///./test_crawler.db")
         os.environ["AISO_AUTO_CREATE_TABLES"] = "1"
         # Allow test client through TrustedHostMiddleware.
         os.environ["AISO_ALLOWED_HOSTS"] = "*"
+        # Keep API endpoint tests deterministic and network-free.
+        os.environ["AISO_CRAWLER_DISABLE_WORKER"] = "1"
 
         from api.database import Base, engine, SessionLocal
         import api.crawler.models  # noqa: F401 — register models
         Base.metadata.create_all(bind=engine)
+        _ensure_profile_review_columns(engine)
 
         # Seed a test user and client.
         db = SessionLocal()
@@ -551,6 +581,289 @@ class CrawlerAPITests(unittest.TestCase):
         response = self.client.get(f"/api/v1/crawl-jobs/{job_id}/evidence")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["evidence"], [])
+
+    def test_worker_persists_pages_profile_and_context(self):
+        from api.crawler.models import CrawlBusinessProfile, CrawlPage, ExtractionEvidence
+        from api.crawler.worker import run_crawl_job
+        from api.database import ClientContext, SessionLocal
+        from api.website_ingestion import FetchResult
+
+        seed_url = "http://93.184.216.34"
+        ws_response = self.client.post("/api/v1/onboarding-workspaces", json={
+            "client_id": "test-client-1",
+            "website_url": seed_url,
+            "consent_confirmed": True,
+        })
+        workspace_id = ws_response.json()["workspace_id"]
+        job_response = self.client.post(
+            f"/api/v1/onboarding-workspaces/{workspace_id}/crawl-jobs",
+            json={"max_pages": 4, "max_depth": 1},
+        )
+        job_id = job_response.json()["job_id"]
+
+        def fake_fetch(url, config):
+            if url.endswith("/robots.txt"):
+                return FetchResult(url=url, final_url=url, status_code=404, content_type="text/plain", text="")
+            if url.endswith("/sitemap.xml"):
+                return FetchResult(
+                    url=url,
+                    final_url=url,
+                    status_code=200,
+                    content_type="application/xml",
+                    text=(
+                        "<urlset><url><loc>"
+                        f"{seed_url}/services"
+                        "</loc></url></urlset>"
+                    ),
+                )
+            if url.endswith("/services"):
+                html = """
+                <html><head><title>Services</title></head><body>
+                  <h1>Cloud migration services</h1>
+                  <h2>Cloud migration audit</h2>
+                  <p>Cloud migration audit $500 60 minutes</p>
+                  <p>Ideal for growing teams evaluating secure infrastructure.</p>
+                </body></html>
+                """
+                return FetchResult(url=url, final_url=url, status_code=200, content_type="text/html", text=html)
+            html = """
+            <html><head><title>Example Clinic</title>
+              <script type="application/ld+json">
+                {"@type":"LocalBusiness","name":"Example Clinic"}
+              </script>
+            </head><body>
+              <h1>Example Clinic</h1>
+              <a href="/services">Services</a>
+            </body></html>
+            """
+            return FetchResult(url=url, final_url=url, status_code=200, content_type="text/html", text=html)
+
+        run_crawl_job(job_id, fetch_page=fake_fetch)
+
+        db = SessionLocal()
+        try:
+            pages = db.query(CrawlPage).filter(CrawlPage.job_id == job_id).all()
+            profile = db.query(CrawlBusinessProfile).filter(CrawlBusinessProfile.job_id == job_id).first()
+            evidence = db.query(ExtractionEvidence).filter(ExtractionEvidence.job_id == job_id).all()
+            context = db.query(ClientContext).filter(ClientContext.client_id == "test-client-1").first()
+            self.assertGreaterEqual(len(pages), 2)
+            self.assertIsNotNone(profile)
+            self.assertEqual(profile.company_name, "Example Clinic")
+            self.assertIn("Cloud migration audit", profile.services or "")
+            self.assertGreater(len(evidence), 0)
+            self.assertIsNotNone(context)
+            self.assertIn(context.status, {"draft", "needs_review"})
+        finally:
+            db.close()
+
+    @classmethod
+    def tearDownClass(cls):
+        # ReviewApprovalTests reuses this DB/engine because FastAPI route
+        # dependencies hold the imported SessionLocal. The final test class
+        # removes the file.
+        pass
+
+
+class ReviewApprovalTests(unittest.TestCase):
+    """Tests for the review, edit, and approve endpoints."""
+
+    @classmethod
+    def setUpClass(cls):
+        import os
+
+        os.environ.setdefault("DATABASE_URL", "sqlite:///./test_crawler.db")
+        os.environ["AISO_AUTO_CREATE_TABLES"] = "1"
+        os.environ["AISO_ALLOWED_HOSTS"] = "*"
+        os.environ["AISO_CRAWLER_DISABLE_WORKER"] = "1"
+
+        from api.database import Base, engine, SessionLocal
+        import api.crawler.models  # noqa: F401 - register crawler models
+        Base.metadata.create_all(bind=engine)
+        _ensure_profile_review_columns(engine)
+
+        db = SessionLocal()
+        from api.database import User, Client
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        if not db.query(User).filter(User.id == "test-user-1").first():
+            db.add(User(
+                id="test-user-1", email="review@example.com", name="Review User",
+                provider="credentials", plan_tier="pro", account_role="user",
+                created_at=now,
+            ))
+        if not db.query(Client).filter(Client.id == "test-client-1").first():
+            db.add(Client(
+                id="test-client-1", user_id="test-user-1", name="Test Company",
+                url="https://www.testcompany.com", industry="Technology",
+                location="Boston, MA", created_at=now, updated_at=now,
+            ))
+        db.commit()
+        db.close()
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+        from api.main import app
+        from api.auth import get_current_user_id
+
+        app.dependency_overrides[get_current_user_id] = lambda: "test-user-1"
+        self.client = TestClient(app, base_url="http://localhost")
+
+    def tearDown(self):
+        from api.main import app
+        from api.auth import get_current_user_id
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+    def _create_workspace_with_profile(self, **profile_overrides):
+        """Helper: create workspace + crawl job + draft profile."""
+        import uuid
+        from datetime import datetime, timezone
+        from api.database import SessionLocal
+        from api.crawler.models import CrawlBusinessProfile
+
+        # Create workspace via API.
+        ws = self.client.post("/api/v1/onboarding-workspaces", json={
+            "client_id": "test-client-1",
+            "website_url": "https://www.testcompany.com",
+            "consent_confirmed": True,
+        })
+        workspace_id = ws.json()["workspace_id"]
+
+        # Create crawl job via API.
+        job = self.client.post(
+            f"/api/v1/onboarding-workspaces/{workspace_id}/crawl-jobs", json={},
+        )
+        job_id = job.json()["job_id"]
+
+        # Manually insert a draft profile (simulating crawler extraction).
+        db = SessionLocal()
+        now = datetime.now(timezone.utc)
+        defaults = {
+            "company_name": "Test Company",
+            "website": "https://www.testcompany.com",
+            "domain": "testcompany.com",
+            "description": "A great test company",
+            "industry": "Technology",
+            "profile_status": "draft_extracted",
+        }
+        defaults.update(profile_overrides)
+        profile = CrawlBusinessProfile(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace_id,
+            job_id=job_id,
+            client_id="test-client-1",
+            created_at=now,
+            updated_at=now,
+            **defaults,
+        )
+        db.add(profile)
+        db.commit()
+        db.close()
+
+        return workspace_id, job_id
+
+    def test_review_returns_structure(self):
+        workspace_id, _ = self._create_workspace_with_profile()
+        response = self.client.get(f"/api/v1/onboarding-workspaces/{workspace_id}/review")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        # Verify all top-level keys present.
+        for key in ("workspace_id", "workspace_status", "client_slug", "profile", "pages", "evidence", "job"):
+            self.assertIn(key, data)
+        self.assertIsNotNone(data["profile"])
+        self.assertEqual(data["profile"]["profile_status"], "draft_extracted")
+        self.assertEqual(data["client_slug"], "test-client-1")
+
+    def test_edit_draft_profile(self):
+        workspace_id, _ = self._create_workspace_with_profile()
+        response = self.client.patch(
+            f"/api/v1/onboarding-workspaces/{workspace_id}/business-profile",
+            json={"company_name": "Updated Company", "industry": "Healthcare"},
+        )
+        self.assertEqual(response.status_code, 200)
+        profile = response.json()["profile"]
+        self.assertEqual(profile["company_name"], "Updated Company")
+        self.assertEqual(profile["industry"], "Healthcare")
+        self.assertEqual(profile["profile_status"], "draft_extracted")
+
+    def test_edit_approved_profile_rejected(self):
+        workspace_id, _ = self._create_workspace_with_profile()
+        # First approve.
+        self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
+        # Then try to edit.
+        response = self.client.patch(
+            f"/api/v1/onboarding-workspaces/{workspace_id}/business-profile",
+            json={"company_name": "Should Not Work"},
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_approve_validates_required_fields(self):
+        workspace_id, _ = self._create_workspace_with_profile(company_name="", website="https://test.com")
+        response = self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("company_name", response.json()["detail"].lower())
+
+    def test_approve_validates_website(self):
+        workspace_id, _ = self._create_workspace_with_profile(company_name="Test", website="")
+        response = self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("website", response.json()["detail"].lower())
+
+    def test_approve_locks_profile(self):
+        workspace_id, _ = self._create_workspace_with_profile()
+        response = self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["profile"]["profile_status"], "approved")
+        self.assertIsNotNone(data["profile"]["approved_at"])
+
+    def test_approve_sets_workspace_pipeline_ready(self):
+        workspace_id, _ = self._create_workspace_with_profile()
+        response = self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["workspace_status"], "pipeline_ready")
+
+    def test_approve_enriches_client_record(self):
+        workspace_id, _ = self._create_workspace_with_profile(
+            company_name="Enriched Name",
+            industry="Finance",
+            services='["Fractional CTO advisory", "AI visibility audit"]',
+            products='["AISO"]',
+            locations='["Boston, MA"]',
+        )
+        self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
+
+        # Verify client record was updated.
+        client_resp = self.client.get("/api/v1/clients/test-client-1")
+        self.assertEqual(client_resp.status_code, 200)
+        self.assertEqual(client_resp.json()["name"], "Enriched Name")
+
+        # Verify approved edits also become the confirmed scan context.
+        import json
+        from api.database import ClientContext, SessionLocal
+
+        db = SessionLocal()
+        try:
+            context = db.query(ClientContext).filter(ClientContext.client_id == "test-client-1").first()
+            self.assertIsNotNone(context)
+            self.assertEqual(context.status, "confirmed")
+            profile = json.loads(context.profile_json)
+            self.assertEqual(profile["business"]["name"], "Enriched Name")
+            self.assertEqual(profile["categories"][0]["name"], "Finance")
+            self.assertEqual(profile["offerings"][0]["name"], "Fractional CTO advisory")
+            self.assertEqual(profile["product_brands"][0]["name"], "AISO")
+            self.assertEqual(profile["locations"]["physical_locations"][0]["name"], "Boston, MA")
+        finally:
+            db.close()
+
+    def test_double_approve_rejected(self):
+        workspace_id, _ = self._create_workspace_with_profile()
+        # First approve.
+        resp1 = self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
+        self.assertEqual(resp1.status_code, 200)
+        # Second approve should fail.
+        resp2 = self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
+        self.assertEqual(resp2.status_code, 409)
 
     @classmethod
     def tearDownClass(cls):

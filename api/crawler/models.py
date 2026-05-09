@@ -146,9 +146,12 @@ class CrawlBusinessProfile(Base):
     social_links     = Column(Text, nullable=True)            # JSON array
     important_pages  = Column(Text, nullable=True)            # JSON array
     missing_fields   = Column(Text, nullable=True)            # JSON array
-    confidence_score = Column(Float, nullable=True)
-    created_at       = Column(DateTime, nullable=False, default=_utcnow)
-    updated_at       = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+    confidence_score     = Column(Float, nullable=True)
+    profile_status       = Column(String, nullable=False, default="draft_extracted")  # draft_extracted | approved
+    approved_at          = Column(DateTime, nullable=True)
+    approved_by_user_id  = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at           = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at           = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
 # ── Extraction Evidence ──────────────────────────────────────────────────────

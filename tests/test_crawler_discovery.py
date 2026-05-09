@@ -3,7 +3,7 @@
 import unittest
 from api.crawler.robots import RobotsResult, fetch_robots_txt, parse_robots_txt, is_path_allowed
 from api.crawler.discovery import (
-    CrawlCandidate, parse_sitemap_xml, discover_sitemap_urls,
+    parse_sitemap_xml, discover_sitemap_urls,
     extract_homepage_links, discover_crawl_candidates,
 )
 

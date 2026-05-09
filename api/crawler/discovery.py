@@ -18,8 +18,7 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import Callable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from api.crawler.policy import (
     is_social_domain,
@@ -33,7 +32,6 @@ from api.crawler.robots import (
     is_path_allowed,
 )
 from api.crawler.url_utils import (
-    extract_domain,
     get_allowed_domains,
     is_internal_url,
     normalize_url,

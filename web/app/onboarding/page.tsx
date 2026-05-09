@@ -137,6 +137,47 @@ type ClientContextData = {
   warnings_json: string[];
 };
 
+type CrawlJobData = {
+  job_id: string;
+  status: string;
+  pages_discovered: number;
+  pages_crawled: number;
+  pages_skipped: number;
+  pages_failed: number;
+  warnings: string[];
+  error_message?: string | null;
+};
+
+type ReviewBusinessProfile = {
+  profile_id: string;
+  company_name: string | null;
+  description: string | null;
+  website: string | null;
+  domain: string | null;
+  industry: string | null;
+  products: string[];
+  services: string[];
+  locations: string[];
+  contacts: Record<string, unknown>;
+  social_links: string[];
+  important_pages: unknown[];
+  missing_fields: string[];
+  confidence_score: number | null;
+  profile_status: string;
+  approved_at: string | null;
+};
+
+type ReviewBundle = {
+  workspace_id: string;
+  workspace_status: string;
+  client_slug: string | null;
+  client_name: string | null;
+  profile: ReviewBusinessProfile | null;
+  pages: { url: string; title?: string | null; page_type?: string | null; status: string }[];
+  evidence: { field_name: string; field_value?: string | null; source_url: string; confidence?: number | null }[];
+  job: CrawlJobData | null;
+};
+
 type ActionStatus = "idle" | "loading" | "error";
 
 const API = "/api/proxy";
@@ -214,6 +255,21 @@ function normalizedProfile(profile: ContextProfile): ContextProfile {
     }));
   return {
     ...profile,
+    categories: normalizeContextItems(profile.categories),
+    offering_groups: normalizeContextItems(profile.offering_groups),
+    offerings: normalizeContextItems(profile.offerings),
+    product_brands: normalizeContextItems(profile.product_brands),
+    competitors: normalizeContextItems(profile.competitors),
+    locations: {
+      physical_locations: normalizeContextItems(profile.locations?.physical_locations),
+      service_areas: normalizeContextItems(profile.locations?.service_areas),
+      visibility_markets: normalizeContextItems(profile.locations?.visibility_markets),
+      excluded_locations: normalizeContextItems(profile.locations?.excluded_locations),
+    },
+    goals: normalizeContextItems(profile.goals),
+    personas: normalizeContextItems(profile.personas),
+    differentiators: normalizeContextItems(profile.differentiators),
+    guardrails: normalizeGuardrails(profile.guardrails),
     scan_objective: {
       ...scanObjective,
       label: objectiveLabel(scanObjective.objective),
@@ -273,6 +329,27 @@ function manualItem(name: string, type: string, extra: Partial<ContextItem> = {}
   };
 }
 
+function normalizeTextValue(value: string): string {
+  return value.trim();
+}
+
+function normalizeContextItems(items: ContextItem[] | undefined): ContextItem[] {
+  const seen = new Set<string>();
+  return (items ?? [])
+    .map((item) => ({ ...item, name: normalizeTextValue(item.name) }))
+    .filter((item) => {
+      if (!item.name) return false;
+      const fingerprint = `${item.type}:${item.name.toLowerCase()}`;
+      if (seen.has(fingerprint)) return false;
+      seen.add(fingerprint);
+      return true;
+    });
+}
+
+function normalizeGuardrails(guardrails: string[] | undefined): string[] {
+  return Array.from(new Set((guardrails ?? []).map(normalizeTextValue).filter(Boolean)));
+}
+
 function itemLines(items: ContextItem[]): string {
   return items.map((item) => item.name).join("\n");
 }
@@ -286,9 +363,7 @@ function contextRows(items: ContextItem[]): number {
 function linesToItems(raw: string, type: string, extra: Partial<ContextItem> = {}): ContextItem[] {
   return raw
     .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 30)
+    .filter((line) => line.trim().length > 0)
     .map((name) => manualItem(name, type, extra));
 }
 
@@ -337,6 +412,17 @@ function contextMatchesForm(context: ClientContextData | null, form: FormState, 
   return contextUrl.trim().toLowerCase() === form.websiteUrl.trim().toLowerCase();
 }
 
+async function readApiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    if (typeof data?.detail === "string") return data.detail;
+    if (Array.isArray(data?.detail)) return data.detail.map((item: unknown) => String(item)).join(", ");
+  } catch {
+    // Keep fallback.
+  }
+  return fallback;
+}
+
 async function createClient(slug: string, form: FormState): Promise<ExistingClient> {
   const res = await fetch(`${API}/v1/clients`, {
     method: "POST",
@@ -350,7 +436,7 @@ async function createClient(slug: string, form: FormState): Promise<ExistingClie
       competitors: parseCompetitors(form.competitors),
     }),
   });
-  if (!res.ok) throw new Error(`Failed to save business (${res.status})`);
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to save business (${res.status})`));
   return res.json();
 }
 
@@ -360,14 +446,117 @@ async function getClientContext(clientId: string): Promise<ClientContextData | n
   return res.json();
 }
 
-async function discoverClientContext(clientId: string): Promise<ClientContextData> {
-  const res = await fetch(`${API}/v1/clients/${clientId}/context/discover`, { method: "POST" });
-  if (!res.ok) throw new Error(`Website discovery failed (${res.status})`);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function createCrawlerWorkspace(clientId: string, websiteUrl: string): Promise<{ workspace_id: string }> {
+  const res = await fetch(`${API}/v1/onboarding-workspaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: clientId,
+      website_url: websiteUrl,
+      consent_confirmed: true,
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to create discovery workspace (${res.status})`));
   return res.json();
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+async function createCrawlJob(workspaceId: string): Promise<CrawlJobData> {
+  const res = await fetch(`${API}/v1/onboarding-workspaces/${workspaceId}/crawl-jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ crawl_mode: "standard", max_pages: 25, max_depth: 3 }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to start website discovery (${res.status})`));
+  return res.json();
+}
+
+async function getCrawlJob(jobId: string): Promise<CrawlJobData> {
+  const res = await fetch(`${API}/v1/crawl-jobs/${jobId}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to poll website discovery (${res.status})`));
+  return res.json();
+}
+
+async function getReviewBundle(workspaceId: string): Promise<ReviewBundle> {
+  const res = await fetch(`${API}/v1/onboarding-workspaces/${workspaceId}/review`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to load review bundle (${res.status})`));
+  return res.json();
+}
+
+function reviewProfileToContext(review: ReviewBundle, clientId: string, form: FormState): ClientContextData {
+  const profile = review.profile;
+  const confidence = profile?.confidence_score ?? 0.72;
+  const website = profile?.website || form.websiteUrl;
+  const locations = (profile?.locations ?? []).map((name) => manualItem(name, "physical_location", {
+    confidence,
+    source_url: website,
+  }));
+  const converted: ContextProfile = normalizedProfile({
+    ...emptyProfile(form),
+    business: {
+      name: profile?.company_name || form.businessName,
+      type: "business",
+      confidence,
+      source_url: website,
+      website_url: website,
+    },
+    categories: profile?.industry ? [manualItem(profile.industry, "category", { confidence, source_url: website })] : emptyProfile(form).categories,
+    offerings: (profile?.services ?? []).map((name) => manualItem(name, "offering", {
+      confidence,
+      source_url: website,
+      bookable: true,
+    })),
+    product_brands: (profile?.products ?? []).map((name) => manualItem(name, "product_brand", {
+      confidence,
+      source_url: website,
+    })),
+    competitors: parseCompetitors(form.competitors).map((name) => manualItem(name, "competitor_business")),
+    locations: {
+      ...emptyProfile(form).locations,
+      physical_locations: locations,
+    },
+  });
+  return {
+    client_id: clientId,
+    status: review.job?.status === "failed" ? "failed" : "draft",
+    profile_json: converted,
+    evidence_json: {
+      page_count: review.pages.length || review.job?.pages_crawled || review.job?.pages_discovered || 0,
+      pages: review.pages,
+      warnings: [...(review.job?.warnings ?? []), ...(profile?.missing_fields ?? [])],
+    },
+    warnings_json: [...(review.job?.warnings ?? []), ...(profile?.missing_fields ?? [])],
+  };
+}
+
+async function editCrawlerBusinessProfile(workspaceId: string, profile: ContextProfile): Promise<void> {
+  const locations = [
+    ...profile.locations.physical_locations,
+    ...profile.locations.service_areas,
+    ...profile.locations.visibility_markets,
+  ].map((item) => item.name);
+  const res = await fetch(`${API}/v1/onboarding-workspaces/${workspaceId}/business-profile`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      company_name: profile.business.name,
+      industry: profile.categories[0]?.name ?? null,
+      products: profile.product_brands.map((item) => item.name),
+      services: profile.offerings.map((item) => item.name),
+      locations,
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to save reviewed crawler profile (${res.status})`));
+}
+
+async function approveCrawlerBusinessProfile(workspaceId: string): Promise<void> {
+  const res = await fetch(`${API}/v1/onboarding-workspaces/${workspaceId}/approve`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to approve crawler profile (${res.status})`));
 }
 
 async function saveClientContext(clientId: string, profile: ContextProfile, warnings: string[]): Promise<ClientContextData> {
@@ -380,7 +569,7 @@ async function saveClientContext(clientId: string, profile: ContextProfile, warn
       warnings_json: warnings,
     }),
   });
-  if (!res.ok) throw new Error(`Failed to confirm client context (${res.status})`);
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to confirm client context (${res.status})`));
   return res.json();
 }
 
@@ -549,7 +738,7 @@ function Step2({
   const pageCount = context?.evidence_json?.page_count ?? context?.evidence_json?.pages?.length ?? 0;
   const status = context?.status ?? (discovering ? "discovering" : "not_started");
   const isRunning = discovering || status === "discovering";
-  const readyToReview = !isRunning && status !== "failed";
+  const readyToReview = Boolean(context?.profile_json) && !isRunning && status !== "failed";
   return (
     <div>
       <span className={styles.stepBadge}>Step 2 of 4 · Website discovery</span>
@@ -590,7 +779,7 @@ function Step2({
               <button type="button" className={styles.secondaryBtn} onClick={onManual}>Enter manually</button>
             </>
           )}
-          <button type="button" className={styles.nextBtn} onClick={onNext} disabled={isRunning || status === "failed"}>
+          <button type="button" className={styles.nextBtn} onClick={onNext} disabled={!readyToReview}>
             Review extracted context
           </button>
         </div>
@@ -614,6 +803,29 @@ function ContextSection({
   onChange: (items: ContextItem[]) => void;
   extra?: Partial<ContextItem>;
 }) {
+  const renderedItems = itemLines(items);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isEditingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isEditingRef.current && textareaRef.current && textareaRef.current.value !== renderedItems) {
+      textareaRef.current.value = renderedItems;
+    }
+  }, [renderedItems]);
+
+  function handleChange(value: string) {
+    onChange(linesToItems(value, type, extra));
+  }
+
+  function handleBlur(value: string) {
+    isEditingRef.current = false;
+    const normalizedItems = normalizeContextItems(linesToItems(value, type, extra));
+    if (textareaRef.current) {
+      textareaRef.current.value = itemLines(normalizedItems);
+    }
+    onChange(normalizedItems);
+  }
+
   return (
     <section className={styles.contextSection}>
       <div className={styles.contextSectionHeader}>
@@ -624,9 +836,14 @@ function ContextSection({
         <span>{items.length}</span>
       </div>
       <textarea
+        ref={textareaRef}
         className={styles.contextTextarea}
-        value={itemLines(items)}
-        onChange={(event) => onChange(linesToItems(event.target.value, type, extra))}
+        defaultValue={renderedItems}
+        onFocus={() => {
+          isEditingRef.current = true;
+        }}
+        onBlur={(event) => handleBlur(event.currentTarget.value)}
+        onChange={(event) => handleChange(event.target.value)}
         rows={contextRows(items)}
       />
       {items.length > 0 && (
@@ -1206,6 +1423,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(DEFAULT);
   const [clientId, setClientId] = useState<string | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [context, setContext] = useState<ClientContextData | null>(null);
   const [profile, setProfile] = useState<ContextProfile>(emptyProfile(DEFAULT));
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -1269,28 +1487,44 @@ export default function OnboardingPage() {
     setDiscovering(true);
     setError(null);
     try {
-      let discovered = await discoverClientContext(id);
-      setContext(discovered);
-      setWarnings(discovered.warnings_json ?? []);
-      setProfile(normalizedProfile(discovered.profile_json ?? emptyProfile(form)));
+      const workspace = await createCrawlerWorkspace(id, form.websiteUrl);
+      setWorkspaceId(workspace.workspace_id);
+      let job = await createCrawlJob(workspace.workspace_id);
 
-      for (let attempt = 0; attempt < DISCOVERY_MAX_POLLS && discovered.status === "discovering"; attempt += 1) {
+      setContext({
+        client_id: id,
+        status: "discovering",
+        profile_json: null,
+        evidence_json: null,
+        warnings_json: ["Website discovery is running. AISO is reading public pages only."],
+      });
+
+      for (let attempt = 0; attempt < DISCOVERY_MAX_POLLS && ["queued", "running"].includes(job.status); attempt += 1) {
         await sleep(DISCOVERY_POLL_MS);
-        const latest = await getClientContext(id);
-        if (!latest) continue;
-        discovered = latest;
-        setContext(latest);
-        setWarnings(latest.warnings_json ?? []);
-        setProfile(normalizedProfile(latest.profile_json ?? emptyProfile(form)));
+        job = await getCrawlJob(job.job_id);
       }
 
-      if (discovered.status === "discovering") {
+      if (["queued", "running"].includes(job.status)) {
         setError("Website discovery is still running. You can wait, refresh discovery, or enter the context manually.");
-      } else if (discovered.status === "failed") {
+        return;
+      }
+
+      const review = await getReviewBundle(workspace.workspace_id);
+      const discoveredContext = await getClientContext(id);
+      const nextContext = discoveredContext?.profile_json
+        ? discoveredContext
+        : reviewProfileToContext(review, id, form);
+
+      setContext(nextContext);
+      setWarnings(nextContext.warnings_json ?? []);
+      setProfile(normalizedProfile(nextContext.profile_json ?? emptyProfile(form)));
+
+      if (job.status === "failed" || nextContext.status === "failed") {
         setError("AISO could not finish website discovery. Please confirm the client context manually.");
       }
     } catch (err) {
       setContext(null);
+      setWorkspaceId(null);
       setWarnings(["Website discovery failed safely. Please confirm the client context manually."]);
       setProfile(emptyProfile(form));
       setError(err instanceof Error ? err.message : "Website discovery failed safely.");
@@ -1305,6 +1539,7 @@ export default function OnboardingPage() {
     try {
       const client = await createClient(slugify(form.businessName), form);
       setClientId(client.id);
+      setWorkspaceId(null);
       const confirmedProfile = context?.profile_json;
       if (contextMatchesForm(context, form, client.id) && confirmedProfile) {
         setProfile(normalizedProfile(confirmedProfile));
@@ -1338,6 +1573,10 @@ export default function OnboardingPage() {
     setError(null);
     try {
       const normalized = normalizedProfile({ ...profile, buyer_contexts: readyBuyerContexts });
+      if (workspaceId) {
+        await editCrawlerBusinessProfile(workspaceId, normalized);
+        await approveCrawlerBusinessProfile(workspaceId);
+      }
       const saved = await saveClientContext(clientId, normalized, warnings);
       setContext(saved);
       setProfile(normalizedProfile(saved.profile_json ?? normalized));
@@ -1352,6 +1591,7 @@ export default function OnboardingPage() {
   }
 
   function handleManualContext() {
+    setWorkspaceId(null);
     setProfile(emptyProfile(form));
     setWarnings(["Classification confidence is low. Please confirm services, competitors, and locations manually."]);
     setStep(3);
