@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Callable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 
 # Type alias for a simple text fetcher used by the discovery layer.
