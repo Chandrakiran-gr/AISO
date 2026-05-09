@@ -46,6 +46,8 @@ type CompetitorMetric = {
   score: number;
   mention_count: number;
   is_you: boolean;
+  provider_scores?: Record<string, number>;
+  provider_mentions?: Record<string, number>;
 };
 
 type MetricsData = {
@@ -72,6 +74,7 @@ type DashboardState = {
   client: ClientData | null;
   scans: ScanData[];
   metrics: MetricsData | null;
+  gapReport: GapReport | null;
   actions: ActionData[];
   loading: boolean;
   error: string | null;
@@ -81,6 +84,33 @@ type ProviderMeta = {
   id: string;
   name: string;
   color: string;
+};
+
+type GapSource = {
+  domain: string;
+  missed_query_count: number;
+  providers: string[];
+  groups: string[];
+  example_questions: string[];
+  top_urls: string[];
+  owner_type?: string;
+  source_type?: string;
+  action_role?: string;
+};
+
+type GapQuery = {
+  question: string;
+  group: string;
+  group_label: string;
+  provider: string;
+  appeared: boolean;
+  cited_sources: { domain?: string | null; url?: string | null; title?: string | null }[];
+  priority_score: number;
+};
+
+type GapReport = {
+  source_opportunities: GapSource[];
+  query_results: GapQuery[];
 };
 
 const PROVIDERS = [
@@ -106,6 +136,10 @@ function providerStyle(color: string, score: number): CSSProperties {
     "--provider-color": color,
     "--provider-score": `${Math.max(0, Math.min(score, 100))}%`,
   } as CSSProperties;
+}
+
+function formatProvider(id: string): string {
+  return PROVIDER_META[id]?.name ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
 
 function formatDate(value?: string | null): string {
@@ -155,16 +189,22 @@ function ProviderCard({
   provider,
   metric,
   selected = false,
+  onSelect,
 }: {
   provider: ProviderMeta;
   metric?: ProviderMetric;
   selected?: boolean;
+  onSelect: () => void;
 }) {
   const score = metric?.score ?? 0;
   return (
-    <article
+    <button
+      type="button"
       className={`${styles.providerCard} ${selected ? styles.providerCardSelected : ""}`}
       style={providerStyle(provider.color, score)}
+      onClick={onSelect}
+      aria-expanded={selected}
+      aria-label={`Open ${provider.name} provider breakdown`}
     >
       <div className={styles.providerHeader}>
         <span className={styles.providerDot} />
@@ -182,13 +222,31 @@ function ProviderCard({
           ? `${metric.mention_count}/${metric.total_questions} mentions`
           : "No completed scan data"}
       </p>
-    </article>
+      <span className={styles.providerCardHint}>View breakdown</span>
+    </button>
   );
 }
 
-function CompetitorRow({ competitor }: { competitor: CompetitorMetric }) {
+function CompetitorRow({
+  competitor,
+  rank,
+  selected,
+  onSelect,
+}: {
+  competitor: CompetitorMetric;
+  rank: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <div className={styles.competitorRow}>
+    <button
+      type="button"
+      className={`${styles.competitorRow} ${selected ? styles.competitorRowSelected : ""}`}
+      onClick={onSelect}
+      aria-expanded={selected}
+      title={competitor.is_you ? "Your Business" : competitor.name}
+    >
+      <span className={styles.competitorRank}>#{rank}</span>
       <span className={styles.competitorName}>
         {competitor.is_you ? "Your Business" : competitor.name}
       </span>
@@ -201,8 +259,9 @@ function CompetitorRow({ competitor }: { competitor: CompetitorMetric }) {
           } as CSSProperties}
         />
       </span>
+      <span className={styles.competitorMentions}>{competitor.mention_count} mentions</span>
       <span className={styles.competitorScore}>{Math.round(competitor.score)}</span>
-    </div>
+    </button>
   );
 }
 
@@ -211,10 +270,13 @@ export default function DashboardPage() {
     client: null,
     scans: [],
     metrics: null,
+    gapReport: null,
     actions: [],
     loading: true,
     error: null,
   });
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [selectedCompetitorName, setSelectedCompetitorName] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -233,22 +295,28 @@ export default function DashboardPage() {
           return;
         }
 
-        const [scansRes, metricsRes, actionsRes] = await Promise.all([
-          fetch(`${API}/v1/clients/${client.id}/scans`, { cache: "no-store" }),
-          fetch(`${API}/v1/clients/${client.id}/metrics`, { cache: "no-store" }),
-          fetch(`${API}/v1/clients/${client.id}/actions?status=open`, { cache: "no-store" }),
-        ]);
-
+        const scansRes = await fetch(`${API}/v1/clients/${client.id}/scans`, { cache: "no-store" });
         if (!scansRes.ok) throw new Error("Unable to load scans");
         const scans: ScanData[] = await scansRes.json();
+        const latestComplete = scans.find((scan) => scan.status === "complete") ?? scans[0] ?? null;
+        const [metricsRes, actionsRes, gapReportRes] = await Promise.all([
+          fetch(`${API}/v1/clients/${client.id}/metrics`, { cache: "no-store" }),
+          fetch(`${API}/v1/clients/${client.id}/actions?status=open`, { cache: "no-store" }),
+          latestComplete
+            ? fetch(`${API}/v1/clients/${client.id}/gap-report?scan_id=${latestComplete.id}`, { cache: "no-store" })
+            : Promise.resolve(null),
+        ]);
+
         const metrics: MetricsData | null = metricsRes.ok ? await metricsRes.json() : null;
         const actions: ActionData[] = actionsRes.ok ? await actionsRes.json() : [];
+        const gapReport: GapReport | null = gapReportRes && gapReportRes.ok ? await gapReportRes.json() : null;
 
         if (active) {
           setState({
             client,
             scans,
             metrics,
+            gapReport,
             actions,
             loading: false,
             error: null,
@@ -293,6 +361,21 @@ export default function DashboardPage() {
           }
         ))
     : PROVIDERS;
+  const selectedProvider = selectedProviderId
+    ? visibleProviders.find((provider) => provider.id === selectedProviderId) ?? null
+    : null;
+  const selectedProviderMetric = selectedProvider ? providerMetrics.get(selectedProvider.id) : undefined;
+  const selectedProviderMisses = state.gapReport?.query_results
+    .filter((query) => query.provider.toLowerCase() === selectedProvider?.id.toLowerCase() && !query.appeared)
+    .slice()
+    .sort((a, b) => b.priority_score - a.priority_score)
+    .slice(0, 5) ?? [];
+  const selectedProviderSources = state.gapReport?.source_opportunities
+    .filter((source) => source.providers.some((provider) => provider.toLowerCase() === selectedProvider?.id.toLowerCase()))
+    .slice(0, 5) ?? [];
+  const selectedCompetitor = selectedCompetitorName
+    ? topCompetitors.find((competitor) => competitor.name === selectedCompetitorName) ?? null
+    : null;
 
   return (
     <div className={styles.page}>
@@ -359,7 +442,7 @@ export default function DashboardPage() {
             <span className={styles.cardLabelTeal}>Overall score</span>
             <ScoreRing score={state.metrics?.overall_score ?? 0} />
             <p className={styles.scoreCaption}>AI Visibility Score</p>
-            <Link href="/dashboard/responses" className={styles.secondaryButton}>View proof</Link>
+            <Link href="/dashboard/responses" className={styles.proofCta}>View proof report</Link>
           </article>
 
           <article className={`${styles.card} ${styles.urgencyCard}`}>
@@ -384,8 +467,17 @@ export default function DashboardPage() {
             <span className={styles.cardLabelViolet}>Top competitors</span>
             <div className={styles.competitorList}>
               {topCompetitors.length ? (
-                topCompetitors.map((competitor) => (
-                  <CompetitorRow key={`${competitor.name}-${competitor.is_you}`} competitor={competitor} />
+                topCompetitors.map((competitor, index) => (
+                  <CompetitorRow
+                    key={`${competitor.name}-${competitor.is_you}`}
+                    competitor={competitor}
+                    rank={index + 1}
+                    selected={selectedCompetitorName === competitor.name}
+                    onSelect={() => {
+                      setSelectedCompetitorName(competitor.name);
+                      setSelectedProviderId(null);
+                    }}
+                  />
                 ))
               ) : (
                 <p className={styles.heroSub}>Competitor metrics will appear after a completed scan.</p>
@@ -398,33 +490,120 @@ export default function DashboardPage() {
         <section aria-labelledby="providers-heading">
           <h2 id="providers-heading" className={styles.sectionLabel}>Provider breakdown</h2>
           <div className={styles.providerGrid}>
-            {visibleProviders.map((provider, index) => (
+            {visibleProviders.map((provider) => (
               <ProviderCard
                 key={provider.id}
                 provider={provider}
                 metric={providerMetrics.get(provider.id)}
-                selected={index === 0}
+                selected={selectedProviderId === provider.id}
+                onSelect={() => {
+                  setSelectedProviderId(provider.id);
+                  setSelectedCompetitorName(null);
+                }}
               />
             ))}
           </div>
         </section>
 
-        <section className={styles.lowerGrid}>
-          <article className={`${styles.card} ${styles.trendCard}`}>
-            <span className={styles.cardLabel}>Intent Group Breakdown</span>
-            <div className={styles.actionList}>
-              {(state.metrics?.group_metrics ?? []).map((group) => (
-                <div key={group.id} className={styles.actionRow}>
-                  <span>{group.id} · {group.label}</span>
-                  <strong>{Math.round(group.score)}</strong>
-                </div>
-              ))}
-              {!state.metrics?.group_metrics.length && (
-                <p className={styles.heroSub}>Intent group scores will appear after scan metrics are available.</p>
-              )}
-            </div>
-          </article>
+        {(selectedProvider || selectedCompetitor) && (
+          <div className={styles.sidePanelLayer} role="presentation">
+            <button
+              type="button"
+              className={styles.sidePanelBackdrop}
+              aria-label="Close dashboard detail panel"
+              onClick={() => {
+                setSelectedProviderId(null);
+                setSelectedCompetitorName(null);
+              }}
+            />
+            <aside className={styles.sidePanel} role="dialog" aria-modal="true">
+              <button
+                type="button"
+                className={styles.sidePanelClose}
+                onClick={() => {
+                  setSelectedProviderId(null);
+                  setSelectedCompetitorName(null);
+                }}
+              >
+                Close
+              </button>
 
+              {selectedProvider && (
+                <>
+                  <span className={styles.cardLabelTeal}>Provider breakdown</span>
+                  <h2>{selectedProvider.name}</h2>
+                  <p className={styles.heroSub}>
+                    {selectedProviderMetric
+                      ? `${selectedProviderMetric.mention_count} of ${selectedProviderMetric.total_questions} answers mentioned ${state.client?.name ?? "your brand"}.`
+                      : "Provider metrics will appear after a completed scan."}
+                  </p>
+                  <div className={styles.sidePanelMeta}>
+                    <span>{Math.round(selectedProviderMetric?.score ?? 0)} score</span>
+                    <span>{selectedProviderMetric ? selectedProviderMetric.total_questions - selectedProviderMetric.mention_count : 0} misses</span>
+                    <span>{selectedProviderSources.length} sources</span>
+                  </div>
+                  <div className={styles.sidePanelSection}>
+                    <h3>Highest-priority missed questions</h3>
+                    {selectedProviderMisses.length ? selectedProviderMisses.map((query) => (
+                      <Link
+                        key={`${query.provider}-${query.group}-${query.question}`}
+                        href={`/dashboard/responses?tab=missed&provider=${selectedProvider.id}`}
+                        className={styles.drilldownRow}
+                      >
+                        <span>{query.group_label || query.group}</span>
+                        <strong>{query.question}</strong>
+                      </Link>
+                    )) : (
+                      <p>No missed questions were isolated for this provider.</p>
+                    )}
+                  </div>
+                  <div className={styles.sidePanelSection}>
+                    <h3>Top cited sources</h3>
+                    {selectedProviderSources.length ? selectedProviderSources.map((source) => (
+                      <Link
+                        key={`${selectedProvider.id}-${source.domain}`}
+                        href={`/dashboard/responses?tab=sources&provider=${selectedProvider.id}`}
+                        className={styles.drilldownRowCompact}
+                      >
+                        <strong>{source.domain}</strong>
+                        <span>{source.missed_query_count} misses</span>
+                      </Link>
+                    )) : (
+                      <p>Source opportunities will appear after evidence is available.</p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {selectedCompetitor && (
+                <>
+                  <span className={styles.cardLabelViolet}>Competitor breakdown</span>
+                  <h2>{selectedCompetitor.is_you ? "Your Business" : selectedCompetitor.name}</h2>
+                  <p className={styles.heroSub}>Compare mention share and provider-level pressure before opening the full competitor report.</p>
+                  <div className={styles.sidePanelMeta}>
+                    <span>{Math.round(selectedCompetitor.score)} overall</span>
+                    <span>{selectedCompetitor.mention_count} mentions</span>
+                    <span>{Object.keys(selectedCompetitor.provider_scores ?? {}).length} providers</span>
+                  </div>
+                  <div className={styles.sidePanelSection}>
+                    <h3>Provider scores</h3>
+                    <div className={styles.providerScoreTable}>
+                      {visibleProviders.map((provider) => (
+                        <div key={`${selectedCompetitor.name}-${provider.id}`}>
+                          <span>{formatProvider(provider.id)}</span>
+                          <strong>{Math.round(selectedCompetitor.provider_scores?.[provider.id] ?? 0)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Link href="/dashboard/competitors" className={styles.primaryButton}>Open full comparison</Link>
+                </>
+              )}
+            </aside>
+          </div>
+        )}
+
+        <section className={styles.dashboardActionGrid}>
           <article className={`${styles.card} ${styles.actionsCard}`}>
             <span className={styles.cardLabelTeal}>Priority actions</span>
             <p className={styles.actionSummary}>
