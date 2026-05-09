@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, s
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 import uuid
 import json
 import os
@@ -33,6 +34,27 @@ router = APIRouter(tags=["pipeline"])
 
 DEFAULT_PROVIDERS = ["openai", "claude", "perplexity", "gemini"]
 DEFAULT_GROUPS = ["G1", "G2", "G4"]
+
+GAP_GROUP_LABELS = {
+    "G1": "Local discovery",
+    "G2": "Branded direct",
+    "G3": "Competitors and alternatives",
+    "G4": "Transactional and price",
+    "G5": "Trust, reviews and safety",
+    "G6": "Concern, outcome and fit",
+    "G7": "Method comparison and head-to-head",
+    "all": "All questions",
+}
+
+GAP_GROUP_IMPACT = {
+    "G1": 8.5,
+    "G2": 6.0,
+    "G3": 8.8,
+    "G4": 9.4,
+    "G5": 8.0,
+    "G6": 9.2,
+    "G7": 9.0,
+}
 
 
 class BYOKKeys(BaseModel):
@@ -597,6 +619,329 @@ def _weighted_score(mentions: int, total: int) -> float:
     return round((mentions / total) * 100, 2) if total else 0.0
 
 
+def _client_domain(client_url: Optional[str]) -> Optional[str]:
+    raw = str(client_url or "").strip()
+    if not raw:
+        return None
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+    try:
+        host = urlsplit(raw).netloc.lower()
+    except ValueError:
+        return None
+    return host.removeprefix("www.") or None
+
+
+def _answer_mentions_client(answer: Optional[str], client: Client) -> bool:
+    clean = str(answer or "").lower()
+    if not clean:
+        return False
+    names = {
+        str(client.name or "").strip().lower(),
+        str(client.id or "").replace("_", " ").replace("-", " ").strip().lower(),
+    }
+    return any(name and name in clean for name in names)
+
+
+def _gap_impact_label(score: float) -> str:
+    if score >= 8.5:
+        return "high"
+    if score >= 6.5:
+        return "medium"
+    return "low"
+
+
+def _citation_source_payload(citation: ScanCitation) -> dict[str, Any]:
+    return {
+        "url": citation.citation_url,
+        "title": citation.citation_title,
+        "domain": citation.source_domain,
+        "rank": citation.source_rank,
+        "canonical_url": citation.canonical_url or citation.citation_url,
+        "citation_origin": citation.citation_origin,
+        "cited_text": citation.cited_text,
+        "web_search_used": citation.web_search_used,
+        "owner_type": citation.owner_type or "unknown",
+        "source_type": citation.source_type or "unknown_review_needed",
+        "action_role": citation.action_role or "direct_citation_target",
+        "actionability_score": float(citation.actionability_score or 0),
+        "influence_score": float(citation.influence_score or 0),
+        "relevance_score": float(citation.relevance_score or 0),
+        "confidence_score": float(citation.confidence_score or 0),
+        "classification_reason": citation.classification_reason,
+    }
+
+
+def _source_title(domain: str) -> str:
+    if domain.endswith("google.com"):
+        return "Strengthen Google Business Profile and local proof"
+    if domain.endswith("yelp.com"):
+        return "Improve Yelp/review proof for missed queries"
+    if domain.endswith("facebook.com") or domain.endswith("instagram.com"):
+        return "Improve social profile proof and service language"
+    return f"Build citation/proof coverage on {domain}"
+
+
+def _db_backed_gap_report(db: Session, client: Client, scan: Scan) -> dict[str, Any]:
+    """Build proof view from persisted scan rows when the raw CSV is unavailable."""
+    results = db.query(ScanResult).filter(
+        ScanResult.scan_id == scan.id,
+        ScanResult.client_id == client.id,
+    ).all()
+    citations = db.query(ScanCitation).filter(
+        ScanCitation.scan_id == scan.id,
+        ScanCitation.client_id == client.id,
+    ).all()
+
+    total_results = sum(int(row.total_questions or 0) for row in results)
+    appeared_count = sum(int(row.mention_count or 0) for row in results)
+    missed_count = max(total_results - appeared_count, 0)
+    client_domain = _client_domain(client.url)
+
+    coverage = []
+    weak_segments = []
+    competitor_counts: dict[str, int] = {}
+    for row in results:
+        total = int(row.total_questions or 0)
+        appeared = int(row.mention_count or 0)
+        missed = max(total - appeared, 0)
+        score = float(row.visibility_score or _weighted_score(appeared, total))
+        group = row.group or "all"
+        provider = row.provider or "unknown"
+        coverage.append(
+            {
+                "group": group,
+                "group_label": GAP_GROUP_LABELS.get(group, group),
+                "provider": provider,
+                "total": total,
+                "appeared": appeared,
+                "missed": missed,
+                "appearance_rate": _weighted_score(appeared, total),
+            }
+        )
+        if score < 70:
+            weak_segments.append(
+                {
+                    "provider": provider,
+                    "group": group,
+                    "group_label": GAP_GROUP_LABELS.get(group, group),
+                    "score": score,
+                    "appeared": appeared,
+                    "total": total,
+                    "missed": missed,
+                }
+            )
+        for name, count in _safe_json_dict(row.competitor_data).items():
+            competitor_counts[name] = competitor_counts.get(name, 0) + count
+
+    weak_segments.sort(key=lambda item: (item["score"], -GAP_GROUP_IMPACT.get(item["group"], 0)))
+
+    citations_by_query: dict[tuple[str, str, str], list[ScanCitation]] = {}
+    for citation in citations:
+        key = (citation.provider, citation.group or "all", citation.question or "")
+        citations_by_query.setdefault(key, []).append(citation)
+
+    source_buckets: dict[str, dict[str, Any]] = {}
+    query_results = []
+    for (provider, group, question), query_citations in citations_by_query.items():
+        answer_excerpt = next((item.answer_excerpt for item in query_citations if item.answer_excerpt), None)
+        appeared = _answer_mentions_client(answer_excerpt, client)
+        source_payloads = [_citation_source_payload(item) for item in query_citations]
+        query_results.append(
+            {
+                "question": question,
+                "group": group,
+                "group_label": GAP_GROUP_LABELS.get(group, group),
+                "provider": provider,
+                "appeared": appeared,
+                "mention_rank": 1 if appeared else None,
+                "competitors_mentioned": [],
+                "cited_sources": source_payloads,
+                "answer_excerpt": answer_excerpt,
+                "priority_score": round(min(GAP_GROUP_IMPACT.get(group, 6.0) + (0 if appeared else 1.2), 10.0), 2),
+            }
+        )
+        if appeared:
+            continue
+        for source in source_payloads:
+            domain = str(source.get("domain") or "").lower()
+            if not domain or domain == client_domain:
+                continue
+            bucket = source_buckets.setdefault(
+                domain,
+                {
+                    "domain": domain,
+                    "missed_query_count": 0,
+                    "providers": set(),
+                    "groups": set(),
+                    "example_questions": [],
+                    "top_urls": [],
+                    "owner_type": source.get("owner_type") or "unknown",
+                    "source_type": source.get("source_type") or "unknown_review_needed",
+                    "action_role": source.get("action_role") or "direct_citation_target",
+                    "actionability_score": float(source.get("actionability_score") or 0),
+                    "confidence_score": float(source.get("confidence_score") or 0),
+                    "classification_reason": source.get("classification_reason"),
+                },
+            )
+            bucket["missed_query_count"] += 1
+            bucket["providers"].add(provider)
+            bucket["groups"].add(group)
+            if question and question not in bucket["example_questions"]:
+                bucket["example_questions"].append(question)
+            if source.get("url") and source["url"] not in bucket["top_urls"]:
+                bucket["top_urls"].append(source["url"])
+            bucket["actionability_score"] = max(
+                float(bucket.get("actionability_score") or 0),
+                float(source.get("actionability_score") or 0),
+            )
+            bucket["confidence_score"] = max(
+                float(bucket.get("confidence_score") or 0),
+                float(source.get("confidence_score") or 0),
+            )
+
+    source_opportunities = [
+        {
+            "domain": source["domain"],
+            "missed_query_count": source["missed_query_count"],
+            "providers": sorted(source["providers"]),
+            "groups": sorted(source["groups"]),
+            "example_questions": source["example_questions"][:3],
+            "top_urls": source["top_urls"][:3],
+            "owner_type": source.get("owner_type") or "unknown",
+            "source_type": source.get("source_type") or "unknown_review_needed",
+            "action_role": source.get("action_role") or "direct_citation_target",
+            "actionability_score": round(float(source.get("actionability_score") or 0), 2),
+            "confidence_score": round(float(source.get("confidence_score") or 0), 2),
+            "classification_reason": source.get("classification_reason"),
+        }
+        for source in source_buckets.values()
+    ]
+    source_opportunities.sort(
+        key=lambda item: (item["actionability_score"], item["missed_query_count"]),
+        reverse=True,
+    )
+
+    listing_targets = [
+        source for source in source_opportunities
+        if source["action_role"] == "listing_or_profile_target"
+    ]
+    direct_targets = [
+        source for source in source_opportunities
+        if source["action_role"] in {"direct_citation_target", "listing_or_profile_target"}
+    ]
+    publisher_targets = [
+        source for source in source_opportunities
+        if source["action_role"] == "partnership_or_pr_target"
+    ]
+    authority_content_gaps = [
+        source for source in source_opportunities
+        if source["action_role"] == "content_gap_signal"
+    ]
+    competitive_evidence = [
+        source for source in source_opportunities
+        if source["action_role"] == "competitive_evidence" or source["owner_type"] == "competitor_owned"
+    ]
+    noise_sources = [
+        source for source in source_opportunities
+        if source["action_role"] == "ignore" or source["source_type"] == "low_value_or_noise"
+    ]
+
+    competitor_gaps = [
+        {
+            "name": name,
+            "missed_query_count": count,
+            "providers": [],
+            "groups": [],
+            "example_questions": [],
+        }
+        for name, count in sorted(competitor_counts.items(), key=lambda item: item[1], reverse=True)
+    ]
+
+    priority_fixes: list[dict[str, Any]] = []
+    for segment in weak_segments[:4]:
+        score = GAP_GROUP_IMPACT.get(segment["group"], 6.0) + (70 - segment["score"]) / 20
+        priority_fixes.append(
+            {
+                "title": f"Close {segment['group_label']} gaps on {segment['provider']}",
+                "impact": _gap_impact_label(score),
+                "score": round(min(score, 10.0), 2),
+                "why": (
+                    f"{segment['missed']} of {segment['total']} provider-question results did not mention "
+                    f"{client.name}."
+                ),
+                "next_step": "Add or improve service, FAQ, review, and proof content matching these missed query intents.",
+                "evidence": {
+                    "provider": segment["provider"],
+                    "group": segment["group"],
+                    "visibility_score": segment["score"],
+                },
+            }
+        )
+    for source in direct_targets[:3]:
+        score = min(9.5, 6.5 + source["missed_query_count"] * 0.4)
+        priority_fixes.append(
+            {
+                "title": _source_title(source["domain"]),
+                "impact": _gap_impact_label(score),
+                "score": round(score, 2),
+                "why": f"{source['domain']} was cited on {source['missed_query_count']} missed query results.",
+                "next_step": "Create, claim, improve, or align proof on this source if it is realistically influenceable.",
+                "evidence": {
+                    "domain": source["domain"],
+                    "source_type": source["source_type"],
+                    "action_role": source["action_role"],
+                    "example_questions": source["example_questions"][:2],
+                    "top_urls": source["top_urls"][:2],
+                },
+            }
+        )
+    priority_fixes.sort(key=lambda item: item["score"], reverse=True)
+
+    web_search_known = [item for item in citations if item.web_search_used is not None]
+    web_search_used_count = sum(1 for item in web_search_known if item.web_search_used)
+    return {
+        "client_id": client.id,
+        "client_name": client.name,
+        "scan_id": scan.id,
+        "summary": {
+            "total_provider_question_results": total_results,
+            "appeared_count": appeared_count,
+            "missed_count": missed_count,
+            "appearance_rate": _weighted_score(appeared_count, total_results),
+            "source_opportunity_count": len(source_opportunities),
+            "competitor_gap_count": len(competitor_gaps),
+            "actionable_source_count": len(direct_targets) + len(publisher_targets),
+            "competitive_evidence_count": len(competitive_evidence),
+            "content_gap_count": len(authority_content_gaps),
+            "low_confidence_source_count": sum(1 for item in source_opportunities if item["confidence_score"] < 6),
+            "web_search_coverage": {
+                "known_source_count": len(web_search_known),
+                "used_source_count": web_search_used_count,
+                "coverage_rate": _weighted_score(web_search_used_count, len(web_search_known)),
+            },
+        },
+        "coverage": coverage,
+        "weak_segments": weak_segments,
+        "source_opportunities": source_opportunities[:20],
+        "source_intelligence": {
+            "direct_targets": direct_targets[:20],
+            "listing_targets": listing_targets[:20],
+            "publisher_targets": publisher_targets[:20],
+            "authority_content_gaps": authority_content_gaps[:20],
+            "competitive_evidence": competitive_evidence[:20],
+            "noise_sources": noise_sources[:20],
+        },
+        "competitive_evidence": competitive_evidence[:20],
+        "authority_content_gaps": authority_content_gaps[:20],
+        "noise_sources": noise_sources[:20],
+        "competitor_gaps": competitor_gaps[:20],
+        "priority_fixes": priority_fixes[:8],
+        "query_results": sorted(query_results, key=lambda item: (item["appeared"], -item["priority_score"]))[:200],
+        "report_source": "database_fallback",
+    }
+
+
 @router.get("/clients/{client_id}/metrics", response_model=MetricsResponse)
 async def get_client_metrics(
     client_id: str,
@@ -814,7 +1159,7 @@ async def get_client_gap_report(
         ScanArtifact.artifact_type == "collect_csv",
     ).order_by(ScanArtifact.created_at.desc()).first()
     if not artifact:
-        raise HTTPException(status_code=404, detail="Raw scan artifact not found for gap report")
+        return _db_backed_gap_report(db, client, scan)
 
     try:
         with materialize_artifact_file(artifact) as artifact_path:
@@ -825,7 +1170,8 @@ async def get_client_gap_report(
                 fallback_competitors=_client_competitors(client),
             )
     except ArtifactStorageError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        print(f"[AISO Gap Report] Falling back to DB rows for scan {scan.id}: {exc}")
+        return _db_backed_gap_report(db, client, scan)
     return build_gap_report(
         GapReportInput(
             rows=rows,
