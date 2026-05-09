@@ -1,4 +1,5 @@
 import tempfile
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -8,6 +9,8 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 from api.database import Base
+
+MIGRATIONS_DIR = Path("migrations/versions")
 
 
 def _alembic_config(db_path: Path) -> Config:
@@ -65,6 +68,26 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("client_contexts", inspector.get_table_names())
             finally:
                 engine.dispose()
+
+    def test_boolean_defaults_are_postgres_safe(self):
+        unsafe_boolean_default = re.compile(
+            r"sa\.Column\([^)]*sa\.Boolean\(\)[^)]*server_default=sa\.text\([\"'][01][\"']\)",
+            re.DOTALL,
+        )
+        offenders: list[str] = []
+
+        for migration_path in MIGRATIONS_DIR.glob("*.py"):
+            source = migration_path.read_text(encoding="utf-8")
+            if "sa.Boolean" not in source:
+                continue
+            if unsafe_boolean_default.search(source):
+                offenders.append(str(migration_path))
+
+        self.assertEqual(
+            [],
+            offenders,
+            "Boolean server defaults must use sa.false()/sa.true(), not integer text defaults, so PostgreSQL migrations work.",
+        )
 
 
 if __name__ == "__main__":
