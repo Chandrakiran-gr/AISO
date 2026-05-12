@@ -196,6 +196,62 @@
   color: var(--text-secondary);
 }
 
+.onboardingPrompt {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  border: 1px solid rgba(0, 212, 170, 0.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(0, 212, 170, 0.09), rgba(124, 92, 252, 0.06)),
+    rgba(22, 25, 35, 0.82);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+  padding: 24px;
+}
+
+.onboardingPrompt h2 {
+  margin-top: 10px;
+  color: var(--text-primary);
+  font-size: 1.35rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.onboardingPrompt p {
+  max-width: 780px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.onboardingPrompt .newScanBtn {
+  flex: 0 0 auto;
+}
+
+.onboardingSteps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 680px;
+  margin-top: 18px;
+}
+
+.onboardingSteps span {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 12px;
+  background: rgba(15, 17, 23, 0.38);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 850;
+  line-height: 1.35;
+  padding: 0 12px;
+}
+
 .summaryGrid {
   display: grid;
   grid-template-columns: minmax(260px, 0.86fr) minmax(260px, 0.86fr) minmax(420px, 1.28fr);
@@ -2298,6 +2354,15 @@
 
   .hero {
     flex-direction: column;
+  }
+
+  .onboardingPrompt {
+    flex-direction: column;
+    padding: 18px;
+  }
+
+  .onboardingSteps {
+    grid-template-columns: 1fr;
   }
 
   .providerGrid {

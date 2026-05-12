@@ -61,6 +61,8 @@ DEFAULT_PROVIDER_MIN_INTERVAL_SEC = {
     "gemini": 0.0,
 }
 
+MANUAL_GROUP = "MANUAL"
+
 
 def _env_float(name: str, default: float) -> float:
     value = os.environ.get(name, "").strip()
@@ -231,6 +233,9 @@ def _interactive_group_picker(
     elif pick_all is not None:
         # Non-interactive mode
         for gid, rows in grouped.items():
+            if gid == MANUAL_GROUP:
+                picks[gid] = len(rows)
+                continue
             picks[gid] = min(pick_all, len(rows))
         print(f"\n  --pick-all {pick_all}: taking top {pick_all} from each group.")
     else:
@@ -239,6 +244,10 @@ def _interactive_group_picker(
         print(f"  (Press Enter for default={DEFAULT_PER_GROUP}, type 0 to skip a group)\n")
 
         for gid, rows in grouped.items():
+            if gid == MANUAL_GROUP:
+                picks[gid] = len(rows)
+                print(f"  {gid} - Custom Questions ({len(rows)} available): taking all client-authored questions.")
+                continue
             label = rows[0].get("group_label", gid) if rows else gid
             available = len(rows)
 

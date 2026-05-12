@@ -57,6 +57,9 @@ GROUP_LABELS = {
     "G7": "Head-to-head choice",
 }
 
+MANUAL_GROUP = "MANUAL"
+MANUAL_GROUP_LABEL = "Custom Questions"
+
 
 def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().casefold() in {"1", "true", "yes", "on"}
@@ -386,10 +389,35 @@ def _render_question(template: str, values: dict[str, str]) -> str:
     return re.sub(r"\s+", " ", result).strip()
 
 
+def _manual_question_rows(custom_questions: Iterable[str] | None) -> list[dict[str, str]]:
+    """Build scan-specific custom question rows that bypass ranking/scoring."""
+    rows: list[dict[str, str]] = []
+    for index, question in enumerate(custom_questions or [], start=1):
+        clean = re.sub(r"\s+", " ", str(question or "")).strip()
+        if not clean:
+            continue
+        row = {header: "" for header in QUERY_BANK_HEADERS}
+        row.update(
+            {
+                "question": clean,
+                "group": MANUAL_GROUP,
+                "group_label": MANUAL_GROUP_LABEL,
+                "group_rank": str(index),
+                "intent_subtype": "client_authored",
+                "query_mode": "client_authored",
+                "priority": "manual",
+                "rank_reason": "Client-authored question for this scan.",
+            }
+        )
+        rows.append(row)
+    return rows
+
+
 def prepare_scan_workspace(
     client: Client,
     context_profile: dict | None = None,
     selected_groups: list[str] | None = None,
+    custom_questions: list[str] | None = None,
 ) -> Path:
     """Create/update the local client folder needed by collect.py."""
     workspace_slug, public_slug = scan_workspace_slugs(client)
@@ -439,6 +467,7 @@ def prepare_scan_workspace(
         selected_groups=selected_groups,
         report_path=client_folder / "question_ranking_report.json",
     )
+    rows.extend(_manual_question_rows(custom_questions))
     if _env_flag("AISO_QUESTION_WRITE_EXTENDED_BANK"):
         extended_rows = profile_to_question_rows(
             question_profile,

@@ -41,6 +41,12 @@ class GapReportTests(unittest.TestCase):
                 ),
                 "response_openai": "Bella Boutique Spa and Glowbar are visible options.",
             },
+            {
+                "question": "Client-authored question that should not affect templated gaps?",
+                "group": "MANUAL",
+                "response_perplexity": "Bella Boutique Spa appears here.",
+                "response_openai": "Glowbar Chestnut Hill appears here.",
+            },
         ]
 
         report = build_gap_report(
@@ -59,6 +65,7 @@ class GapReportTests(unittest.TestCase):
         self.assertEqual(report["summary"]["appeared_count"], 1)
         self.assertEqual(report["summary"]["missed_count"], 3)
         self.assertTrue(any(not item["appeared"] for item in report["query_results"]))
+        self.assertFalse(any(item["group"] == "MANUAL" for item in report["query_results"]))
         self.assertTrue(any(item["domain"] == "yelp.com" for item in report["source_opportunities"]))
         self.assertTrue(any(item["name"] == "Glowbar Chestnut Hill" for item in report["competitor_gaps"]))
         self.assertTrue(report["priority_fixes"])

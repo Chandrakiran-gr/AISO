@@ -570,6 +570,17 @@ def build_action_recommendations(
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """Return deterministic action rows ready for persistence."""
+    results = [
+        result
+        for result in results
+        if str(getattr(result, "group", "") or "").strip().upper() != "MANUAL"
+    ]
+    if citations is not None:
+        citations = [
+            citation
+            for citation in citations
+            if str(getattr(citation, "group", "") or "").strip().upper() != "MANUAL"
+        ]
     if not results:
         return []
 

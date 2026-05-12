@@ -3,7 +3,9 @@ import csv
 import tempfile
 from pathlib import Path
 
-from api.routes.pipeline import _estimate_api_calls, _extract_script_failure, _public_error
+from pydantic import ValidationError
+
+from api.routes.pipeline import ScanCreate, _estimate_api_calls, _extract_script_failure, _public_error
 
 
 class PipelineErrorTests(unittest.TestCase):
@@ -75,6 +77,52 @@ RuntimeError: 5 consecutive empty responses — likely an API configuration issu
             )
 
         self.assertEqual(estimate, (5, 2, 10))
+
+    def test_estimates_manual_questions_even_when_pick_all_caps_groups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bank = Path(tmp) / "query_template_bank.csv"
+            with bank.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["question", "group"])
+                writer.writeheader()
+                for index in range(6):
+                    writer.writerow({"question": f"G1 question {index}", "group": "G1"})
+                for index in range(9):
+                    writer.writerow({"question": f"Manual question {index}", "group": "MANUAL"})
+
+            estimate = _estimate_api_calls(
+                bank,
+                groups=["G1"],
+                providers=["openai", "gemini"],
+                pick_all=3,
+            )
+
+        self.assertEqual(estimate, (12, 2, 24))
+
+    def test_scan_create_normalizes_and_dedupes_custom_questions(self):
+        payload = ScanCreate(
+            client_id="client-1",
+            custom_questions=[
+                "  What sources cite AISO for local businesses?  ",
+                "What   sources cite AISO for local businesses?",
+                "How does AISO compare with Scrunch?",
+            ],
+        )
+
+        self.assertEqual(
+            payload.custom_questions,
+            [
+                "What sources cite AISO for local businesses?",
+                "How does AISO compare with Scrunch?",
+            ],
+        )
+
+    def test_scan_create_rejects_empty_custom_questions_but_allows_long_text(self):
+        with self.assertRaises(ValidationError):
+            ScanCreate(client_id="client-1", custom_questions=["   "])
+
+        long_question = "What should AISO test? " + ("Long context. " * 100)
+        payload = ScanCreate(client_id="client-1", custom_questions=[long_question])
+        self.assertEqual(payload.custom_questions, [long_question.strip()])
 
 
 if __name__ == "__main__":

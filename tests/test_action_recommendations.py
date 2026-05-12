@@ -79,6 +79,18 @@ class ActionRecommendationTests(unittest.TestCase):
         self.assertEqual(entity["priority"], "high")
         self.assertEqual(json.loads(entity["evidence_json"])["overall_score"], 0.0)
 
+    def test_manual_results_do_not_create_benchmark_actions(self):
+        actions = build_action_recommendations(
+            [
+                result("openai", "MANUAL", 10, 0, {"Rival Spa": 10}),
+            ],
+            citations=[
+                citation("openai", "MANUAL", "rival.example"),
+            ],
+        )
+
+        self.assertEqual(actions, [])
+
     def test_weak_group_creates_group_specific_content_action(self):
         actions = build_action_recommendations([
             result("openai", "G5", 12, 2),

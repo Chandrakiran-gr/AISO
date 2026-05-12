@@ -40,6 +40,34 @@ type ScanDetail = {
   artifacts: ArtifactData[];
 };
 
+type CustomCitation = {
+  url?: string | null;
+  title?: string | null;
+  domain?: string | null;
+  rank?: number | null;
+  source_type?: string | null;
+  owner_type?: string | null;
+  action_role?: string | null;
+};
+
+type CustomProviderResult = {
+  mentioned: boolean;
+  answer_excerpt?: string | null;
+  citations: CustomCitation[];
+};
+
+type CustomQuestionResult = {
+  question: string;
+  providers: Record<string, CustomProviderResult>;
+};
+
+type CustomQuestionsData = {
+  scan_id: string;
+  client_id: string;
+  data_status: string;
+  questions: CustomQuestionResult[];
+};
+
 function formatDate(value?: string | null): string {
   if (!value) return "Not set";
   return new Date(value).toLocaleString("en-US", {
@@ -81,6 +109,20 @@ function artifactMeta(artifact: ArtifactData, scan: ScanDetail): string {
   return `${format} • ${formatBytes(artifact.size_bytes)} • Generated ${formatDate(generatedAt)}`;
 }
 
+function providerLabel(provider: string): string {
+  const labels: Record<string, string> = {
+    openai: "ChatGPT",
+    claude: "Claude",
+    perplexity: "Perplexity",
+    gemini: "Gemini",
+  };
+  return labels[provider] ?? provider;
+}
+
+function sourceLabel(citation: CustomCitation): string {
+  return citation.title || citation.domain || citation.url || "Source";
+}
+
 export default function ScanDetailPage() {
   const params = useParams<{ scanId: string }>();
   const { data: session } = useSession();
@@ -88,6 +130,7 @@ export default function ScanDetailPage() {
   const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN, session?.user?.email);
   const [client, setClient] = useState<ClientData | null>(null);
   const [scan, setScan] = useState<ScanDetail | null>(null);
+  const [customQuestions, setCustomQuestions] = useState<CustomQuestionsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,10 +150,18 @@ export default function ScanDetailPage() {
         });
         if (!scanRes.ok) throw new Error("Unable to load scan detail");
         const scanDetail: ScanDetail = await scanRes.json();
+        const customQuestionsRes = await fetch(
+          `${API}/v1/clients/${firstClient.id}/scans/${scanId}/custom-questions`,
+          { cache: "no-store" },
+        );
+        const customQuestionData: CustomQuestionsData | null = customQuestionsRes.ok
+          ? await customQuestionsRes.json()
+          : null;
 
         if (active) {
           setClient(firstClient);
           setScan(scanDetail);
+          setCustomQuestions(customQuestionData);
           setLoading(false);
         }
       } catch (err) {
@@ -196,6 +247,62 @@ export default function ScanDetailPage() {
                 <p className={styles.detailRow}>Groups <strong>{scan.groups?.join(", ") || "None"}</strong></p>
               </div>
             </div>
+
+            {!!customQuestions?.questions.length && (
+              <div className={`${styles.detailCard} ${styles.customQuestionsCard}`}>
+                <div className={styles.exportsHeader}>
+                  <div>
+                    <h2 className={styles.sectionTitle}>Custom Questions</h2>
+                    <p className={styles.exportsSub}>
+                      These were client-authored questions added only for this scan. They do not affect benchmark scores.
+                    </p>
+                  </div>
+                  <span className={styles.exportsPlanBadge}>
+                    {customQuestions.questions.length} question{customQuestions.questions.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className={styles.customQuestionList}>
+                  {customQuestions.questions.map((item) => (
+                    <article key={item.question} className={styles.customQuestionItem}>
+                      <h3>{item.question}</h3>
+                      <div className={styles.customProviderGrid}>
+                        {Object.entries(item.providers).map(([provider, result]) => (
+                          <details key={provider} className={styles.customProviderCard}>
+                            <summary>
+                              <span>{providerLabel(provider)}</span>
+                              <strong className={result.mentioned ? styles.mentioned : styles.notMentioned}>
+                                {result.mentioned ? "Mentioned" : "Not mentioned"}
+                              </strong>
+                            </summary>
+                            {result.answer_excerpt && (
+                              <p className={styles.customAnswer}>{result.answer_excerpt}</p>
+                            )}
+                            {result.citations.length > 0 ? (
+                              <ul className={styles.customCitationList}>
+                                {result.citations.map((citation, index) => (
+                                  <li key={`${citation.url ?? citation.domain ?? "source"}-${index}`}>
+                                    {citation.url ? (
+                                      <a href={citation.url} target="_blank" rel="noreferrer">
+                                        {sourceLabel(citation)}
+                                      </a>
+                                    ) : (
+                                      <span>{sourceLabel(citation)}</span>
+                                    )}
+                                    {citation.source_type && <small>{citation.source_type.replaceAll("_", " ")}</small>}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className={styles.customNoEvidence}>No citations were captured for this provider answer.</p>
+                            )}
+                          </details>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className={`${styles.detailCard} ${styles.exportsCard}`}>
               <div className={styles.exportsHeader}>

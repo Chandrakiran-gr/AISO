@@ -292,6 +292,10 @@
   max-width: 760px;
 }
 
+.customQuestionsCard {
+  max-width: 100%;
+}
+
 .exportsHeader {
   display: flex;
   align-items: flex-start;
@@ -407,9 +411,135 @@
   white-space: nowrap;
 }
 
+.customQuestionList {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.customQuestionItem {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: var(--border-subtle);
+  border-radius: 14px;
+  background: rgba(15,17,23,0.38);
+}
+
+.customQuestionItem h3 {
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.customProviderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-sm);
+}
+
+.customProviderCard {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.035);
+  overflow: hidden;
+}
+
+.customProviderCard summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 12px 14px;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.customProviderCard summary::-webkit-details-marker {
+  display: none;
+}
+
+.customProviderCard[open] summary {
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.mentioned,
+.notMentioned {
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  padding: 4px 8px;
+  font-size: 0.625rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mentioned {
+  background: rgba(0,212,170,0.10);
+  color: var(--accent-teal);
+}
+
+.notMentioned {
+  background: rgba(239,68,68,0.10);
+  color: #fca5a5;
+}
+
+.customAnswer {
+  margin: 0;
+  padding: 12px 14px 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.customCitationList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px 14px;
+  list-style: none;
+}
+
+.customCitationList li {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.customCitationList a,
+.customCitationList span {
+  color: var(--accent-teal);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.customCitationList a:hover {
+  text-decoration: underline;
+}
+
+.customCitationList small {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  text-transform: capitalize;
+}
+
+.customNoEvidence {
+  margin: 0;
+  padding: 12px 14px 14px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
 @media (max-width: 760px) {
   .statsRow,
-  .detailGrid {
+  .detailGrid,
+  .customProviderGrid {
     grid-template-columns: 1fr;
   }
 
