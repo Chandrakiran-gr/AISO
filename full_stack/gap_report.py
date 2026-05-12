@@ -45,6 +45,12 @@ GROUP_IMPACT = {
     "G7": 9.0,
 }
 
+MANUAL_GROUP = "MANUAL"
+
+
+def _is_manual_group(group: str | None) -> bool:
+    return str(group or "").strip().upper() == MANUAL_GROUP
+
 
 @dataclass(frozen=True)
 class GapReportInput:
@@ -122,13 +128,18 @@ def _impact_label(score: float) -> str:
 def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
     providers = _provider_names(payload.fieldnames)
     client_domain = _client_domain(payload.client_url)
-    aggregate_rows = aggregate_scan_results(payload.rows, payload.fieldnames, payload.identity)
+    aggregate_rows = [
+        row
+        for row in aggregate_scan_results(payload.rows, payload.fieldnames, payload.identity)
+        if not _is_manual_group(row.group)
+    ]
     citation_rows = extract_scan_citations(
         payload.rows,
         payload.fieldnames,
         identity=payload.identity,
         client_domain=client_domain,
     )
+    citation_rows = [row for row in citation_rows if not _is_manual_group(row.group)]
     citations_by_answer: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
 
     for citation in citation_rows:
@@ -163,6 +174,8 @@ def build_gap_report(payload: GapReportInput) -> dict[str, Any]:
 
     for row in payload.rows:
         group = str(row.get("group") or "all")
+        if _is_manual_group(group):
+            continue
         question = str(row.get("question") or "").strip()
         for provider in providers:
             answer = str(row.get(f"response_{provider}") or "")

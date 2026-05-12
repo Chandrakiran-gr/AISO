@@ -376,6 +376,7 @@ export default function DashboardPage() {
   const selectedCompetitor = selectedCompetitorName
     ? topCompetitors.find((competitor) => competitor.name === selectedCompetitorName) ?? null
     : null;
+  const showOnboardingRecommendation = !state.loading && !state.error && !state.metrics && state.scans.length === 0;
 
   return (
     <div className={styles.page}>
@@ -385,13 +386,19 @@ export default function DashboardPage() {
           <p className={styles.topCrumb}>
             {state.loading
               ? "Loading..."
+              : showOnboardingRecommendation
+                ? state.client
+                  ? `Complete onboarding for ${state.client.name}`
+                  : "Complete onboarding to create your workspace"
               : state.client
                 ? `${state.client.name} · ${formatDate(latestScan?.completed_at ?? latestScan?.created_at)}`
                 : "Create your first business profile"}
           </p>
         </div>
         <div className={styles.topActions}>
-          <Link href="/onboarding" className={styles.newScanBtn}>Run new scan</Link>
+          <Link href="/onboarding" className={styles.newScanBtn}>
+            {showOnboardingRecommendation ? "Complete onboarding" : "Run new scan"}
+          </Link>
         </div>
       </header>
 
@@ -399,22 +406,46 @@ export default function DashboardPage() {
         <section className={styles.hero}>
           <div>
             <h2 className={styles.heroTitle}>
-              {state.client
+              {showOnboardingRecommendation
+                ? state.client
+                  ? `Finish setting up ${state.client.name}`
+                  : "Set up your first AI visibility scan"
+              : state.client
                 ? `What AI is saying about ${state.client.name}`
                 : "Set up your first AI visibility scan"}
             </h2>
             <p className={styles.heroSub}>
               {state.metrics
                 ? `${state.metrics.total_questions} provider-question results analyzed from the latest completed scan.`
-                : "Run a scan to see visibility, competitor gaps, citations, and prioritized next steps."}
+                : "Complete onboarding to review your business context, launch the first scan, and unlock visibility insights."}
             </p>
           </div>
           <Link href="/onboarding" className={styles.newScanBtn}>
-            {state.client ? "Run new scan" : "Start onboarding"}
+            {state.client && state.scans.length > 0 ? "Run new scan" : "Complete onboarding"}
           </Link>
         </section>
 
         {state.error && <div className={styles.previewBanner}>{state.error}</div>}
+
+        {showOnboardingRecommendation && (
+          <section className={styles.onboardingPrompt} aria-labelledby="onboarding-prompt-heading">
+            <div>
+              <span className={styles.cardLabelTeal}>Recommended setup</span>
+              <h2 id="onboarding-prompt-heading">
+                {state.client ? `Finish onboarding for ${state.client.name}` : "Complete onboarding to unlock your dashboard"}
+              </h2>
+              <p>
+                Add the business website, review the context AISO discovers, choose providers, and run the first scan so this dashboard has real metrics to work from.
+              </p>
+              <div className={styles.onboardingSteps} aria-label="Onboarding steps">
+                <span>Business profile</span>
+                <span>Context review</span>
+                <span>First visibility scan</span>
+              </div>
+            </div>
+            <Link href="/onboarding" className={styles.newScanBtn}>Complete onboarding</Link>
+          </section>
+        )}
 
         {scanRunning && (
           <div className={styles.scanBanner}>
@@ -431,12 +462,14 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!state.loading && state.client && !state.metrics && !scanRunning && !failedScan && (
+        {!showOnboardingRecommendation && !state.loading && state.client && !state.metrics && !scanRunning && !failedScan && (
           <div className={styles.previewBanner}>
             No completed scan metrics yet. Run your first scan to populate the dashboard.
           </div>
         )}
 
+        {!showOnboardingRecommendation && (
+          <>
         <section className={styles.summaryGrid}>
           <article className={`${styles.card} ${styles.scoreCard}`}>
             <span className={styles.cardLabelTeal}>Overall score</span>
@@ -624,10 +657,12 @@ export default function DashboardPage() {
           </article>
         </section>
 
-        <p className={styles.scanMeta}>
-          Latest scan: {latestScan ? latestScan.status : "none"}
-          {latestScan?.providers?.length ? ` · ${latestScan.providers.length} platforms` : ""}
-        </p>
+            <p className={styles.scanMeta}>
+              Latest scan: {latestScan ? latestScan.status : "none"}
+              {latestScan?.providers?.length ? ` · ${latestScan.providers.length} platforms` : ""}
+            </p>
+          </>
+        )}
       </main>
     </div>
   );

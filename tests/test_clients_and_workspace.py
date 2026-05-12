@@ -245,6 +245,46 @@ class ScanWorkspaceTests(unittest.TestCase):
         self.assertFalse(any(row["intent_subtype"] == "head_to_head" for row in rows))
         self.assertTrue(any(row["intent_subtype"] in {"method_comparison", "adjacency"} for row in rows))
 
+    def test_prepare_scan_workspace_appends_scan_specific_manual_questions_only_once(self):
+        client = Client(
+            id="acme_widgets",
+            user_id="user-1",
+            name="Acme Widgets",
+            url="https://acme.example",
+            industry="Home repair service",
+            location="Boston, MA",
+            competitors=json.dumps(["Rival Home Co"]),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("api.scan_workspace.CLIENTS_ROOT", Path(tmp)):
+                folder = prepare_scan_workspace(
+                    client,
+                    selected_groups=["G1"],
+                    custom_questions=[
+                        "Does Acme Widgets show up for emergency repair questions?",
+                        "What sources recommend Acme Widgets for Boston homeowners?",
+                    ],
+                )
+                with (folder / "query_template_bank.csv").open(newline="", encoding="utf-8") as handle:
+                    rows_with_manual = list(csv.DictReader(handle))
+
+                folder_without_manual = prepare_scan_workspace(
+                    client,
+                    selected_groups=["G1"],
+                    custom_questions=[],
+                )
+                with (folder_without_manual / "query_template_bank.csv").open(newline="", encoding="utf-8") as handle:
+                    rows_without_manual = list(csv.DictReader(handle))
+
+        manual_rows = [row for row in rows_with_manual if row["group"] == "MANUAL"]
+        self.assertEqual(len(manual_rows), 2)
+        self.assertEqual(manual_rows[0]["group_label"], "Custom Questions")
+        self.assertEqual(manual_rows[0]["group_rank"], "1")
+        self.assertEqual(manual_rows[0]["intent_subtype"], "client_authored")
+        self.assertEqual(manual_rows[1]["group_rank"], "2")
+        self.assertFalse([row for row in rows_without_manual if row["group"] == "MANUAL"])
+
     def test_prepare_scan_workspace_can_write_optional_extended_bank(self):
         client = Client(
             id="pempsa",

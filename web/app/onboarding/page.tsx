@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 import { setKey, getKey, getAllKeys, hadKeyPreviousSession, clearKey, type Provider } from "@/lib/byok";
@@ -46,6 +47,7 @@ interface FormState {
   competitors: string;
   providers: string[];
   groups: string[];
+  customQuestions: string[];
 }
 
 const DEFAULT: FormState = {
@@ -56,6 +58,7 @@ const DEFAULT: FormState = {
   competitors: "",
   providers: ["openai", "claude", "perplexity", "gemini"],
   groups: GROUPS.map((group) => group.id),
+  customQuestions: [],
 };
 
 type ExistingClient = {
@@ -577,6 +580,7 @@ async function createScan(
   clientId: string,
   providers: string[],
   groups: string[],
+  customQuestions: string[],
   byokKeys: Record<string, string>,
 ): Promise<string> {
   const res = await fetch(`${API}/v1/clients/${clientId}/scans`, {
@@ -586,6 +590,7 @@ async function createScan(
       client_id: clientId,
       providers,
       groups,
+      custom_questions: customQuestions,
       byok_keys: Object.keys(byokKeys).length > 0 ? byokKeys : undefined,
     }),
   });
@@ -601,6 +606,24 @@ async function createScan(
   }
   const data = await res.json();
   return data.id as string;
+}
+
+function normalizeCustomQuestion(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function validateCustomQuestions(values: string[]): { questions: string[]; error: string | null } {
+  const questions: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const question = normalizeCustomQuestion(value);
+    if (!question) continue;
+    const key = question.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    questions.push(question);
+  }
+  return { questions, error: null };
 }
 
 async function pollScan(clientId: string, scanId: string): Promise<{
@@ -1161,7 +1184,7 @@ function Step4({
   profile: ContextProfile;
   set: (f: FormState) => void;
   onBack: () => void;
-  onLaunch: () => void;
+  onLaunch: (customQuestions: string[]) => void;
   scanning: boolean;
   scanIdx: number;
   error: string | null;
@@ -1231,6 +1254,24 @@ function Step4({
   const visibleValidationError = validationError ?? externalError;
   const byokPanelOpen = keysOpen || Boolean(visibleValidationError);
   const providerNames = form.providers.map(providerName).join(", ");
+  const customQuestionCount = validateCustomQuestions(form.customQuestions).questions.length;
+
+  function updateCustomQuestion(index: number, value: string) {
+    const next = [...form.customQuestions];
+    next[index] = value;
+    set({ ...form, customQuestions: next });
+    setValidationError(null);
+  }
+
+  function addCustomQuestion() {
+    set({ ...form, customQuestions: [...form.customQuestions, ""] });
+    setValidationError(null);
+  }
+
+  function removeCustomQuestion(index: number) {
+    set({ ...form, customQuestions: form.customQuestions.filter((_, i) => i !== index) });
+    setValidationError(null);
+  }
 
   function handleLaunchClick() {
     if (form.groups.includes("G3") && !hasCompetitors) {
@@ -1244,8 +1285,13 @@ function Step4({
       setValidationError(`Add API keys for selected providers: ${missing.map(providerName).join(", ")}.`);
       return;
     }
+    const customValidation = validateCustomQuestions(form.customQuestions);
+    if (customValidation.error) {
+      setValidationError(customValidation.error);
+      return;
+    }
     setValidationError(null);
-    onLaunch();
+    onLaunch(customValidation.questions);
   }
 
   if (scanning) {
@@ -1325,6 +1371,43 @@ function Step4({
               <span>G3 is unavailable until competitors are added. G7 will still run method and service comparisons, but business-vs-business rows are skipped.</span>
             </div>
           )}
+        </div>
+        <div className={styles.fieldGroup}>
+          <div className={styles.labelRow}>
+            <label className={styles.label}>Custom questions for this scan</label>
+            <span className={styles.labelHint}>
+              {customQuestionCount} custom question{customQuestionCount === 1 ? "" : "s"} added
+            </span>
+          </div>
+          <div className={styles.customQuestionPanel}>
+            <p>
+              Optional. These run only in this scan and will not affect your benchmark score.
+            </p>
+            {form.customQuestions.length > 0 && (
+              <div className={styles.customQuestionList}>
+                {form.customQuestions.map((question, index) => (
+                  <div key={index} className={styles.customQuestionRow}>
+                    <textarea
+                      className={styles.customQuestionInput}
+                      value={question}
+                      placeholder="Add a customer question you want AISO to test..."
+                      onChange={(event) => updateCustomQuestion(index, event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className={styles.removeMiniBtn}
+                      onClick={() => removeCustomQuestion(index)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" className={styles.secondaryBtn} onClick={addCustomQuestion}>
+              Add custom question
+            </button>
+          </div>
         </div>
         <div className={styles.fieldGroup}>
           <button
@@ -1597,7 +1680,7 @@ export default function OnboardingPage() {
     setStep(3);
   }
 
-  async function handleLaunch() {
+  async function handleLaunch(customQuestions: string[] = []) {
     setError(null);
     const missingKeys = missingSelectedProviderKeys(form.providers);
     if (missingKeys.length > 0) {
@@ -1625,7 +1708,8 @@ export default function OnboardingPage() {
 
     try {
       const byokKeys = getAllKeys();
-      const scanId = await createScan(clientId, form.providers, form.groups, byokKeys);
+      const scanId = await createScan(clientId, form.providers, form.groups, customQuestions, byokKeys);
+      setForm((prev) => ({ ...prev, customQuestions: [] }));
       pollRef.current = setInterval(async () => {
         try {
           const result = await pollScan(clientId, scanId);
@@ -1659,7 +1743,12 @@ export default function OnboardingPage() {
           <span className={styles.logoMark}>◆</span>
           <span className="gradient-text">AISO</span>
         </div>
-        <span className={styles.stepCounter}>Step {step} of {STEPS.length}</span>
+        <div className={styles.topActions}>
+          <span className={styles.stepCounter}>Step {step} of {STEPS.length}</span>
+          <Link href="/dashboard" className={styles.skipLink}>
+            Skip for now
+          </Link>
+        </div>
       </div>
 
       <div className={styles.progressTrack}>
@@ -1718,7 +1807,7 @@ export default function OnboardingPage() {
             profile={profile}
             set={setForm}
             onBack={() => setStep(3)}
-            onLaunch={() => void handleLaunch()}
+            onLaunch={(customQuestions) => void handleLaunch(customQuestions)}
             scanning={scanning}
             scanIdx={scanIdx}
             error={error}

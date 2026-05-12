@@ -6,7 +6,7 @@ Wraps setup2.py → collect.py → analysis1.py → analysis2.py
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +19,7 @@ import csv
 from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, SourceProfile, User
 from api.auth import get_current_user_id
 from api.entitlements import entitlements_for_user
-from api.scan_workspace import prepare_scan_workspace
+from api.scan_workspace import MANUAL_GROUP, prepare_scan_workspace
 from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
 from api.storage import (
     ArtifactStorageError,
@@ -57,6 +57,36 @@ GAP_GROUP_IMPACT = {
 }
 
 
+def _is_manual_group(group: str | None) -> bool:
+    return str(group or "").strip().upper() == MANUAL_GROUP
+
+
+def _normalize_custom_question(value: str) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _validate_custom_questions(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        raise ValueError("custom_questions must be a list of strings")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("Custom questions must be strings")
+        clean = _normalize_custom_question(item)
+        if not clean:
+            raise ValueError("Custom questions cannot be empty")
+        key = clean.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(clean)
+    return normalized
+
+
 class BYOKKeys(BaseModel):
     """Per-request API keys supplied by the user (BYOK — Bring Your Own Key).
     Keys are received over HTTPS, used in memory for this scan, and immediately discarded.
@@ -72,7 +102,13 @@ class ScanCreate(BaseModel):
     client_id: str
     providers: List[str] = Field(default_factory=lambda: DEFAULT_PROVIDERS.copy())
     groups:    List[str] = Field(default_factory=lambda: DEFAULT_GROUPS.copy())
+    custom_questions: List[str] = Field(default_factory=list)
     byok_keys: Optional[BYOKKeys] = None  # BYOK: user's own API keys (never stored)
+
+    @field_validator("custom_questions", mode="before")
+    @classmethod
+    def custom_questions_valid(cls, value: Any) -> list[str]:
+        return _validate_custom_questions(value)
 
     @property
     def providers_valid(self) -> bool:
@@ -146,6 +182,24 @@ class CitationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class CustomQuestionProviderResult(BaseModel):
+    mentioned: bool
+    answer_excerpt: Optional[str] = None
+    citations: List[dict[str, Any]] = Field(default_factory=list)
+
+
+class CustomQuestionResult(BaseModel):
+    question: str
+    providers: Dict[str, CustomQuestionProviderResult] = Field(default_factory=dict)
+
+
+class CustomQuestionsResponse(BaseModel):
+    scan_id: str
+    client_id: str
+    data_status: str
+    questions: List[CustomQuestionResult] = Field(default_factory=list)
 
 
 class SourceProfileResponse(BaseModel):
@@ -292,13 +346,27 @@ def _estimate_api_calls(
             group = str(row.get("group") or "all")
             group_counts[group] = group_counts.get(group, 0) + 1
 
-    selected_groups = groups or list(group_counts)
+    selected_groups = list(dict.fromkeys(groups or list(group_counts)))
+    if group_counts.get(MANUAL_GROUP, 0) and MANUAL_GROUP not in selected_groups:
+        selected_groups.append(MANUAL_GROUP)
     if pick_all is None:
         question_count = sum(group_counts.get(group, 0) for group in selected_groups)
     else:
-        question_count = sum(min(group_counts.get(group, 0), pick_all) for group in selected_groups)
+        question_count = sum(
+            group_counts.get(group, 0)
+            if group == MANUAL_GROUP
+            else min(group_counts.get(group, 0), pick_all)
+            for group in selected_groups
+        )
     provider_count = len(providers)
     return question_count, provider_count, question_count * provider_count
+
+
+def _collect_groups(groups: List[str], custom_questions: List[str] | None) -> list[str]:
+    collect_groups = list(dict.fromkeys(groups))
+    if custom_questions and MANUAL_GROUP not in collect_groups:
+        collect_groups.append(MANUAL_GROUP)
+    return collect_groups
 
 
 def _env_positive_int(name: str, default: int) -> int:
@@ -321,6 +389,7 @@ async def run_pipeline(
     client_id: str,
     providers: List[str],
     groups: List[str],
+    custom_questions: Optional[List[str]] = None,
     byok_keys: Optional[dict] = None,
 ):
     """
@@ -374,8 +443,15 @@ async def run_pipeline(
             raise RuntimeError("Client not found for scan workspace preparation.")
 
         context_profile = _confirmed_context_profile(db, client_id)
+        custom_questions = custom_questions or []
+        collect_groups = _collect_groups(groups, custom_questions)
 
-        client_folder = prepare_scan_workspace(client, context_profile=context_profile, selected_groups=groups)
+        client_folder = prepare_scan_workspace(
+            client,
+            context_profile=context_profile,
+            selected_groups=groups,
+            custom_questions=custom_questions,
+        )
         print(f"[AISO Pipeline] Scan workspace ready: {client_folder}")
         ranking_report_path = client_folder / "question_ranking_report.json"
         if ranking_report_path.exists():
@@ -418,7 +494,7 @@ async def run_pipeline(
 
         # Pass which providers to actually run
         sub_env["AISO_PROVIDERS"] = ",".join(active_providers)
-        sub_env["AISO_GROUPS"]    = ",".join(groups)
+        sub_env["AISO_GROUPS"]    = ",".join(collect_groups)
         sub_env["AISO_CLIENT_ID"] = client_id
         sub_env["AISO_SCAN_ID"]   = scan_id
 
@@ -448,7 +524,7 @@ async def run_pipeline(
         pick_all = pick_all_value if pick_all_value > 0 else None
         estimated_questions, estimated_providers, estimated_calls = _estimate_api_calls(
             client_folder / "query_template_bank.csv",
-            groups,
+            collect_groups,
             active_providers,
             pick_all,
         )
@@ -459,7 +535,7 @@ async def run_pipeline(
 
         collect_args = [
             "--providers", ",".join(active_providers),
-            "--groups", ",".join(groups),
+            "--groups", ",".join(collect_groups),
             "--yes",
         ]
         if pick_all is not None:
@@ -547,7 +623,13 @@ async def start_scan(
     byok_dict = payload.byok_keys.model_dump(exclude_none=True) if payload.byok_keys else {}
 
     background_tasks.add_task(
-        run_pipeline, scan.id, client_id, payload.providers, payload.groups, byok_dict
+        run_pipeline,
+        scan.id,
+        client_id,
+        payload.providers,
+        payload.groups,
+        payload.custom_questions,
+        byok_dict,
     )
 
     return _scan_response(scan)
@@ -692,6 +774,8 @@ def _db_backed_gap_report(db: Session, client: Client, scan: Scan) -> dict[str, 
         ScanCitation.scan_id == scan.id,
         ScanCitation.client_id == client.id,
     ).all()
+    results = [row for row in results if not _is_manual_group(row.group)]
+    citations = [row for row in citations if not _is_manual_group(row.group)]
 
     total_results = sum(int(row.total_questions or 0) for row in results)
     appeared_count = sum(int(row.mention_count or 0) for row in results)
@@ -983,6 +1067,7 @@ async def get_client_metrics(
         ScanResult.scan_id == scan.id,
         ScanResult.client_id == client_id,
     ).all()
+    result_rows = [row for row in result_rows if not _is_manual_group(row.group)]
     if not result_rows:
         raise HTTPException(status_code=404, detail="No scan metrics found")
 
@@ -1252,6 +1337,21 @@ def _scan_response(scan: Scan) -> dict:
     }
 
 
+def _provider_names_from_collect(fieldnames: List[str]) -> list[str]:
+    return [
+        field.removeprefix("response_")
+        for field in fieldnames
+        if field.startswith("response_")
+    ]
+
+
+def _short_answer_excerpt(answer: str, limit: int = 420) -> Optional[str]:
+    clean = " ".join(str(answer or "").split())
+    if not clean:
+        return None
+    return clean if len(clean) <= limit else clean[: limit - 1].rstrip() + "…"
+
+
 @router.get("/clients/{client_id}/scans/{scan_id}", response_model=ScanDetailResponse)
 async def get_scan(
     client_id: str,
@@ -1366,6 +1466,112 @@ async def list_scan_citations(
         ScanCitation.question.asc(),
         ScanCitation.source_rank.asc(),
     ).all()
+
+
+@router.get(
+    "/clients/{client_id}/scans/{scan_id}/custom-questions",
+    response_model=CustomQuestionsResponse,
+)
+async def list_scan_custom_questions(
+    client_id: str,
+    scan_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return scan-specific custom question results without mixing them into benchmarks."""
+    client = db.query(Client).filter(
+        Client.id == client_id,
+        Client.user_id == user_id,
+    ).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    scan = db.query(Scan).filter(
+        Scan.id == scan_id,
+        Scan.client_id == client_id,
+    ).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    citations = db.query(ScanCitation).filter(
+        ScanCitation.client_id == client_id,
+        ScanCitation.scan_id == scan_id,
+        ScanCitation.group == MANUAL_GROUP,
+    ).order_by(
+        ScanCitation.question.asc(),
+        ScanCitation.provider.asc(),
+        ScanCitation.source_rank.asc(),
+    ).all()
+    citations_by_answer: dict[tuple[str, str], list[ScanCitation]] = {}
+    for citation in citations:
+        key = (citation.question or "", citation.provider or "")
+        citations_by_answer.setdefault(key, []).append(citation)
+
+    question_map: dict[str, dict[str, Any]] = {}
+
+    def ensure_question(question: str) -> dict[str, Any]:
+        return question_map.setdefault(question, {"question": question, "providers": {}})
+
+    artifact = db.query(ScanArtifact).filter(
+        ScanArtifact.scan_id == scan.id,
+        ScanArtifact.client_id == client_id,
+        ScanArtifact.artifact_type == "collect_csv",
+    ).order_by(ScanArtifact.created_at.desc()).first()
+    data_status = "artifact_missing"
+
+    if artifact:
+        try:
+            with materialize_artifact_file(artifact) as artifact_path:
+                rows, fieldnames = read_collect_csv(artifact_path)
+                providers = _provider_names_from_collect(fieldnames)
+                for row in rows:
+                    if not _is_manual_group(row.get("group")):
+                        continue
+                    question = str(row.get("question") or "").strip()
+                    if not question:
+                        continue
+                    entry = ensure_question(question)
+                    for provider in providers:
+                        answer = str(row.get(f"response_{provider}") or "")
+                        error = str(row.get(f"error_{provider}") or "")
+                        if not answer and not error:
+                            continue
+                        entry["providers"][provider] = {
+                            "mentioned": _answer_mentions_client(answer, client) if answer else False,
+                            "answer_excerpt": _short_answer_excerpt(answer),
+                            "citations": [
+                                _citation_source_payload(item)
+                                for item in citations_by_answer.get((question, provider), [])
+                            ],
+                        }
+                data_status = "complete"
+        except ArtifactStorageError:
+            data_status = "artifact_unavailable"
+
+    if not question_map and citations:
+        for citation in citations:
+            question = str(citation.question or "").strip()
+            provider = str(citation.provider or "").strip()
+            if not question or not provider:
+                continue
+            entry = ensure_question(question)
+            provider_payload = entry["providers"].setdefault(
+                provider,
+                {
+                    "mentioned": _answer_mentions_client(citation.answer_excerpt, client),
+                    "answer_excerpt": citation.answer_excerpt,
+                    "citations": [],
+                },
+            )
+            provider_payload["citations"].append(_citation_source_payload(citation))
+        data_status = "citations_only"
+
+    return {
+        "scan_id": scan_id,
+        "client_id": client_id,
+        "data_status": data_status if question_map else "empty",
+        "questions": list(question_map.values()),
+    }
 
 
 @router.get(
