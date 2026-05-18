@@ -5,6 +5,12 @@ import { useSession } from "next-auth/react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CURRENT_PLAN, PRO_UPGRADE_HREF, canAccessRawArtifacts } from "@/lib/plan";
+import {
+  DashboardOverview,
+  type ActionData,
+  type GapReport,
+  type MetricsData,
+} from "../../DashboardOverview";
 import styles from "../scans.module.css";
 
 const API = "/api/proxy";
@@ -131,6 +137,10 @@ export default function ScanDetailPage() {
   const [client, setClient] = useState<ClientData | null>(null);
   const [scan, setScan] = useState<ScanDetail | null>(null);
   const [customQuestions, setCustomQuestions] = useState<CustomQuestionsData | null>(null);
+  const [metrics, setMetrics] = useState<MetricsData | null>(null);
+  const [gapReport, setGapReport] = useState<GapReport | null>(null);
+  const [actions, setActions] = useState<ActionData[]>([]);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -138,6 +148,15 @@ export default function ScanDetailPage() {
     let active = true;
 
     async function load() {
+      setLoading(true);
+      setError(null);
+      setOverviewError(null);
+      setScan(null);
+      setCustomQuestions(null);
+      setMetrics(null);
+      setGapReport(null);
+      setActions([]);
+
       try {
         const clientsRes = await fetch(`${API}/v1/clients`, { cache: "no-store" });
         if (!clientsRes.ok) throw new Error("Unable to load clients");
@@ -150,18 +169,40 @@ export default function ScanDetailPage() {
         });
         if (!scanRes.ok) throw new Error("Unable to load scan detail");
         const scanDetail: ScanDetail = await scanRes.json();
-        const customQuestionsRes = await fetch(
-          `${API}/v1/clients/${firstClient.id}/scans/${scanId}/custom-questions`,
-          { cache: "no-store" },
-        );
+        const encodedScanId = encodeURIComponent(scanId);
+        const [customQuestionsRes, metricsRes, actionsRes, gapReportRes] = await Promise.all([
+          fetch(
+            `${API}/v1/clients/${firstClient.id}/scans/${scanId}/custom-questions`,
+            { cache: "no-store" },
+          ),
+          fetch(`${API}/v1/clients/${firstClient.id}/metrics?scan_id=${encodedScanId}`, {
+            cache: "no-store",
+          }),
+          fetch(`${API}/v1/clients/${firstClient.id}/actions?status=open&scan_id=${encodedScanId}`, {
+            cache: "no-store",
+          }),
+          fetch(`${API}/v1/clients/${firstClient.id}/gap-report?scan_id=${encodedScanId}`, {
+            cache: "no-store",
+          }),
+        ]);
         const customQuestionData: CustomQuestionsData | null = customQuestionsRes.ok
           ? await customQuestionsRes.json()
           : null;
+        const metricsData: MetricsData | null = metricsRes.ok ? await metricsRes.json() : null;
+        const actionsData: ActionData[] = actionsRes.ok ? await actionsRes.json() : [];
+        const gapReportData: GapReport | null = gapReportRes.ok ? await gapReportRes.json() : null;
+        const overviewLoadFailed = [metricsRes, actionsRes, gapReportRes].some(
+          (response) => !response.ok && response.status !== 404,
+        );
 
         if (active) {
           setClient(firstClient);
           setScan(scanDetail);
           setCustomQuestions(customQuestionData);
+          setMetrics(metricsData);
+          setActions(actionsData);
+          setGapReport(gapReportData);
+          setOverviewError(overviewLoadFailed ? "Some scan overview data could not be loaded." : null);
           setLoading(false);
         }
       } catch (err) {
@@ -194,7 +235,7 @@ export default function ScanDetailPage() {
         </Link>
       </div>
 
-      <div className={styles.content}>
+      <div className={`${styles.content} ${styles.detailContent}`}>
         {loading && <div className={styles.emptyState}>Loading scan detail...</div>}
         {error && <div className={styles.emptyState}>{error}</div>}
 
@@ -218,6 +259,27 @@ export default function ScanDetailPage() {
                 <span className={styles.statLabel}>Exports</span>
               </div>
             </div>
+
+            <section className={styles.overviewSection} aria-labelledby="scan-overview-heading">
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h2 id="scan-overview-heading" className={styles.sectionTitle}>Overview</h2>
+                  <span className={styles.sectionHint}>Metrics, intent gaps, and recommended actions for this scan</span>
+                </div>
+              </div>
+              {overviewError && <div className={styles.overviewNotice}>{overviewError}</div>}
+              <DashboardOverview
+                clientName={client?.name}
+                metrics={metrics}
+                gapReport={gapReport}
+                actions={actions}
+                actionScopeLabel="this scan"
+                metricScopeLabel="this scan"
+                scanMetaLabel={`Selected scan: ${formatStatus(scan.status)}${
+                  scan.providers?.length ? ` · ${scan.providers.length} platforms` : ""
+                }`}
+              />
+            </section>
 
             {scan.error && (
               <div className={styles.detailCard}>
