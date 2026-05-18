@@ -1,12 +1,13 @@
 import asyncio
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.database import Base, Client, Scan, ScanCitation, ScanResult, User
-from api.routes.pipeline import _db_backed_gap_report, get_client_metrics
+from api.database import Action, Base, Client, Scan, ScanCitation, ScanResult, User
+from api.routes.pipeline import _db_backed_gap_report, get_client_metrics, get_scan_metrics_timeline
 
 
 class PipelineMetricsTests(unittest.TestCase):
@@ -186,6 +187,122 @@ class PipelineMetricsTests(unittest.TestCase):
             self.assertEqual(report["summary"]["total_provider_question_results"], 2)
             self.assertFalse(any(item["group"] == "MANUAL" for item in report["coverage"]))
             self.assertFalse(any(item["group"] == "MANUAL" for item in report["query_results"]))
+        finally:
+            session.close()
+
+    def test_metrics_timeline_is_chronological_and_user_scoped(self):
+        session = self.Session()
+        now = datetime.now(timezone.utc)
+        try:
+            session.add_all(
+                [
+                    User(id="user-1", email="founder@example.com"),
+                    User(id="user-2", email="other@example.com"),
+                    Client(id="client-1", user_id="user-1", name="AISO Demo", url="https://example.com"),
+                    Client(id="client-2", user_id="user-2", name="Other Demo", url="https://other.example"),
+                ]
+            )
+            session.add_all(
+                [
+                    Scan(
+                        id="scan-old",
+                        client_id="client-1",
+                        status="complete",
+                        created_at=now - timedelta(days=7),
+                        completed_at=now - timedelta(days=7),
+                    ),
+                    Scan(
+                        id="scan-new",
+                        client_id="client-1",
+                        status="complete",
+                        created_at=now,
+                        completed_at=now,
+                    ),
+                    Scan(
+                        id="scan-other-user",
+                        client_id="client-2",
+                        status="complete",
+                        created_at=now - timedelta(days=1),
+                        completed_at=now - timedelta(days=1),
+                    ),
+                ]
+            )
+            session.add_all(
+                [
+                    ScanResult(
+                        id="old-result",
+                        scan_id="scan-old",
+                        client_id="client-1",
+                        provider="openai",
+                        group="G2",
+                        total_questions=10,
+                        mention_count=4,
+                    ),
+                    ScanResult(
+                        id="new-result",
+                        scan_id="scan-new",
+                        client_id="client-1",
+                        provider="openai",
+                        group="G2",
+                        total_questions=10,
+                        mention_count=7,
+                    ),
+                    ScanResult(
+                        id="manual-result",
+                        scan_id="scan-new",
+                        client_id="client-1",
+                        provider="openai",
+                        group="MANUAL",
+                        total_questions=10,
+                        mention_count=0,
+                    ),
+                    ScanResult(
+                        id="other-user-result",
+                        scan_id="scan-other-user",
+                        client_id="client-2",
+                        provider="openai",
+                        group="G2",
+                        total_questions=10,
+                        mention_count=10,
+                    ),
+                ]
+            )
+            session.add_all(
+                [
+                    Action(
+                        id="open-action",
+                        client_id="client-1",
+                        scan_id="scan-new",
+                        title="Update service page",
+                        status="open",
+                    ),
+                    Action(
+                        id="done-action",
+                        client_id="client-1",
+                        scan_id="scan-new",
+                        title="Add source citations",
+                        status="done",
+                    ),
+                    Action(
+                        id="other-user-action",
+                        client_id="client-2",
+                        scan_id="scan-other-user",
+                        title="Private action",
+                        status="done",
+                    ),
+                ]
+            )
+            session.commit()
+
+            points = asyncio.run(get_scan_metrics_timeline(client_id=None, db=session, user_id="user-1"))
+
+            self.assertEqual([point.scan_id for point in points], ["scan-old", "scan-new"])
+            self.assertEqual(points[0].metrics.overall_score, 40.0)
+            self.assertEqual(points[1].metrics.overall_score, 70.0)
+            self.assertEqual(points[1].metrics.gap_count, 3)
+            self.assertEqual(points[1].metrics.action_count, 2)
+            self.assertEqual(points[1].metrics.completed_action_count, 1)
+            self.assertEqual(points[1].metrics.action_completion_rate, 50.0)
         finally:
             session.close()
 
