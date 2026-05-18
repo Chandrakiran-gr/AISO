@@ -16,7 +16,7 @@ import json
 import os
 import csv
 
-from api.database import get_db, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, SourceProfile, User
+from api.database import get_db, Action, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, SourceProfile, User
 from api.auth import get_current_user_id
 from api.entitlements import entitlements_for_user
 from api.scan_workspace import MANUAL_GROUP, prepare_scan_workspace
@@ -276,6 +276,26 @@ class MetricsResponse(BaseModel):
     provider_metrics: List[ProviderMetric]
     group_metrics: List[GroupMetric]
     competitors: List[CompetitorMetric]
+
+
+class TimelineMetrics(BaseModel):
+    overall_score: float
+    total_questions: int
+    mention_count: int
+    gap_count: int
+    action_count: int
+    completed_action_count: int
+    action_completion_rate: float
+
+
+class ScanMetricsTimelinePoint(BaseModel):
+    client_id: str
+    client_name: str
+    scan_id: str
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    metrics: TimelineMetrics
 
 
 GROUP_LABELS = {
@@ -671,6 +691,182 @@ def _safe_json_dict(value: Optional[str]) -> Dict[str, int]:
     return result
 
 
+def _scan_result_rows(db: Session, client_id: str, scan_id: str) -> List[ScanResult]:
+    result_rows = db.query(ScanResult).filter(
+        ScanResult.scan_id == scan_id,
+        ScanResult.client_id == client_id,
+    ).all()
+    return [row for row in result_rows if not _is_manual_group(row.group)]
+
+
+def _build_metrics_response(client: Client, scan: Scan, result_rows: List[ScanResult]) -> MetricsResponse:
+    total_questions = sum(row.total_questions or 0 for row in result_rows)
+    total_mentions = sum(row.mention_count or 0 for row in result_rows)
+
+    provider_buckets: Dict[str, Dict[str, float]] = {}
+    group_buckets: Dict[str, Dict[str, int]] = {}
+    client_competitors = _client_competitors(client)
+    competitor_counts: Dict[str, int] = {
+        name: 0 for name in client_competitors
+    }
+    competitor_provider_counts: Dict[str, Dict[str, int]] = {
+        name: {} for name in client_competitors
+    }
+
+    for row in result_rows:
+        provider_bucket = provider_buckets.setdefault(
+            row.provider,
+            {
+                "total": 0,
+                "mentions": 0,
+                "position_sum": 0.0,
+                "position_weight": 0,
+            },
+        )
+        provider_bucket["total"] += row.total_questions or 0
+        provider_bucket["mentions"] += row.mention_count or 0
+        if row.avg_position is not None and row.mention_count:
+            provider_bucket["position_sum"] += row.avg_position * row.mention_count
+            provider_bucket["position_weight"] += row.mention_count
+
+        group_bucket = group_buckets.setdefault(
+            row.group,
+            {"total": 0, "mentions": 0},
+        )
+        group_bucket["total"] += row.total_questions or 0
+        group_bucket["mentions"] += row.mention_count or 0
+
+        for name, count in _safe_json_dict(row.competitor_data).items():
+            competitor_counts[name] = competitor_counts.get(name, 0) + count
+            provider_counts = competitor_provider_counts.setdefault(name, {})
+            provider_counts[row.provider] = provider_counts.get(row.provider, 0) + count
+
+    provider_metrics = []
+    for provider, bucket in sorted(provider_buckets.items()):
+        total = int(bucket["total"])
+        mentions = int(bucket["mentions"])
+        position_weight = int(bucket["position_weight"])
+        avg_position = (
+            round(float(bucket["position_sum"]) / position_weight, 2)
+            if position_weight
+            else None
+        )
+        provider_metrics.append(
+            ProviderMetric(
+                id=provider,
+                score=_weighted_score(mentions, total),
+                mention_count=mentions,
+                total_questions=total,
+                avg_position=avg_position,
+            )
+        )
+
+    group_metrics = []
+    for group, bucket in sorted(group_buckets.items()):
+        total = int(bucket["total"])
+        mentions = int(bucket["mentions"])
+        group_metrics.append(
+            GroupMetric(
+                id=group,
+                label=GROUP_LABELS.get(group, group),
+                score=_weighted_score(mentions, total),
+                mention_count=mentions,
+                total_questions=total,
+            )
+        )
+
+    provider_totals = {
+        item.id: item.total_questions for item in provider_metrics
+    }
+    user_provider_mentions = {
+        item.id: item.mention_count for item in provider_metrics
+    }
+    user_provider_scores = {
+        item.id: item.score for item in provider_metrics
+    }
+
+    competitors = [
+        CompetitorMetric(
+            name=client.name,
+            score=_weighted_score(total_mentions, total_questions),
+            mention_count=total_mentions,
+            provider_scores=user_provider_scores,
+            provider_mentions=user_provider_mentions,
+            is_you=True,
+        )
+    ]
+    competitors.extend(
+        CompetitorMetric(
+            name=name,
+            score=_weighted_score(count, total_questions),
+            mention_count=count,
+            provider_scores={
+                provider: _weighted_score(
+                    competitor_provider_counts.get(name, {}).get(provider, 0),
+                    provider_total,
+                )
+                for provider, provider_total in provider_totals.items()
+            },
+            provider_mentions={
+                provider: competitor_provider_counts.get(name, {}).get(provider, 0)
+                for provider in provider_totals
+            },
+            is_you=False,
+        )
+        for name, count in competitor_counts.items()
+    )
+    competitors.sort(key=lambda item: item.score, reverse=True)
+
+    return MetricsResponse(
+        client_id=client.id,
+        client_name=client.name,
+        scan_id=scan.id,
+        status=scan.status,
+        overall_score=_weighted_score(total_mentions, total_questions),
+        total_questions=total_questions,
+        provider_metrics=provider_metrics,
+        group_metrics=group_metrics,
+        competitors=competitors,
+    )
+
+
+def _timeline_point_for_scan(
+    db: Session,
+    client: Client,
+    scan: Scan,
+    result_rows: List[ScanResult],
+) -> ScanMetricsTimelinePoint:
+    total_questions = sum(row.total_questions or 0 for row in result_rows)
+    mention_count = sum(row.mention_count or 0 for row in result_rows)
+    action_count = db.query(Action.id).filter(
+        Action.client_id == client.id,
+        Action.scan_id == scan.id,
+    ).count()
+    completed_action_count = db.query(Action.id).filter(
+        Action.client_id == client.id,
+        Action.scan_id == scan.id,
+        Action.status == "done",
+    ).count()
+
+    return ScanMetricsTimelinePoint(
+        client_id=client.id,
+        client_name=client.name,
+        scan_id=scan.id,
+        status=scan.status,
+        created_at=scan.created_at,
+        completed_at=scan.completed_at,
+        metrics=TimelineMetrics(
+            overall_score=_weighted_score(mention_count, total_questions),
+            total_questions=total_questions,
+            mention_count=mention_count,
+            gap_count=max(total_questions - mention_count, 0),
+            action_count=action_count,
+            completed_action_count=completed_action_count,
+            action_completion_rate=_weighted_score(completed_action_count, action_count),
+        ),
+    )
+
+
 def _confirmed_context_profile(db: Session, client_id: str) -> Optional[dict]:
     context = db.query(ClientContext).filter(
         ClientContext.client_id == client_id,
@@ -1063,142 +1259,46 @@ async def get_client_metrics(
     if not scan:
         raise HTTPException(status_code=404, detail="No scan metrics found")
 
-    result_rows = db.query(ScanResult).filter(
-        ScanResult.scan_id == scan.id,
-        ScanResult.client_id == client_id,
-    ).all()
-    result_rows = [row for row in result_rows if not _is_manual_group(row.group)]
+    result_rows = _scan_result_rows(db, client_id, scan.id)
     if not result_rows:
         raise HTTPException(status_code=404, detail="No scan metrics found")
 
-    total_questions = sum(row.total_questions or 0 for row in result_rows)
-    total_mentions = sum(row.mention_count or 0 for row in result_rows)
+    return _build_metrics_response(client, scan, result_rows)
 
-    provider_buckets: Dict[str, Dict[str, float]] = {}
-    group_buckets: Dict[str, Dict[str, int]] = {}
-    client_competitors = _client_competitors(client)
-    competitor_counts: Dict[str, int] = {
-        name: 0 for name in client_competitors
-    }
-    competitor_provider_counts: Dict[str, Dict[str, int]] = {
-        name: {} for name in client_competitors
-    }
 
-    for row in result_rows:
-        provider_bucket = provider_buckets.setdefault(
-            row.provider,
-            {
-                "total": 0,
-                "mentions": 0,
-                "position_sum": 0.0,
-                "position_weight": 0,
-            },
-        )
-        provider_bucket["total"] += row.total_questions or 0
-        provider_bucket["mentions"] += row.mention_count or 0
-        if row.avg_position is not None and row.mention_count:
-            provider_bucket["position_sum"] += row.avg_position * row.mention_count
-            provider_bucket["position_weight"] += row.mention_count
+@router.get("/scans/metrics/timeline", response_model=List[ScanMetricsTimelinePoint])
+async def get_scan_metrics_timeline(
+    client_id: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return chronological scan-level metrics for progress trend charts."""
+    clients_query = db.query(Client).filter(Client.user_id == user_id)
+    if client_id:
+        clients_query = clients_query.filter(Client.id == client_id)
 
-        group_bucket = group_buckets.setdefault(
-            row.group,
-            {"total": 0, "mentions": 0},
-        )
-        group_bucket["total"] += row.total_questions or 0
-        group_bucket["mentions"] += row.mention_count or 0
+    clients = clients_query.all()
+    if client_id and not clients:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not clients:
+        return []
 
-        for name, count in _safe_json_dict(row.competitor_data).items():
-            competitor_counts[name] = competitor_counts.get(name, 0) + count
-            provider_counts = competitor_provider_counts.setdefault(name, {})
-            provider_counts[row.provider] = provider_counts.get(row.provider, 0) + count
+    client_by_id = {client.id: client for client in clients}
+    scans = db.query(Scan).filter(
+        Scan.client_id.in_(list(client_by_id.keys())),
+    ).order_by(Scan.created_at.asc()).all()
 
-    provider_metrics = []
-    for provider, bucket in sorted(provider_buckets.items()):
-        total = int(bucket["total"])
-        mentions = int(bucket["mentions"])
-        position_weight = int(bucket["position_weight"])
-        avg_position = (
-            round(float(bucket["position_sum"]) / position_weight, 2)
-            if position_weight
-            else None
-        )
-        provider_metrics.append(
-            ProviderMetric(
-                id=provider,
-                score=_weighted_score(mentions, total),
-                mention_count=mentions,
-                total_questions=total,
-                avg_position=avg_position,
-            )
-        )
+    points: List[ScanMetricsTimelinePoint] = []
+    for scan in scans:
+        client = client_by_id.get(scan.client_id)
+        if not client:
+            continue
+        result_rows = _scan_result_rows(db, client.id, scan.id)
+        if not result_rows:
+            continue
+        points.append(_timeline_point_for_scan(db, client, scan, result_rows))
 
-    group_metrics = []
-    for group, bucket in sorted(group_buckets.items()):
-        total = int(bucket["total"])
-        mentions = int(bucket["mentions"])
-        group_metrics.append(
-            GroupMetric(
-                id=group,
-                label=GROUP_LABELS.get(group, group),
-                score=_weighted_score(mentions, total),
-                mention_count=mentions,
-                total_questions=total,
-            )
-        )
-
-    provider_totals = {
-        item.id: item.total_questions for item in provider_metrics
-    }
-    user_provider_mentions = {
-        item.id: item.mention_count for item in provider_metrics
-    }
-    user_provider_scores = {
-        item.id: item.score for item in provider_metrics
-    }
-
-    competitors = [
-        CompetitorMetric(
-            name=client.name,
-            score=_weighted_score(total_mentions, total_questions),
-            mention_count=total_mentions,
-            provider_scores=user_provider_scores,
-            provider_mentions=user_provider_mentions,
-            is_you=True,
-        )
-    ]
-    competitors.extend(
-        CompetitorMetric(
-            name=name,
-            score=_weighted_score(count, total_questions),
-            mention_count=count,
-            provider_scores={
-                provider: _weighted_score(
-                    competitor_provider_counts.get(name, {}).get(provider, 0),
-                    provider_total,
-                )
-                for provider, provider_total in provider_totals.items()
-            },
-            provider_mentions={
-                provider: competitor_provider_counts.get(name, {}).get(provider, 0)
-                for provider in provider_totals
-            },
-            is_you=False,
-        )
-        for name, count in competitor_counts.items()
-    )
-    competitors.sort(key=lambda item: item.score, reverse=True)
-
-    return MetricsResponse(
-        client_id=client.id,
-        client_name=client.name,
-        scan_id=scan.id,
-        status=scan.status,
-        overall_score=_weighted_score(total_mentions, total_questions),
-        total_questions=total_questions,
-        provider_metrics=provider_metrics,
-        group_metrics=group_metrics,
-        competitors=competitors,
-    )
+    return points
 
 
 @router.get("/clients/{client_id}/gap-report")

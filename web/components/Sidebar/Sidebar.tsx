@@ -8,7 +8,7 @@ import styles from "./Sidebar.module.css";
 
 type NavItem = {
   href: string;
-  icon: "overview" | "scans" | "competitors" | "responses" | "actions" | "settings";
+  icon: "overview" | "scans" | "compare" | "progress" | "competitors" | "responses" | "actions" | "settings";
   label: string;
 };
 
@@ -18,6 +18,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/dashboard", icon: "overview", label: "Overview" },
       { href: "/dashboard/scans", icon: "scans", label: "Scan History" },
+      { href: "/dashboard/compare", icon: "compare", label: "Compare" },
+      { href: "/dashboard/progress", icon: "progress", label: "Progress" },
       { href: "/dashboard/competitors", icon: "competitors", label: "Competitors" },
       { href: "/dashboard/responses", icon: "responses", label: "Responses" },
       { href: "/dashboard/actions", icon: "actions", label: "Action Plan" },

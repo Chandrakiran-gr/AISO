@@ -230,9 +230,14 @@ export default function ScanDetailPage() {
               : client?.name ?? "Loading scan"}
           </span>
         </div>
-        <Link href="/dashboard/scans" className={styles.newScanBtn}>
-          Back to scans
-        </Link>
+        <div className={styles.topBarActions}>
+          <Link href={`/dashboard/compare?a=${encodeURIComponent(scanId)}`} className={styles.newScanBtn}>
+            Compare with another scan
+          </Link>
+          <Link href="/dashboard/scans" className={styles.secondaryScanBtn}>
+            Back to scans
+          </Link>
+        </div>
       </div>
 
       <div className={`${styles.content} ${styles.detailContent}`}>

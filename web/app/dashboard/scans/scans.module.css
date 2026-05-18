@@ -95,6 +95,12 @@
 .pageTitle { font-size: 1rem; font-weight: 600; }
 .pageSub { font-size: 0.75rem; color: var(--text-muted); }
 
+.topBarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
 .newScanBtn {
   display: flex;
   align-items: center;
@@ -112,6 +118,29 @@
   transition: opacity var(--transition-fast);
 }
 .newScanBtn:hover { opacity: 0.9; }
+
+.secondaryScanBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: var(--border-muted);
+  border-radius: var(--radius-md);
+  background: rgba(30, 34, 49, 0.82);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.secondaryScanBtn:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: var(--bg-hover);
+}
 
 .content {
   padding: var(--space-xl);
@@ -555,6 +584,18 @@
 }
 
 @media (max-width: 760px) {
+  .topBar,
+  .topBarActions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topBarActions,
+  .newScanBtn,
+  .secondaryScanBtn {
+    width: 100%;
+  }
+
   .statsRow,
   .detailGrid,
   .customProviderGrid {

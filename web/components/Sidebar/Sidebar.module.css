@@ -179,6 +179,40 @@
   transform: translate(5px, 5px) rotate(45deg);
 }
 
+.iconcompare::before {
+  width: 14px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 8px 0 currentColor;
+  transform: translateY(-4px);
+}
+
+.iconcompare::after {
+  width: 5px;
+  height: 5px;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  box-shadow: 8px -8px 0 -2px currentColor;
+  transform: translate(4px, -4px) rotate(45deg);
+}
+
+.iconprogress::before {
+  width: 15px;
+  height: 10px;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  border-radius: 0 0 0 2px;
+}
+
+.iconprogress::after {
+  width: 12px;
+  height: 7px;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  transform: translate(1px, -1px) rotate(-26deg);
+}
+
 .iconcompetitors::before {
   width: 14px;
   height: 9px;
