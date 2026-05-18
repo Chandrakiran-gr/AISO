@@ -373,8 +373,10 @@ def _fallback_context_profile(client: Client, competitors: list[str]) -> dict:
             }
         ],
         "scan_objective": {
-            "objective": "high_intent_visibility",
-            "label": "Improve high-intent buyer visibility",
+            "objective": "",
+            "label": "",
+            "optimization_objectives": [],
+            "custom_objective": "",
             "custom": "",
         },
         "differentiators": [],

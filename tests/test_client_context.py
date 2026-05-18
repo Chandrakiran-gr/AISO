@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi import BackgroundTasks
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -56,7 +57,7 @@ class ClientContextProfileTests(unittest.TestCase):
         self.assertIn("Deluxe Dermaplane Facial", {item["name"] for item in profile["offerings"]})
         self.assertIn("Face Reality", {item["name"] for item in profile["product_brands"]})
         self.assertEqual(profile["competitors"][0]["type"], "competitor_business")
-        self.assertEqual(profile["scan_objective"]["objective"], "high_intent_visibility")
+        self.assertEqual(profile["scan_objective"]["optimization_objectives"], [])
         self.assertTrue(profile["buyer_contexts"])
         self.assertNotIn("No services found.", warnings)
 
@@ -376,6 +377,13 @@ class ClientContextApiTests(unittest.TestCase):
                             },
                             "goals": [],
                             "personas": [],
+                            "scan_objective": {
+                                "optimization_objectives": [
+                                    "local_discovery_visibility",
+                                    "trust_citation_proof",
+                                ],
+                                "custom_objective": "Prioritize buyers comparing proof and local availability.",
+                            },
                             "differentiators": [],
                             "guardrails": [],
                         },
@@ -390,10 +398,46 @@ class ClientContextApiTests(unittest.TestCase):
             stored = session.query(ClientContext).one()
             client = session.query(Client).filter(Client.id == "client-1").one()
             self.assertIsNotNone(stored.updated_at)
-            self.assertEqual(json.loads(stored.profile_json)["business"]["name"], "AISO Demo")
+            stored_profile = json.loads(stored.profile_json)
+            self.assertEqual(stored_profile["business"]["name"], "AISO Demo")
+            self.assertEqual(
+                stored_profile["scan_objective"]["optimization_objectives"],
+                ["local_discovery_visibility", "trust_citation_proof"],
+            )
+            self.assertEqual(
+                stored_profile["scan_objective"]["custom_objective"],
+                "Prioritize buyers comparing proof and local availability.",
+            )
             self.assertEqual(json.loads(client.competitors), ["Competitor One", "Competitor Two"])
         finally:
             session.close()
+
+    def test_update_context_rejects_unknown_scan_objectives(self):
+        with self.assertRaises(ValidationError):
+            ClientContextUpdate(
+                status="confirmed",
+                profile_json={
+                    "business": {"name": "AISO Demo"},
+                    "scan_objective": {
+                        "optimization_objectives": ["unknown_objective"],
+                    },
+                },
+                warnings_json=[],
+            )
+
+    def test_update_context_caps_custom_objective_length(self):
+        with self.assertRaises(ValidationError):
+            ClientContextUpdate(
+                status="confirmed",
+                profile_json={
+                    "business": {"name": "AISO Demo"},
+                    "scan_objective": {
+                        "optimization_objectives": [],
+                        "custom_objective": "x" * 501,
+                    },
+                },
+                warnings_json=[],
+            )
 
 
 if __name__ == "__main__":
