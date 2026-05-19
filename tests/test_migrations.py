@@ -38,6 +38,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("client_contexts", inspector.get_table_names())
                     self.assertIn("conversations", inspector.get_table_names())
                     self.assertIn("messages", inspector.get_table_names())
+                    self.assertIn("content_drafts", inspector.get_table_names())
                     self.assertIn("alembic_version", inspector.get_table_names())
                     action_columns = {
                         column["name"] for column in inspector.get_columns("actions")
@@ -70,6 +71,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("client_contexts", inspector.get_table_names())
                     self.assertIn("conversations", inspector.get_table_names())
                     self.assertIn("messages", inspector.get_table_names())
+                    self.assertIn("content_drafts", inspector.get_table_names())
             finally:
                 engine.dispose()
 

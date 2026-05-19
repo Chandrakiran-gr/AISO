@@ -2,20 +2,27 @@ import asyncio
 import json
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.database import Action, Base, Client, ClientContext, Conversation, Message, Scan, ScanResult, User
+from api.database import Action, Base, Client, ClientContext, ContentDraft, Conversation, Message, Scan, ScanResult, User
 from api.routes.assistant import (
+    ContentDraftGenerate,
+    ContentDraftUpdate,
     ConversationCreate,
     MessageCreate,
     _assistant_context,
     _fallback_assistant_text,
     _llm_messages,
+    approve_content_draft,
     create_conversation,
+    generate_content_draft,
     get_conversation,
     list_conversations,
+    reject_content_draft,
     stream_message,
 )
 
@@ -204,6 +211,110 @@ class AssistantRouteTests(unittest.TestCase):
             self.assertIn("[redacted-api-key]", messages[0].content)
             self.assertNotIn("sk-ant-", messages[0].content)
             self.assertEqual(messages[1].role, "assistant")
+        finally:
+            session.close()
+
+    def test_stream_content_request_stores_pending_review_draft(self):
+        session = self._seed()
+        try:
+            created = asyncio.run(
+                create_conversation(
+                    ConversationCreate(client_id="client-1"),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+            with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+                response = asyncio.run(
+                    stream_message(
+                        created.id,
+                        MessageCreate(content="Write a LinkedIn post about our AI visibility work"),
+                        db=session,
+                        user_id="user-1",
+                    )
+                )
+
+                async def collect_body():
+                    parts: list[str] = []
+                    async for chunk in response.body_iterator:
+                        parts.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+                    return "".join(parts)
+
+                body = asyncio.run(collect_body())
+
+            self.assertIn("content_draft", body)
+            draft = session.query(ContentDraft).one()
+            self.assertEqual(draft.status, "pending_review")
+            self.assertEqual(draft.content_type, "linkedin_post")
+            self.assertEqual(draft.client_id, "client-1")
+            self.assertEqual(draft.created_by, "user-1")
+            self.assertIn("AISO Demo", draft.content)
+        finally:
+            session.close()
+
+    def test_generate_content_draft_uses_server_side_context(self):
+        session = self._seed()
+        try:
+            with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+                draft = asyncio.run(
+                    generate_content_draft(
+                        ContentDraftGenerate(
+                            client_id="client-1",
+                            instruction="Write a blog post about our visibility work",
+                            content_type="blog_post",
+                        ),
+                        db=session,
+                        user_id="user-1",
+                    )
+                )
+
+            self.assertEqual(draft.status, "pending_review")
+            self.assertEqual(draft.content_type, "blog_post")
+            self.assertIn("AISO Demo", draft.content)
+            self.assertEqual(session.query(ContentDraft).count(), 1)
+        finally:
+            session.close()
+
+    def test_client_access_not_account_role_controls_draft_approval(self):
+        session = self._seed()
+        try:
+            draft = ContentDraft(
+                id="draft-1",
+                client_id="client-1",
+                created_by="user-1",
+                content_type="linkedin_post",
+                title="Draft",
+                content="Initial draft",
+                status="pending_review",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            session.add(draft)
+            session.commit()
+
+            approved = asyncio.run(
+                approve_content_draft(
+                    "draft-1",
+                    ContentDraftUpdate(content="Edited and approved", review_notes="Ready"),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+            self.assertEqual(approved.status, "approved")
+            self.assertEqual(approved.reviewed_by, "user-1")
+            self.assertIsNotNone(approved.reviewed_at)
+            self.assertEqual(approved.content, "Edited and approved")
+
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(
+                    reject_content_draft(
+                        "draft-1",
+                        ContentDraftUpdate(review_notes="No access"),
+                        db=session,
+                        user_id="user-2",
+                    )
+                )
+            self.assertEqual(ctx.exception.status_code, 403)
         finally:
             session.close()
 

@@ -34,6 +34,13 @@ type AssistantState = {
   error: string | null;
 };
 
+type ContentDraftSummary = {
+  id: string;
+  title: string;
+  status: string;
+  content_type: string;
+};
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -106,6 +113,7 @@ export default function AssistantPanel() {
   });
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [draft, setDraft] = useState("");
+  const [draftNotice, setDraftNotice] = useState<ContentDraftSummary | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -177,6 +185,7 @@ export default function AssistantPanel() {
     };
 
     setDraft("");
+    setDraftNotice(null);
     setMessages((prev) => [...prev, userMessage, assistantMessage]);
     setState((prev) => ({ ...prev, streaming: true, error: null }));
 
@@ -205,7 +214,7 @@ export default function AssistantPanel() {
         for (const block of blocks) {
           const parsed = parseSseEvent(block);
           if (!parsed) continue;
-          const data = parsed.data as { delta?: string; message?: MessageData };
+          const data = parsed.data as { delta?: string; message?: MessageData; content_draft?: ContentDraftSummary | null };
           if (parsed.event === "message" && data.delta) {
             setMessages((prev) =>
               prev.map((message) =>
@@ -219,6 +228,7 @@ export default function AssistantPanel() {
             setMessages((prev) =>
               prev.map((message) => (message.id === assistantMessageId ? data.message! : message)),
             );
+            if (data.content_draft) setDraftNotice(data.content_draft);
           }
         }
       }
@@ -252,9 +262,14 @@ export default function AssistantPanel() {
               : "Ask AISO what to do next"}
           </p>
         </div>
-        <Link href="/dashboard/actions" className={styles.secondaryButton}>
-          View action plan
-        </Link>
+        <div className={styles.topActions}>
+          <Link href="/dashboard/assistant/drafts" className={styles.secondaryButton}>
+            Content library
+          </Link>
+          <Link href="/dashboard/actions" className={styles.secondaryButton}>
+            View action plan
+          </Link>
+        </div>
       </header>
 
       <main className={styles.content}>
@@ -269,6 +284,12 @@ export default function AssistantPanel() {
         </section>
 
         {state.error && <div className={styles.notice}>{state.error}</div>}
+        {draftNotice && (
+          <div className={styles.notice}>
+            Draft saved: {draftNotice.title}.{" "}
+            <Link href="/dashboard/assistant/drafts">Open Content Library</Link>
+          </div>
+        )}
         {state.loading && <div className={styles.notice}>Loading assistant...</div>}
 
         {!state.loading && !state.client && (
@@ -314,7 +335,7 @@ export default function AssistantPanel() {
               <textarea
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder="Ask about scan results, open actions, or what to prioritize next..."
+                placeholder="Ask about scan results, open actions, content drafts, or what to prioritize next..."
                 rows={3}
                 maxLength={4000}
                 disabled={state.streaming}

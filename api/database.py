@@ -116,6 +116,29 @@ class Message(Base):
     created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class ContentDraft(Base):
+    """Human-reviewed content generated from assistant conversations."""
+    __tablename__ = "content_drafts"
+    __table_args__ = (
+        Index("ix_content_drafts_client_status", "client_id", "status"),
+        Index("ix_content_drafts_conversation", "conversation_id"),
+    )
+
+    id              = Column(String, primary_key=True)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=True)
+    client_id       = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    created_by      = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    content_type    = Column(String, nullable=False)          # blog_post | linkedin_post | platform_listing | review_response | other
+    title           = Column(String, nullable=False)
+    content         = Column(Text, nullable=False)
+    status          = Column(String, default="pending_review", nullable=False)  # pending_review | approved | rejected | archived
+    reviewed_by     = Column(String, ForeignKey("users.id"), nullable=True)
+    reviewed_at     = Column(DateTime, nullable=True)
+    review_notes    = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class Scan(Base):
     """A pipeline run for a client."""
     __tablename__ = "scans"
