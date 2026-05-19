@@ -7,13 +7,14 @@ from typing import Any, Optional
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from api.auth import get_current_user_id
 from api.client_context_service import build_context_profile
 from api.database import Client, ClientContext, SessionLocal, get_db
 from api.scan_capabilities import profile_competitor_names
+from api.scan_objectives import ScanObjectiveValidationError, normalize_scan_objective
 from api.website_ingestion import IngestionConfig, URLSafetyError, discover_website
 
 router = APIRouter(tags=["client-context"])
@@ -38,6 +39,19 @@ class ClientContextUpdate(BaseModel):
     status: str = "confirmed"
     profile_json: dict[str, Any]
     warnings_json: list[str] = Field(default_factory=list)
+
+    @field_validator("profile_json")
+    @classmethod
+    def validate_profile_json(cls, value: dict[str, Any]) -> dict[str, Any]:
+        profile = dict(value or {})
+        try:
+            profile["scan_objective"] = normalize_scan_objective(
+                profile.get("scan_objective"),
+                reject_unknown=True,
+            )
+        except ScanObjectiveValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return profile
 
 
 def _ensure_client(db: Session, client_id: str, user_id: str) -> Client:

@@ -13,8 +13,10 @@ from api.database import Client
 
 PROFILE_VERSION = "client_context.v1"
 DEFAULT_SCAN_OBJECTIVE = {
-    "objective": "high_intent_visibility",
-    "label": "Improve high-intent buyer visibility",
+    "objective": "",
+    "label": "",
+    "optimization_objectives": [],
+    "custom_objective": "",
     "custom": "",
     "source_url": "fallback",
     "confidence": 0.45,

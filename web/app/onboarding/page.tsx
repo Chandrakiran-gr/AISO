@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 import { setKey, getKey, getAllKeys, hadKeyPreviousSession, clearKey, type Provider } from "@/lib/byok";
 import { INTENT_GROUPS } from "@/lib/intent-groups";
+import OptimizationObjectiveSelector from "@/components/OptimizationObjectiveSelector";
 
 const PROVIDERS: { id: Provider; name: string; color: string }[] = [
   { id: "openai",     name: "ChatGPT",    color: "#10a37f" },
@@ -84,8 +85,10 @@ type ContextItem = {
 };
 
 type ScanObjective = {
-  objective: string;
-  label: string;
+  objective?: string;
+  label?: string;
+  optimization_objectives?: string[];
+  custom_objective?: string;
   custom?: string;
   source_url?: string;
   confidence?: number;
@@ -211,16 +214,63 @@ function competitorNamesFromProfile(profile: ContextProfile): string[] {
 
 function defaultScanObjective(): ScanObjective {
   return {
-    objective: SCAN_OBJECTIVES[0].id,
-    label: SCAN_OBJECTIVES[0].label,
+    objective: "",
+    label: "",
+    optimization_objectives: [],
+    custom_objective: "",
     custom: "",
     source_url: "manual_onboarding",
     confidence: 0.9,
   };
 }
 
+function validObjectiveIds(values: unknown): string[] {
+  const ids = new Set<string>(SCAN_OBJECTIVES.map((objective) => objective.id));
+  const source = Array.isArray(values) ? values : [];
+  const selected: string[] = [];
+  for (const value of source) {
+    if (typeof value !== "string" || !ids.has(value) || selected.includes(value)) continue;
+    selected.push(value);
+  }
+  return selected;
+}
+
 function objectiveLabel(id: string): string {
-  return SCAN_OBJECTIVES.find((objective) => objective.id === id)?.label ?? SCAN_OBJECTIVES[0].label;
+  return SCAN_OBJECTIVES.find((objective) => objective.id === id)?.label ?? id;
+}
+
+function selectedObjectiveIds(scanObjective?: ScanObjective): string[] {
+  const selected = validObjectiveIds(scanObjective?.optimization_objectives);
+  if (selected.length > 0) return selected;
+  return validObjectiveIds(scanObjective?.objective ? [scanObjective.objective] : []);
+}
+
+function objectiveSummary(scanObjective?: ScanObjective): string {
+  const selected = selectedObjectiveIds(scanObjective);
+  if (selected.length > 0) return selected.map(objectiveLabel).join(", ");
+  if ((scanObjective?.custom_objective ?? scanObjective?.custom ?? "").trim()) return "Custom objective";
+  return "No template selected";
+}
+
+function scanObjectiveFromSelection(objectives: string[], customObjective: string): ScanObjective {
+  const selected = validObjectiveIds(objectives);
+  const cleanCustom = customObjective.slice(0, 500);
+  return {
+    objective: selected[0] ?? "",
+    label: selected.map(objectiveLabel).join(", "),
+    optimization_objectives: selected,
+    custom_objective: cleanCustom,
+    custom: cleanCustom,
+    source_url: "manual_onboarding",
+    confidence: 0.9,
+  };
+}
+
+function normalizedScanObjective(scanObjective?: ScanObjective): ScanObjective {
+  return scanObjectiveFromSelection(
+    selectedObjectiveIds(scanObjective),
+    scanObjective?.custom_objective ?? scanObjective?.custom ?? "",
+  );
 }
 
 function blankBuyerContext(): BuyerContext {
@@ -246,7 +296,7 @@ function buyerContextIsUsable(context: BuyerContext): boolean {
 }
 
 function normalizedProfile(profile: ContextProfile): ContextProfile {
-  const scanObjective = profile.scan_objective ?? defaultScanObjective();
+  const scanObjective = normalizedScanObjective(profile.scan_objective ?? defaultScanObjective());
   const sourceBuyerContexts = Array.isArray(profile.buyer_contexts) ? profile.buyer_contexts : [];
   const buyerContexts = sourceBuyerContexts
     .filter(buyerContextIsUsable)
@@ -275,8 +325,9 @@ function normalizedProfile(profile: ContextProfile): ContextProfile {
     guardrails: normalizeGuardrails(profile.guardrails),
     scan_objective: {
       ...scanObjective,
-      label: objectiveLabel(scanObjective.objective),
-      custom: scanObjective.custom ?? "",
+      label: objectiveSummary(scanObjective),
+      custom_objective: scanObjective.custom_objective ?? scanObjective.custom ?? "",
+      custom: scanObjective.custom_objective ?? scanObjective.custom ?? "",
     },
     buyer_contexts: buyerContexts,
   };
@@ -1010,19 +1061,23 @@ function Step3({
   function updateLocations(key: keyof ContextProfile["locations"], items: ContextItem[]) {
     setProfile({ ...profile, locations: { ...profile.locations, [key]: items } });
   }
-  function updateScanObjective(objective: string, custom?: string) {
+  function updateScanObjective(objectives: string[], custom?: string) {
     setProfile({
       ...profile,
-      scan_objective: {
-        objective,
-        label: objectiveLabel(objective),
-        custom: custom ?? profile.scan_objective?.custom ?? "",
-        source_url: "manual_onboarding",
-        confidence: 0.9,
-      },
+      scan_objective: scanObjectiveFromSelection(
+        objectives,
+        custom ?? profile.scan_objective?.custom_objective ?? profile.scan_objective?.custom ?? "",
+      ),
     });
   }
-  const scanObjective = profile.scan_objective ?? defaultScanObjective();
+  const scanObjective = normalizedScanObjective(profile.scan_objective ?? defaultScanObjective());
+  const selectedObjectives = selectedObjectiveIds(scanObjective);
+  function toggleScanObjective(objectiveId: string) {
+    const next = selectedObjectives.includes(objectiveId)
+      ? selectedObjectives.filter((selected) => selected !== objectiveId)
+      : [...selectedObjectives, objectiveId];
+    updateScanObjective(next);
+  }
   const buyerContexts = profile.buyer_contexts ?? [];
   return (
     <div>
@@ -1054,21 +1109,12 @@ function Step3({
           </div>
           <span>1</span>
         </div>
-        <select
-          className="input"
-          value={scanObjective.objective}
-          onChange={(event) => updateScanObjective(event.target.value)}
-        >
-          {SCAN_OBJECTIVES.map((objective) => (
-            <option key={objective.id} value={objective.id}>{objective.label}</option>
-          ))}
-        </select>
-        <textarea
-          className={styles.contextTextarea}
-          value={scanObjective.custom ?? ""}
-          onChange={(event) => updateScanObjective(scanObjective.objective, event.target.value)}
-          placeholder="Optional custom objective"
-          rows={2}
+        <OptimizationObjectiveSelector
+          options={SCAN_OBJECTIVES}
+          selectedObjectiveIds={selectedObjectives}
+          customObjective={scanObjective.custom_objective ?? scanObjective.custom ?? ""}
+          onToggleObjective={toggleScanObjective}
+          onCustomObjectiveChange={(customObjective) => updateScanObjective(selectedObjectives, customObjective)}
         />
       </section>
       <div className={styles.contextGrid}>
@@ -1479,7 +1525,7 @@ function Step4({
           {[
             { k: "Business", v: form.businessName },
             { k: "Website", v: form.websiteUrl },
-            { k: "Objective", v: profile.scan_objective?.label ?? objectiveLabel("high_intent_visibility") },
+            { k: "Objective", v: objectiveSummary(profile.scan_objective) },
             { k: "Competitors", v: hasCompetitors ? `${competitorCount} added` : "Not added" },
             { k: "Platforms", v: providerNames },
             { k: "Groups", v: form.groups.join(", ") },
@@ -1648,10 +1694,6 @@ export default function OnboardingPage() {
       return;
     }
     const readyBuyerContexts = (profile.buyer_contexts ?? []).filter(buyerContextIsUsable);
-    if (!profile.scan_objective?.objective) {
-      setError("Choose a scan objective before configuring the scan.");
-      return;
-    }
     setSavingContext(true);
     setError(null);
     try {
@@ -1696,11 +1738,6 @@ export default function OnboardingPage() {
     if (context?.status !== "confirmed") {
       setStep(3);
       setError("Confirm the client context before launching the scan.");
-      return;
-    }
-    if (!profile.scan_objective?.objective) {
-      setStep(3);
-      setError("Choose a scan objective before launching.");
       return;
     }
     setKeyError(null);

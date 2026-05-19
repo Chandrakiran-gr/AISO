@@ -11,6 +11,8 @@ import os
 import re
 import unicodedata
 
+from api.scan_objectives import normalize_scan_objective
+
 
 GROUP_LABELS = {
     "G1": "Category & local discovery (unbranded)",
@@ -554,18 +556,8 @@ def _search_terms_for_offering(offering: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _scan_objective(profile: dict[str, Any]) -> dict[str, str]:
-    raw = profile.get("scan_objective")
-    if not isinstance(raw, dict):
-        return {
-            "objective": "high_intent_visibility",
-            "label": "Improve high-intent buyer visibility",
-            "custom": "",
-        }
-    objective = _clean(raw.get("objective")) or "high_intent_visibility"
-    label = _clean(raw.get("label")) or objective.replace("_", " ")
-    custom = _clean(raw.get("custom"))
-    return {"objective": objective, "label": label, "custom": custom}
+def _scan_objective(profile: dict[str, Any]) -> dict[str, Any]:
+    return normalize_scan_objective(profile.get("scan_objective"), reject_unknown=False)
 
 
 def _buyer_contexts(profile: dict[str, Any], goals: list[dict[str, Any]], personas: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1540,9 +1532,10 @@ def _generate_candidates(profile: dict[str, Any], selected_groups: Iterable[str]
 
     for candidate in candidates:
         candidate.metadata.setdefault("scan_objective", scan_objective["objective"])
+        candidate.metadata.setdefault("scan_objectives", scan_objective["optimization_objectives"])
         candidate.metadata.setdefault("scan_objective_label", scan_objective["label"])
-        if scan_objective.get("custom"):
-            candidate.metadata.setdefault("scan_objective_custom", scan_objective["custom"])
+        if scan_objective.get("custom_objective"):
+            candidate.metadata.setdefault("scan_objective_custom", scan_objective["custom_objective"])
 
     return candidates
 
@@ -1787,8 +1780,7 @@ class QuestionValueRanker:
             return 5.8 if candidate.group in {"G1", "G3", "G5"} else 3.0
         return 5.0
 
-    def _objective_alignment_score(self, candidate: QuestionCandidate) -> float:
-        objective = str(candidate.metadata.get("scan_objective") or "high_intent_visibility")
+    def _objective_alignment_for(self, candidate: QuestionCandidate, objective: str) -> float:
         subtype = str(candidate.metadata.get("intent_subtype") or "")
         usage = str(candidate.metadata.get("location_usage") or "")
         score = 5.5
@@ -1810,6 +1802,17 @@ class QuestionValueRanker:
             if subtype in {"price", "transactional", "concern", "outcome", "near_me"}:
                 score += 2.6
         return _clamp(score)
+
+    def _objective_alignment_score(self, candidate: QuestionCandidate) -> float:
+        raw_objectives = candidate.metadata.get("scan_objectives")
+        objectives = [
+            str(objective)
+            for objective in raw_objectives
+            if isinstance(objective, str) and objective
+        ] if isinstance(raw_objectives, list) else []
+        if not objectives:
+            objectives = [str(candidate.metadata.get("scan_objective") or "high_intent_visibility")]
+        return max(self._objective_alignment_for(candidate, objective) for objective in objectives)
 
     def _buyer_context_score(self, candidate: QuestionCandidate) -> float:
         meta = candidate.metadata
