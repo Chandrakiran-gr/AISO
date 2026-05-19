@@ -114,6 +114,7 @@ export default function AssistantPanel() {
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [draft, setDraft] = useState("");
   const [draftNotice, setDraftNotice] = useState<ContentDraftSummary | null>(null);
+  const [toolActivity, setToolActivity] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -186,6 +187,7 @@ export default function AssistantPanel() {
 
     setDraft("");
     setDraftNotice(null);
+    setToolActivity(null);
     setMessages((prev) => [...prev, userMessage, assistantMessage]);
     setState((prev) => ({ ...prev, streaming: true, error: null }));
 
@@ -214,8 +216,22 @@ export default function AssistantPanel() {
         for (const block of blocks) {
           const parsed = parseSseEvent(block);
           if (!parsed) continue;
-          const data = parsed.data as { delta?: string; message?: MessageData; content_draft?: ContentDraftSummary | null };
+          const data = parsed.data as {
+            delta?: string;
+            message?: MessageData;
+            content_draft?: ContentDraftSummary | null;
+            tool?: string;
+            label?: string;
+            status?: string;
+          };
+
+          if (parsed.event === "tool_activity" && data.label) {
+            // Show what the agent is doing instead of generic "Thinking..."
+            setToolActivity(data.label);
+          }
           if (parsed.event === "message" && data.delta) {
+            // Clear tool activity once text starts streaming
+            setToolActivity(null);
             setMessages((prev) =>
               prev.map((message) =>
                 message.id === assistantMessageId
@@ -225,6 +241,7 @@ export default function AssistantPanel() {
             );
           }
           if (parsed.event === "done" && data.message) {
+            setToolActivity(null);
             setMessages((prev) =>
               prev.map((message) => (message.id === assistantMessageId ? data.message! : message)),
             );
@@ -245,6 +262,7 @@ export default function AssistantPanel() {
         ),
       );
     } finally {
+      setToolActivity(null);
       setState((prev) => ({ ...prev, streaming: false }));
     }
   }
@@ -325,7 +343,14 @@ export default function AssistantPanel() {
                     <strong>{message.role === "user" ? "You" : "AISO Assistant"}</strong>
                     <span>{formatTime(message.created_at)}</span>
                   </div>
-                  <p>{message.content || (state.streaming ? "Thinking..." : "")}</p>
+                  {message.content ? (
+                    <p className={styles.messageContent}>{message.content}</p>
+                  ) : state.streaming ? (
+                    <p className={styles.thinkingLabel}>
+                      <span className={styles.thinkingDot} />
+                      {toolActivity ?? "Thinking..."}
+                    </p>
+                  ) : null}
                 </article>
               ))}
               <div ref={messagesEndRef} />
@@ -341,7 +366,11 @@ export default function AssistantPanel() {
                 disabled={state.streaming}
               />
               <div className={styles.composerFooter}>
-                <span>{state.streaming ? "Streaming response..." : "Context: active client, latest scan, open actions"}</span>
+                <span className={styles.contextLabel}>
+                  {state.streaming
+                    ? (toolActivity ?? "Thinking...")
+                    : "Context: active client, latest scan, open actions"}
+                </span>
                 <button type="submit" disabled={!draft.trim() || state.streaming}>
                   Send
                 </button>
