@@ -83,6 +83,39 @@ class ClientContext(Base):
     updated_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class Conversation(Base):
+    """Persisted assistant conversation scoped to one client and user."""
+    __tablename__ = "conversations"
+    __table_args__ = (
+        Index("ix_conversations_client_user", "client_id", "user_id"),
+        Index("ix_conversations_archived", "archived_at"),
+    )
+
+    id          = Column(String, primary_key=True)
+    client_id   = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    user_id     = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    title       = Column(String, nullable=True)
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    archived_at = Column(DateTime, nullable=True)
+
+
+class Message(Base):
+    """One persisted assistant conversation message."""
+    __tablename__ = "messages"
+    __table_args__ = (
+        Index("ix_messages_conversation_created", "conversation_id", "created_at"),
+        Index("ix_messages_role", "role"),
+    )
+
+    id              = Column(String, primary_key=True)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False, index=True)
+    role            = Column(String, nullable=False)  # user | assistant | system
+    content         = Column(Text, nullable=False)
+    metadata_json   = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class Scan(Base):
     """A pipeline run for a client."""
     __tablename__ = "scans"
