@@ -27,6 +27,7 @@ from api.database import (
     Message,
     Scan,
     ScanAnalysis,
+    ScanCitation,
     ScanResult,
     get_db,
 )
@@ -48,6 +49,8 @@ CONTENT_DRAFT_TYPES = {
     "linkedin_post",
     "platform_listing",
     "review_response",
+    "faq_page",
+    "schema_markup",
     "other",
 }
 CONTENT_DRAFT_STATUSES = {"pending_review", "approved", "rejected", "archived"}
@@ -484,9 +487,15 @@ def _open_actions(db: Session, client_id: str) -> list[dict[str, Any]]:
     ).all()
     return [
         {
+            "id": action.id,
             "title": action.title,
             "description": action.description,
             "priority": action.priority or "medium",
+            "evidence_summary": action.evidence_summary,
+            "remediation_type": action.remediation_type,
+            "impact_estimate": action.impact_estimate,
+            "target_questions": _safe_json_loads(action.target_questions_json, []),
+            "target_providers": _safe_json_loads(action.target_providers_json, []),
         }
         for action in actions
     ]
@@ -552,14 +561,85 @@ def _refresh_conversation_summary(db: Session, conversation: Conversation) -> No
     )
 
 
+def _deep_scan_context(
+    db: Session, client_id: str, scan_id: str, client_name: str,
+) -> dict[str, Any]:
+    """Build question-level scan context for the assistant.
+
+    Returns visibility gaps, competitor mentions, and provider-specific
+    findings so the AI can give evidence-backed responses.
+    """
+    citations = db.query(ScanCitation).filter(
+        ScanCitation.client_id == client_id,
+        ScanCitation.scan_id == scan_id,
+    ).all()
+    client_lower = (client_name or "").strip().casefold()
+
+    # Per-question mention tracking
+    question_map: dict[str, dict[str, Any]] = {}
+    for cit in citations:
+        q = (cit.question or "").strip()
+        if not q:
+            continue
+        if q not in question_map:
+            question_map[q] = {
+                "group": cit.group,
+                "mentioned_by": [],
+                "not_mentioned_by": [],
+            }
+        entry = question_map[q]
+        answer = (cit.answer_excerpt or "").casefold()
+        provider = cit.provider or ""
+        if client_lower and client_lower in answer:
+            if provider not in entry["mentioned_by"]:
+                entry["mentioned_by"].append(provider)
+        else:
+            if provider not in entry["not_mentioned_by"]:
+                entry["not_mentioned_by"].append(provider)
+
+    # Build gap list: questions where client is never mentioned
+    missing_questions = []
+    partial_questions = []
+    for q, data in question_map.items():
+        if not data["mentioned_by"] and data["not_mentioned_by"]:
+            missing_questions.append({
+                "question": q,
+                "group": data["group"],
+                "providers": data["not_mentioned_by"],
+            })
+        elif data["mentioned_by"] and data["not_mentioned_by"]:
+            partial_questions.append({
+                "question": q,
+                "group": data["group"],
+                "mentioned_by": data["mentioned_by"],
+                "not_mentioned_by": data["not_mentioned_by"],
+            })
+
+    return {
+        "total_questions_analyzed": len(question_map),
+        "missing_mention_count": len(missing_questions),
+        "partial_mention_count": len(partial_questions),
+        "missing_questions": missing_questions[:15],  # Cap to keep context lean
+        "partial_questions": partial_questions[:10],
+    }
+
+
 def _context_for_client(db: Session, client: Client, conversation_id: str | None = None) -> dict[str, Any]:
     latest_scan = _latest_scan_summary(db, client.id)
     conversation = None
     if conversation_id:
         conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+    deep_context = None
+    if latest_scan:
+        deep_context = _deep_scan_context(
+            db, client.id, latest_scan["scan_id"], client.name,
+        )
+
     return {
         "client": _client_profile_context(db, client),
         "latest_scan": latest_scan,
+        "deep_scan": deep_context,
         "scan_history": _recent_scan_history(db, client.id, latest_scan["scan_id"] if latest_scan else None),
         "open_actions": _open_actions(db, client.id),
         "history": _conversation_history(db, conversation_id) if conversation_id else [],
@@ -575,6 +655,7 @@ def _assistant_context(db: Session, conversation: Conversation) -> dict[str, Any
 def _build_system_prompt(context: dict[str, Any]) -> str:
     client = context["client"]
     latest_scan = context.get("latest_scan")
+    deep_scan = context.get("deep_scan")
     actions = context.get("open_actions") or []
     scan_history = context.get("scan_history") or []
     conversation_summary = context.get("conversation_summary") or ""
@@ -585,22 +666,61 @@ def _build_system_prompt(context: dict[str, Any]) -> str:
         for item in offerings[:8]
         if isinstance(item, dict) and item.get("name")
     )
+
+    # ── Provider scores ──
     provider_scores = ""
     if latest_scan:
         provider_scores = "; ".join(
             f"{item['provider']}: {item['score']}/100"
             for item in latest_scan.get("providers", [])
         )
-    action_lines = "\n".join(
-        f"- {item['priority']}: {item['title']} — {item.get('description') or 'No description'}"
-        for item in actions
-    ) or "- No open action items."
+
+    # ── Scan summary line ──
     scan_line = (
         f"Latest scan: {latest_scan.get('completed_at') or latest_scan.get('created_at')} "
         f"overall score {latest_scan.get('overall_score')}/100; provider scores: {provider_scores or 'none'}."
         if latest_scan
         else "Latest scan: none yet."
     )
+
+    # ── Deep scan context: question-level visibility gaps ──
+    gap_section = ""
+    if deep_scan:
+        total_q = deep_scan.get("total_questions_analyzed", 0)
+        missing = deep_scan.get("missing_mention_count", 0)
+        partial = deep_scan.get("partial_mention_count", 0)
+        gap_section = (
+            f"\nQuestion-level analysis: {total_q} questions analyzed. "
+            f"{missing} questions with zero mentions, {partial} with partial mentions.\n"
+        )
+        # Add sample missing questions so the AI can reference them
+        missing_qs = deep_scan.get("missing_questions", [])[:8]
+        if missing_qs:
+            gap_section += "Top visibility gaps (not mentioned by any provider):\n"
+            for mq in missing_qs:
+                providers_str = ", ".join(mq.get("providers", []))
+                gap_section += f"  - \"{mq['question']}\" ({mq.get('group', '?')}) — checked: {providers_str}\n"
+
+        partial_qs = deep_scan.get("partial_questions", [])[:5]
+        if partial_qs:
+            gap_section += "Partial gaps (mentioned by some providers, not others):\n"
+            for pq in partial_qs:
+                mentioned = ", ".join(pq.get("mentioned_by", []))
+                missed = ", ".join(pq.get("not_mentioned_by", []))
+                gap_section += f"  - \"{pq['question']}\" — mentioned by: {mentioned}; missed by: {missed}\n"
+
+    # ── Actions with evidence ──
+    action_lines_parts = []
+    for item in actions[:8]:
+        line = f"- [{item['priority']}] {item['title']}"
+        if item.get("evidence_summary"):
+            line += f" — Evidence: {item['evidence_summary']}"
+        if item.get("remediation_type"):
+            line += f" (fix: {item['remediation_type']})"
+        action_lines_parts.append(line)
+    action_lines = "\n".join(action_lines_parts) or "- No open action items."
+
+    # ── Scan history ──
     history_lines = "\n".join(
         f"- {item.get('completed_at') or item.get('created_at')}: "
         f"{'; '.join(item.get('summaries') or ['No scan summary available'])}"
@@ -609,15 +729,18 @@ def _build_system_prompt(context: dict[str, Any]) -> str:
 
     return (
         f"{_assistant_system_template()}\n\n"
+        f"--- CLIENT CONTEXT ---\n"
         f"Client: {client['name']} ({client['url']}). Industry: {client.get('industry') or 'unknown'}. "
         f"Location: {client.get('location') or 'unknown'}.\n"
-        f"Offerings: {offerings_text or 'not confirmed'}.\n"
+        f"Offerings: {offerings_text or 'not confirmed'}.\n\n"
+        f"--- SCAN DATA ---\n"
         f"{scan_line}\n"
-        f"Earlier scan summaries:\n{history_lines}\n"
-        f"Open action items:\n{action_lines}\n"
-        f"Older conversation summary: {conversation_summary or 'None.'}\n\n"
-        "Respond concisely with specific, practical guidance. When recommending priorities, cite provider "
-        "names and scores when they are available in context."
+        f"{gap_section}"
+        f"\nEarlier scan summaries:\n{history_lines}\n\n"
+        f"--- OPEN ACTIONS ---\n"
+        f"{action_lines}\n\n"
+        f"--- CONVERSATION CONTEXT ---\n"
+        f"Older conversation summary: {conversation_summary or 'None.'}\n"
     )
 
 

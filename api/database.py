@@ -129,13 +129,17 @@ class ContentDraft(Base):
     conversation_id = Column(String, ForeignKey("conversations.id"), nullable=True)
     client_id       = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
     created_by      = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    content_type    = Column(String, nullable=False)          # blog_post | linkedin_post | platform_listing | review_response | other
+    content_type    = Column(String, nullable=False)          # blog_post | linkedin_post | platform_listing | review_response | faq_page | schema_markup | other
     title           = Column(String, nullable=False)
     content         = Column(Text, nullable=False)
     status          = Column(String, default="pending_review", nullable=False)  # pending_review | approved | rejected | archived
     reviewed_by     = Column(String, ForeignKey("users.id"), nullable=True)
     reviewed_at     = Column(DateTime, nullable=True)
     review_notes    = Column(Text, nullable=True)
+    source_action_id     = Column(String, ForeignKey("actions.id"), nullable=True)   # Action that triggered this content
+    target_questions_json = Column(Text, nullable=True)       # JSON array of scan questions this content targets
+    export_format   = Column(String, nullable=True)           # pdf | docx | null
+    export_path     = Column(Text, nullable=True)             # Local path to exported file
     created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -327,6 +331,11 @@ class Action(Base):
     score       = Column(Float, nullable=True)                # ranking score from deterministic engine
     sort_order  = Column(Integer, nullable=True)              # stable UI ordering
     evidence_json = Column(Text, nullable=True)               # JSON evidence behind the recommendation
+    remediation_type      = Column(String, nullable=True)     # blog_post | faq_page | schema_markup | listing_update | review_response | page_optimization | linkedin_post
+    target_questions_json  = Column(Text, nullable=True)      # JSON array of question strings this action addresses
+    target_providers_json  = Column(Text, nullable=True)      # JSON array of provider names (e.g. ["perplexity","openai"])
+    evidence_summary       = Column(Text, nullable=True)      # Human-readable paragraph: why this matters, what scan found
+    impact_estimate        = Column(Float, nullable=True)     # 0-100 predicted score improvement
     status      = Column(String, default="open")              # "open" | "done" | "dismissed"
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at= Column(DateTime, nullable=True)
