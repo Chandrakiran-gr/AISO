@@ -1,6 +1,208 @@
 .page {
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
   color: var(--text-primary);
+}
+
+/* ── Page body: sidebar + main ── */
+
+.pageBody {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 224px;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(10, 12, 18, 0.96);
+  overflow: hidden;
+}
+
+.sidebarHeader {
+  padding: 14px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.newChatBtn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid rgba(0, 212, 170, 0.22);
+  border-radius: 9px;
+  background: rgba(0, 212, 170, 0.07);
+  color: var(--accent-teal);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 850;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.newChatBtn:hover:not(:disabled) {
+  background: rgba(0, 212, 170, 0.14);
+  border-color: rgba(0, 212, 170, 0.4);
+}
+
+.newChatBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.newChatIcon {
+  font-size: 1.1rem;
+  line-height: 1;
+  font-weight: 400;
+}
+
+.convList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.convItem {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  position: relative;
+}
+
+.convItem:hover .convDeleteBtn,
+.convItemActive .convDeleteBtn {
+  opacity: 1;
+}
+
+.convItemBtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.convItemBtn:disabled {
+  cursor: not-allowed;
+}
+
+.convItemBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.convItemActive .convItemBtn {
+  background: rgba(0, 212, 170, 0.09);
+}
+
+.convItemTitle {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 148px;
+}
+
+.convItemActive .convItemTitle {
+  color: var(--accent-teal);
+}
+
+.convItemTime {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.convDeleteBtn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.convDeleteBtn:hover {
+  background: rgba(255, 80, 80, 0.14);
+  color: #f87171;
+}
+
+.convDeleteConfirm {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.convDeleteYes {
+  height: 24px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 6px;
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  font-size: 0.7rem;
+  font-weight: 850;
+  padding: 0 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.convDeleteCancel {
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.convEmpty {
+  padding: 16px 12px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+/* ── Main column ── */
+
+.mainColumn {
+  flex: 1;
+  overflow-y: auto;
+  min-width: 0;
 }
 
 .topBar {
@@ -97,9 +299,54 @@
 
 .chatShell {
   display: grid;
-  min-height: 640px;
-  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 480px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
+}
+
+/* ── Chat header: title + clear button ── */
+
+.chatHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.chatHeaderTitle {
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clearChatBtn {
+  flex-shrink: 0;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0 10px;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+
+.clearChatBtn:hover:not(:disabled) {
+  background: rgba(255, 80, 80, 0.1);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: #f87171;
+}
+
+.clearChatBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .messageList {
@@ -170,10 +417,42 @@
   font-weight: 850;
 }
 
-.messageMeta span {
+.messageMetaRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.messageMetaRight span {
   color: var(--text-muted);
   font-size: 0.6875rem;
   font-weight: 700;
+}
+
+.editMsgBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.message:hover .editMsgBtn {
+  opacity: 1;
+}
+
+.editMsgBtn:hover {
+  background: rgba(0, 212, 170, 0.12);
+  border-color: rgba(0, 212, 170, 0.3);
+  color: var(--accent-teal);
 }
 
 .message p {
@@ -214,6 +493,45 @@
   color: var(--text-muted);
 }
 
+/* ── Edit banner ── */
+
+.editBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(0, 212, 170, 0.07);
+  border: 1px solid rgba(0, 212, 170, 0.18);
+  color: var(--accent-teal);
+  font-size: 0.775rem;
+  font-weight: 600;
+}
+
+.editCancelBtn {
+  flex-shrink: 0;
+  height: 24px;
+  border: 1px solid rgba(0, 212, 170, 0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-teal);
+  font-size: 0.7rem;
+  font-weight: 850;
+  padding: 0 10px;
+  cursor: pointer;
+  transition: background 0.14s;
+}
+
+.editCancelBtn:hover {
+  background: rgba(0, 212, 170, 0.12);
+}
+
+.textareaEditing {
+  border-color: rgba(0, 212, 170, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.12) !important;
+}
+
 .composerFooter {
   display: flex;
   align-items: center;
@@ -225,6 +543,34 @@
   color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.composerActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Stop button ── */
+
+.stopButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.1);
+  color: #f87171;
+  font-size: 0.8125rem;
+  font-weight: 850;
+  padding: 0 18px;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+
+.stopButton:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.55);
 }
 
 .composerFooter button,
@@ -307,6 +653,10 @@
     padding: 18px 22px;
   }
 
+  .sidebar {
+    display: none;
+  }
+
   .message {
     width: 100%;
   }
@@ -315,7 +665,8 @@
   .topActions,
   .composerFooter button,
   .primaryButton,
-  .secondaryButton {
+  .secondaryButton,
+  .stopButton {
     width: 100%;
   }
 }
