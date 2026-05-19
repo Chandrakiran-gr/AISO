@@ -95,6 +95,7 @@ class Conversation(Base):
     client_id   = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
     user_id     = Column(String, ForeignKey("users.id"), nullable=False, index=True)
     title       = Column(String, nullable=True)
+    summary_json = Column(Text, nullable=True)
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     archived_at = Column(DateTime, nullable=True)
@@ -137,6 +138,19 @@ class ContentDraft(Base):
     review_notes    = Column(Text, nullable=True)
     created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class AssistantRateLimitEvent(Base):
+    """Per-user assistant usage event for sliding-window rate limits."""
+    __tablename__ = "assistant_rate_limit_events"
+    __table_args__ = (
+        Index("ix_assistant_rate_limit_user_event_created", "user_id", "event_type", "created_at"),
+    )
+
+    id         = Column(String, primary_key=True)
+    user_id    = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    event_type = Column(String, nullable=False, default="assistant_message")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
 
 class Scan(Base):
