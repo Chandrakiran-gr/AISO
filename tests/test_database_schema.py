@@ -58,6 +58,7 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertIn("conversations", inspector.get_table_names())
             self.assertIn("messages", inspector.get_table_names())
             self.assertIn("content_drafts", inspector.get_table_names())
+            self.assertIn("assistant_rate_limit_events", inspector.get_table_names())
 
             artifact_columns = {
                 column["name"] for column in inspector.get_columns("scan_artifacts")
@@ -147,6 +148,7 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "client_id",
                     "user_id",
                     "title",
+                    "summary_json",
                     "archived_at",
                 }.issubset(conversation_columns)
             )
@@ -179,6 +181,17 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "reviewed_at",
                     "review_notes",
                 }.issubset(draft_columns)
+            )
+
+            rate_limit_columns = {
+                column["name"] for column in inspector.get_columns("assistant_rate_limit_events")
+            }
+            self.assertTrue(
+                {
+                    "user_id",
+                    "event_type",
+                    "created_at",
+                }.issubset(rate_limit_columns)
             )
 
     def test_persists_scan_artifact_analysis_and_citation_rows(self):

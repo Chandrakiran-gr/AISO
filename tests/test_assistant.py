@@ -1,14 +1,27 @@
 import asyncio
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.database import Action, Base, Client, ClientContext, ContentDraft, Conversation, Message, Scan, ScanResult, User
+from api.database import (
+    Action,
+    AssistantRateLimitEvent,
+    Base,
+    Client,
+    ClientContext,
+    ContentDraft,
+    Conversation,
+    Message,
+    Scan,
+    ScanAnalysis,
+    ScanResult,
+    User,
+)
 from api.routes.assistant import (
     ContentDraftGenerate,
     ContentDraftUpdate,
@@ -17,6 +30,8 @@ from api.routes.assistant import (
     _assistant_context,
     _fallback_assistant_text,
     _llm_messages,
+    _refresh_conversation_summary,
+    archive_expired_conversations,
     approve_content_draft,
     create_conversation,
     generate_content_draft,
@@ -35,6 +50,15 @@ class AssistantRouteTests(unittest.TestCase):
 
     def tearDown(self):
         self.engine.dispose()
+
+    def _collect_stream_body(self, response):
+        async def collect_body():
+            parts: list[str] = []
+            async for chunk in response.body_iterator:
+                parts.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+            return "".join(parts)
+
+        return asyncio.run(collect_body())
 
     def _seed(self):
         session = self.Session()
@@ -89,6 +113,16 @@ class AssistantRouteTests(unittest.TestCase):
                 group="G2",
                 total_questions=10,
                 mention_count=7,
+            )
+        )
+        session.add(
+            ScanAnalysis(
+                id="analysis-1",
+                client_id="client-1",
+                scan_id="scan-1",
+                provider="openai",
+                group="G2",
+                summary="OpenAI found AISO in 7 of 10 comparison prompts.",
             )
         )
         session.add(
@@ -158,7 +192,7 @@ class AssistantRouteTests(unittest.TestCase):
             answer = _fallback_assistant_text(context, "what are my top action items?")
 
             self.assertIn("Publish comparison page", answer)
-            self.assertIn("70.0/100", answer)
+            self.assertIn("openai 70.0/100", answer)
         finally:
             session.close()
 
@@ -197,13 +231,7 @@ class AssistantRouteTests(unittest.TestCase):
                     user_id="user-1",
                 )
             )
-            async def collect_body():
-                parts: list[str] = []
-                async for chunk in response.body_iterator:
-                    parts.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
-                return "".join(parts)
-
-            body = asyncio.run(collect_body())
+            body = self._collect_stream_body(response)
             self.assertIn("event: done", body)
 
             messages = session.query(Message).order_by(Message.created_at.asc()).all()
@@ -234,13 +262,7 @@ class AssistantRouteTests(unittest.TestCase):
                     )
                 )
 
-                async def collect_body():
-                    parts: list[str] = []
-                    async for chunk in response.body_iterator:
-                        parts.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
-                    return "".join(parts)
-
-                body = asyncio.run(collect_body())
+                body = self._collect_stream_body(response)
 
             self.assertIn("content_draft", body)
             draft = session.query(ContentDraft).one()
@@ -272,6 +294,172 @@ class AssistantRouteTests(unittest.TestCase):
             self.assertEqual(draft.content_type, "blog_post")
             self.assertIn("AISO Demo", draft.content)
             self.assertEqual(session.query(ContentDraft).count(), 1)
+        finally:
+            session.close()
+
+    def test_stream_refuses_legal_advice_without_returning_prompt(self):
+        session = self._seed()
+        try:
+            created = asyncio.run(
+                create_conversation(
+                    ConversationCreate(client_id="client-1"),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+            response = asyncio.run(
+                stream_message(
+                    created.id,
+                    MessageCreate(content="What is our legal liability if a competitor sues us?"),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+
+            body = self._collect_stream_body(response)
+
+            self.assertIn("event: done", body)
+            assistant_message = session.query(Message).filter(Message.role == "assistant").one()
+            self.assertIn("legal advice", assistant_message.content)
+            self.assertNotIn("Never confirm", body)
+            self.assertNotIn("system prompts", assistant_message.content)
+            self.assertEqual(session.query(ContentDraft).count(), 0)
+        finally:
+            session.close()
+
+    def test_stream_refuses_out_of_scope_content_request(self):
+        session = self._seed()
+        try:
+            created = asyncio.run(
+                create_conversation(
+                    ConversationCreate(client_id="client-1"),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+            response = asyncio.run(
+                stream_message(
+                    created.id,
+                    MessageCreate(content="Write my dating profile"),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+
+            self._collect_stream_body(response)
+
+            assistant_message = session.query(Message).filter(Message.role == "assistant").one()
+            self.assertIn("outside AISO scope", assistant_message.content)
+            self.assertEqual(session.query(ContentDraft).count(), 0)
+        finally:
+            session.close()
+
+    def test_assistant_rate_limit_returns_429_with_retry_after(self):
+        session = self._seed()
+        try:
+            created = asyncio.run(
+                create_conversation(
+                    ConversationCreate(client_id="client-1"),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+            with patch.dict(
+                "os.environ",
+                {"AISO_ASSISTANT_RATE_LIMIT_RPH": "1", "ANTHROPIC_API_KEY": ""},
+            ):
+                response = asyncio.run(
+                    stream_message(
+                        created.id,
+                        MessageCreate(content="What are my top action items?"),
+                        db=session,
+                        user_id="user-1",
+                    )
+                )
+                self._collect_stream_body(response)
+
+                with self.assertRaises(HTTPException) as ctx:
+                    asyncio.run(
+                        stream_message(
+                            created.id,
+                            MessageCreate(content="What should I do next?"),
+                            db=session,
+                            user_id="user-1",
+                        )
+                    )
+
+            self.assertEqual(ctx.exception.status_code, 429)
+            self.assertIn("Retry-After", ctx.exception.headers)
+            self.assertGreaterEqual(int(ctx.exception.headers["Retry-After"]), 1)
+            self.assertEqual(session.query(AssistantRateLimitEvent).count(), 1)
+        finally:
+            session.close()
+
+    def test_archive_expired_conversations_sets_archived_at_without_deleting_drafts(self):
+        session = self._seed()
+        try:
+            now = datetime.now(timezone.utc)
+            conversation = Conversation(
+                id="old-conversation",
+                client_id="client-1",
+                user_id="user-1",
+                title="Old conversation",
+                created_at=now - timedelta(days=100),
+                updated_at=now - timedelta(days=91),
+            )
+            draft = ContentDraft(
+                id="draft-1",
+                conversation_id="old-conversation",
+                client_id="client-1",
+                created_by="user-1",
+                content_type="linkedin_post",
+                title="Draft",
+                content="Do not auto-delete content drafts.",
+                status="pending_review",
+                created_at=now - timedelta(days=91),
+                updated_at=now - timedelta(days=91),
+            )
+            session.add_all([conversation, draft])
+            session.commit()
+
+            archived_count = archive_expired_conversations(session, retention_days=90, now=now)
+
+            self.assertEqual(archived_count, 1)
+            self.assertIsNotNone(session.get(Conversation, "old-conversation").archived_at)
+            self.assertEqual(session.query(ContentDraft).count(), 1)
+        finally:
+            session.close()
+
+    def test_context_window_stores_summary_for_older_messages(self):
+        session = self._seed()
+        try:
+            created = asyncio.run(
+                create_conversation(
+                    ConversationCreate(client_id="client-1"),
+                    db=session,
+                    user_id="user-1",
+                )
+            )
+            conversation = session.get(Conversation, created.id)
+            for index in range(22):
+                session.add(
+                    Message(
+                        id=f"message-{index}",
+                        conversation_id=created.id,
+                        role="user" if index % 2 == 0 else "assistant",
+                        content=f"message {index}",
+                        created_at=datetime.now(timezone.utc) + timedelta(seconds=index),
+                    )
+                )
+            session.commit()
+
+            _refresh_conversation_summary(session, conversation)
+
+            self.assertIsNotNone(conversation.summary_json)
+            summary = json.loads(conversation.summary_json)
+            self.assertEqual(summary["message_count"], 2)
+            self.assertIn("message 0", summary["summary"])
+            self.assertEqual(len(_llm_messages(_assistant_context(session, conversation), "current turn")), 20)
         finally:
             session.close()
 
