@@ -57,6 +57,7 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertIn("client_contexts", inspector.get_table_names())
             self.assertIn("conversations", inspector.get_table_names())
             self.assertIn("messages", inspector.get_table_names())
+            self.assertIn("content_drafts", inspector.get_table_names())
 
             artifact_columns = {
                 column["name"] for column in inspector.get_columns("scan_artifacts")
@@ -160,6 +161,24 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "content",
                     "metadata_json",
                 }.issubset(message_columns)
+            )
+
+            draft_columns = {
+                column["name"] for column in inspector.get_columns("content_drafts")
+            }
+            self.assertTrue(
+                {
+                    "conversation_id",
+                    "client_id",
+                    "created_by",
+                    "content_type",
+                    "title",
+                    "content",
+                    "status",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "review_notes",
+                }.issubset(draft_columns)
             )
 
     def test_persists_scan_artifact_analysis_and_citation_rows(self):

@@ -229,6 +229,22 @@
   transform: translate(-3px, 5px) rotate(45deg);
 }
 
+.iconcontent::before {
+  width: 12px;
+  height: 15px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+}
+
+.iconcontent::after {
+  width: 6px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 4px 0 currentColor;
+  transform: translateY(-1px);
+}
+
 .iconcompetitors::before {
   width: 14px;
   height: 9px;

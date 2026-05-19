@@ -33,6 +33,12 @@
   line-height: 1.4;
 }
 
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .content {
   display: flex;
   max-width: 1180px;
@@ -282,10 +288,17 @@
   padding: 14px 16px;
 }
 
+.notice a {
+  color: var(--accent-teal);
+  font-weight: 850;
+  text-decoration: none;
+}
+
 @media (max-width: 760px) {
   .topBar,
   .hero,
-  .composerFooter {
+  .composerFooter,
+  .topActions {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -299,6 +312,7 @@
   }
 
   .composerFooter,
+  .topActions,
   .composerFooter button,
   .primaryButton,
   .secondaryButton {
