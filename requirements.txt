@@ -10,3 +10,5 @@ pytrends         # Google Trends popularity scoring (setup2.py score_popularity)
 requests         # HTTP dependency for pytrends
 ollama           # Local LLM via Ollama  (setup2.py --llm local, optional)
 python-jose[cryptography]>=3.3.0
+reportlab>=4.0          # PDF export for content drafts
+python-docx>=1.1        # DOCX export for content drafts

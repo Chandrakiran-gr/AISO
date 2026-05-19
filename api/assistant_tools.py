@@ -229,6 +229,30 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "export_content_draft",
+        "description": (
+            "Generate a downloadable PDF or DOCX export of a saved content draft. "
+            "Use this when the user explicitly asks to export, download, or get a file "
+            "of a draft. Returns a download URL the user can click. "
+            "The draft must already be saved (use save_content_draft first if needed)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "draft_id": {
+                    "type": "string",
+                    "description": "The UUID of the content draft to export.",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["pdf", "docx"],
+                    "description": "Export format: 'pdf' for PDF, 'docx' for Word document.",
+                },
+            },
+            "required": ["draft_id", "format"],
+        },
+    },
 ]
 
 
@@ -628,6 +652,41 @@ def _tool_list_content_drafts(
     }
 
 
+def _tool_export_content_draft(
+    tool_input: dict[str, Any],
+    db: Session,
+    client_id: str,
+    **_kwargs: Any,
+) -> dict[str, Any]:
+    """Return a download URL for an export — the actual generation happens in the HTTP endpoint."""
+    draft_id = (tool_input.get("draft_id") or "").strip()
+    fmt = (tool_input.get("format") or "pdf").strip().lower()
+
+    if not draft_id:
+        return {"error": "draft_id is required."}
+    if fmt not in {"pdf", "docx"}:
+        return {"error": "format must be 'pdf' or 'docx'."}
+
+    draft = db.query(ContentDraft).filter(
+        ContentDraft.id == draft_id,
+        ContentDraft.client_id == client_id,
+    ).first()
+    if not draft:
+        return {"error": f"Draft {draft_id} not found."}
+    if draft.status in {"archived", "rejected"}:
+        return {"error": f"Cannot export a draft with status '{draft.status}'."}
+
+    # Return the URL path so the assistant can present a clickable link
+    download_url = f"/api/proxy/v1/assistant/content-drafts/{draft_id}/export?format={fmt}"
+    return {
+        "export_ready": True,
+        "draft_id": draft_id,
+        "title": draft.title,
+        "format": fmt,
+        "download_url": download_url,
+    }
+
+
 # ── Dispatcher ───────────────────────────────────────────────────────────────
 
 _TOOL_HANDLERS = {
@@ -640,6 +699,7 @@ _TOOL_HANDLERS = {
     "save_content_draft": _tool_save_content_draft,
     "update_action_status": _tool_update_action_status,
     "list_content_drafts": _tool_list_content_drafts,
+    "export_content_draft": _tool_export_content_draft,
 }
 
 # Human-readable labels shown in the frontend activity indicator
@@ -653,6 +713,7 @@ TOOL_ACTIVITY_LABELS: dict[str, str] = {
     "save_content_draft": "Saving content draft...",
     "update_action_status": "Updating action status...",
     "list_content_drafts": "Loading content drafts...",
+    "export_content_draft": "Preparing export...",
 }
 
 
