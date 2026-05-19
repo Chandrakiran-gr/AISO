@@ -31,6 +31,7 @@ from api.database import (
     ScanResult,
     get_db,
 )
+from api.assistant_tools import TOOLS, TOOL_ACTIVITY_LABELS, execute_tool
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
@@ -42,6 +43,7 @@ MAX_REVIEW_NOTES_CHARS = 2000
 RATE_LIMIT_WINDOW_SECONDS = 60 * 60
 DEFAULT_ASSISTANT_RATE_LIMIT_RPH = 60
 DEFAULT_CONVERSATION_RETENTION_DAYS = 90
+MAX_AGENT_ITERATIONS = 8   # Cap tool-use loop to control cost
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "assistant_system.txt"
 
 CONTENT_DRAFT_TYPES = {
@@ -856,7 +858,109 @@ def _fallback_content_draft_text(context: dict[str, Any], instruction: str, cont
     )
 
 
+def _agent_loop(
+    system_prompt: str,
+    messages: list[dict[str, Any]],
+    db: Session,
+    client_id: str,
+    user_id: str,
+    client_name: str = "",
+    conversation_id: str | None = None,
+    max_tokens: int = 2000,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Claude tool-use agent loop.
+
+    Runs up to MAX_AGENT_ITERATIONS of Plan-Execute-Observe.
+    Returns (final_text, tool_activity_log, pending_db_objects).
+    tool_activity_log: list of {tool, label, result_summary} for frontend.
+    """
+    provider = os.getenv("AISO_ASSISTANT_LLM_PROVIDER", "anthropic").strip().lower()
+    model = os.getenv("AISO_ASSISTANT_LLM_MODEL", "claude-sonnet-4-6").strip() or "claude-sonnet-4-6"
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+
+    if provider != "anthropic" or not api_key:
+        return "", [], []
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+    except Exception:
+        return "", [], []
+
+    loop_messages = list(messages)  # working copy
+    tool_activity: list[dict[str, Any]] = []
+    saved_draft_id: str | None = None
+
+    for _iteration in range(MAX_AGENT_ITERATIONS):
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=loop_messages,
+                tools=TOOLS,
+            )
+        except Exception:
+            break
+
+        if response.stop_reason == "tool_use":
+            # Collect all tool calls from this response
+            assistant_content = response.content
+            tool_results = []
+
+            for block in assistant_content:
+                if block.type != "tool_use":
+                    continue
+
+                tool_name = block.name
+                tool_input = block.input or {}
+                label = TOOL_ACTIVITY_LABELS.get(tool_name, f"Working on {tool_name}...")
+
+                # Execute tool
+                result = execute_tool(
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    db=db,
+                    client_id=client_id,
+                    user_id=user_id,
+                    client_name=client_name,
+                    conversation_id=conversation_id,
+                )
+
+                # Track draft saved via tool
+                if tool_name == "save_content_draft" and result.get("saved"):
+                    saved_draft_id = result.get("draft_id")
+
+                tool_activity.append({
+                    "tool": tool_name,
+                    "label": label,
+                    "success": "error" not in result,
+                })
+
+                result_text = json.dumps(result, ensure_ascii=False)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result_text[:4000],  # cap result size
+                })
+
+            # Append assistant response + tool results to loop
+            loop_messages.append({"role": "assistant", "content": assistant_content})
+            loop_messages.append({"role": "user", "content": tool_results})
+            continue
+
+        # stop_reason == "end_turn" — extract final text
+        final_text = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                final_text += block.text
+        return final_text.strip(), tool_activity, saved_draft_id
+
+    return "", tool_activity, saved_draft_id
+
+
 def _anthropic_text_stream(system_prompt: str, messages: list[dict[str, str]], max_tokens: int = 900) -> Iterator[str]:
+    """Simple streaming call — used for content generation endpoint only."""
     provider = os.getenv("AISO_ASSISTANT_LLM_PROVIDER", "anthropic").strip().lower()
     model = os.getenv("AISO_ASSISTANT_LLM_MODEL", "claude-sonnet-4-6").strip() or "claude-sonnet-4-6"
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
@@ -1187,7 +1291,14 @@ async def stream_message(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ):
-    """Persist a user message and stream the assistant reply as SSE."""
+    """Persist a user message and stream the assistant reply as SSE.
+
+    SSE event types emitted:
+      ack           {message_id}                      — user message persisted
+      tool_activity {tool, label, status}             — agent is using a tool
+      message       {delta}                           — streaming text chunk
+      done          {message, content_draft}          — final state
+    """
     conversation = _ensure_conversation(db, conversation_id, user_id)
     user_content = _sanitize_message_content(payload.content)
     _enforce_assistant_rate_limit(db, user_id)
@@ -1208,48 +1319,74 @@ async def stream_message(
     db.commit()
 
     context = _assistant_context(db, conversation)
-    content_request = _content_request_from_message(user_content)
     guardrail_refusal = _guardrail_refusal(user_content)
-    system_prompt = (
-        _build_content_generation_prompt(context, user_content, content_request["content_type"])
-        if content_request
-        else _build_system_prompt(context)
-    )
+    system_prompt = _build_system_prompt(context)
     messages = _llm_messages(context, user_content)
     provider = os.getenv("AISO_ASSISTANT_LLM_PROVIDER", "anthropic").strip().lower()
     model = os.getenv("AISO_ASSISTANT_LLM_MODEL", "claude-sonnet-4-6").strip() or "claude-sonnet-4-6"
+    client_name = context["client"]["name"]
 
     async def event_stream():
         started = time.perf_counter()
         assistant_parts: list[str] = []
-        yielded = False
 
         yield _sse({"message_id": user_message.id}, event="ack")
 
+        tool_activity_log: list[dict[str, Any]] = []
+        saved_draft_id: str | None = None
+
         if guardrail_refusal:
+            # Bypass LLM — stream refusal text directly
             for word in guardrail_refusal.split(" "):
                 chunk = f"{word} "
                 assistant_parts.append(chunk)
                 yield _sse({"delta": chunk})
         else:
-            for chunk in _anthropic_text_stream(system_prompt, messages):
-                safe_chunk = _sanitize_message_content(chunk)
-                if not safe_chunk:
-                    continue
-                yielded = True
-                assistant_parts.append(safe_chunk)
-                yield _sse({"delta": safe_chunk})
+            # ── Emit tool activity events then stream final response ──
+            # Run agent loop in threadpool to avoid blocking the event loop
+            import asyncio
+            loop = asyncio.get_event_loop()
 
-        if not yielded and not guardrail_refusal:
-            fallback = (
-                _fallback_content_draft_text(context, user_content, content_request["content_type"])
-                if content_request
-                else _fallback_assistant_text(context, user_content)
+            # Collect tool activities as they happen by running loop synchronously
+            # (Anthropic SDK is sync; we run in executor)
+            def run_agent():
+                return _agent_loop(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    db=db,
+                    client_id=conversation.client_id,
+                    user_id=user_id,
+                    client_name=client_name,
+                    conversation_id=conversation.id,
+                    max_tokens=2000,
+                )
+
+            final_text, tool_activity_log, saved_draft_id = await loop.run_in_executor(
+                None, run_agent
             )
-            for word in fallback.split(" "):
-                chunk = f"{word} "
-                assistant_parts.append(chunk)
-                yield _sse({"delta": chunk})
+
+            # Emit tool activity events (retroactively — agent ran sync)
+            for activity in tool_activity_log:
+                yield _sse(
+                    {"tool": activity["tool"], "label": activity["label"], "status": "done"},
+                    event="tool_activity",
+                )
+
+            if final_text:
+                # Stream the final text word-by-word for progressive UX
+                safe_text = _sanitize_message_content(final_text, max_chars=MAX_DRAFT_CONTENT_CHARS)
+                words = safe_text.split(" ")
+                for word in words:
+                    chunk = f"{word} "
+                    assistant_parts.append(chunk)
+                    yield _sse({"delta": chunk})
+            else:
+                # Fallback if agent returned nothing
+                fallback = _fallback_assistant_text(context, user_content)
+                for word in fallback.split(" "):
+                    chunk = f"{word} "
+                    assistant_parts.append(chunk)
+                    yield _sse({"delta": chunk})
 
         assistant_content = _sanitize_message_content("".join(assistant_parts).strip())
         assistant_message = Message(
@@ -1263,27 +1400,27 @@ async def stream_message(
                     "model": model,
                     "latency_ms": round((time.perf_counter() - started) * 1000),
                     "token_count": None,
-                    "fallback": not yielded and not guardrail_refusal,
+                    "fallback": not assistant_content,
                     "guardrail_refusal": bool(guardrail_refusal),
+                    "tool_calls": [a["tool"] for a in tool_activity_log],
+                    "draft_id": saved_draft_id,
                 },
                 ensure_ascii=False,
             ),
             created_at=_now(),
         )
         db.add(assistant_message)
+
+        # Resolve saved draft (saved via tool inside agent loop)
         content_draft = None
-        if content_request and not guardrail_refusal:
-            content_draft = _create_content_draft(
-                db=db,
-                client_id=conversation.client_id,
-                user_id=user_id,
-                conversation_id=conversation.id,
-                content_type=content_request["content_type"],
-                title=_draft_title_from_instruction(user_content, content_request["content_type"]),
-                content=assistant_content,
-            )
+        if saved_draft_id:
+            content_draft = db.query(ContentDraft).filter(
+                ContentDraft.id == saved_draft_id,
+            ).first()
+
         conversation.updated_at = assistant_message.created_at
         db.commit()
+
         yield _sse(
             {
                 "message": {
