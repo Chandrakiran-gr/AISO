@@ -31,6 +31,11 @@ class ActionResponse(BaseModel):
     score: Optional[float]
     sort_order: Optional[int]
     evidence_json: Optional[str]
+    remediation_type: Optional[str]
+    target_questions_json: Optional[str]
+    target_providers_json: Optional[str]
+    evidence_summary: Optional[str]
+    impact_estimate: Optional[float]
     status: Optional[str]
     created_at: datetime
     completed_at: Optional[datetime]
