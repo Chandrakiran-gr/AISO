@@ -35,9 +35,11 @@ type Props = {
 
 const TYPE_LABELS: Record<string, string> = {
   blog_post: "Blog post",
+  faq_page: "FAQ page",
   linkedin_post: "LinkedIn post",
   platform_listing: "Platform listing",
   review_response: "Review response",
+  schema_markup: "Schema markup",
   other: "Content",
 };
 
@@ -187,6 +189,28 @@ export default function ContentDraftCard({
           >
             {copied ? "Copied" : "Copy"}
           </button>
+        )}
+        {!isArchived && draft.status !== "rejected" && (
+          <>
+            <a
+              href={`/api/proxy/v1/assistant/content-drafts/${draft.id}/export?format=pdf`}
+              className={styles.exportLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+            >
+              ↓ PDF
+            </a>
+            <a
+              href={`/api/proxy/v1/assistant/content-drafts/${draft.id}/export?format=docx`}
+              className={styles.exportLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+            >
+              ↓ DOCX
+            </a>
+          </>
         )}
         <button
           type="button"
