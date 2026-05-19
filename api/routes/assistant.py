@@ -1284,6 +1284,46 @@ async def archive_conversation(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.delete("/conversations/{conversation_id}/messages", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_conversation_messages(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Delete all messages from a conversation (clear chat)."""
+    conversation = _ensure_conversation(db, conversation_id, user_id)
+    db.query(Message).filter(Message.conversation_id == conversation.id).delete(synchronize_session=False)
+    conversation.title = "New conversation"  # type: ignore[assignment]
+    conversation.updated_at = _now()  # type: ignore[assignment]
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/conversations/{conversation_id}/messages/from/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def truncate_conversation_from_message(
+    conversation_id: str,
+    message_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Delete a message and all subsequent messages (used by the edit-and-retry flow)."""
+    conversation = _ensure_conversation(db, conversation_id, user_id)
+    target = db.query(Message).filter(
+        Message.id == message_id,
+        Message.conversation_id == conversation.id,
+    ).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Message not found")
+    cutoff = target.created_at
+    db.query(Message).filter(
+        Message.conversation_id == conversation.id,
+        Message.created_at >= cutoff,
+    ).delete(synchronize_session=False)
+    conversation.updated_at = _now()  # type: ignore[assignment]
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/conversations/{conversation_id}/messages/stream")
 async def stream_message(
     conversation_id: str,
