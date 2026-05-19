@@ -362,3 +362,198 @@
   font-weight: 700;
   transition: color 0.2s ease;
 }
+
+/* ── Welcome prompt chips ── */
+
+.welcomePrompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.promptChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  border: 1px solid rgba(0, 212, 170, 0.18);
+  border-radius: 20px;
+  background: rgba(0, 212, 170, 0.07);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 0 16px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+
+.promptChip:hover {
+  background: rgba(0, 212, 170, 0.14);
+  border-color: rgba(0, 212, 170, 0.35);
+  color: var(--text-primary);
+}
+
+/* ── Markdown content renderer ── */
+
+.mdContent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mdHeading {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+
+.mdParagraph {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+
+.mdList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mdListItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.mdListItem::before {
+  content: "•";
+  color: var(--accent-teal);
+  font-weight: 900;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.mdInlineItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.mdBullet {
+  color: var(--accent-teal);
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.mdLine {
+  color: var(--text-secondary);
+}
+
+/* ── Draft notice banner (after save) ── */
+
+.draftNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border: 1px solid rgba(0, 212, 170, 0.2);
+  border-radius: 14px;
+  background: rgba(0, 212, 170, 0.06);
+  padding: 14px 18px;
+}
+
+.draftNoticeMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.draftNoticeType {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 212, 170, 0.12);
+  color: var(--accent-teal);
+  font-size: 0.6875rem;
+  font-weight: 850;
+  padding: 0 9px;
+  white-space: nowrap;
+}
+
+.draftNoticeTitle {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draftNoticeStatus {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.draftNoticeActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.exportButton {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  border: 1px solid rgba(0, 212, 170, 0.25);
+  border-radius: 8px;
+  background: rgba(0, 212, 170, 0.1);
+  color: var(--accent-teal);
+  font-size: 0.75rem;
+  font-weight: 850;
+  padding: 0 12px;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.exportButton:hover {
+  background: rgba(0, 212, 170, 0.18);
+  border-color: rgba(0, 212, 170, 0.45);
+}
+
+.draftNoticeLink {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.draftNoticeLink:hover {
+  color: var(--text-primary);
+}

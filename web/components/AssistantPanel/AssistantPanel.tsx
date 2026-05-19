@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
 import styles from "./AssistantPanel.module.css";
 
 const API = "/api/proxy";
@@ -54,6 +54,97 @@ function formatTime(value: string): string {
 
 function titleForConversation(conversation: ConversationData | null): string {
   return conversation?.title?.trim() || "Assistant conversation";
+}
+
+const CONTENT_TYPE_LABELS: Record<string, string> = {
+  blog_post: "Blog post",
+  faq_page: "FAQ page",
+  linkedin_post: "LinkedIn post",
+  platform_listing: "Platform listing",
+  review_response: "Review response",
+  schema_markup: "Schema markup",
+  other: "Content draft",
+};
+
+function contentTypeLabel(type: string): string {
+  return CONTENT_TYPE_LABELS[type] ?? "Content draft";
+}
+
+// ── Lightweight markdown renderer ─────────────────────────────────────────
+// No external dep. Handles: ### headings, **bold**, - bullet lists, blank-line paragraphs.
+function renderMarkdown(text: string): React.ReactNode[] {
+  const blocks = text.split(/\n{2,}/);
+  const nodes: React.ReactNode[] = [];
+
+  blocks.forEach((block, bi) => {
+    const trimmed = block.trim();
+    if (!trimmed) return;
+
+    // Heading (## or ###)
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const content = headingMatch[2];
+      // Use createElement to avoid TypeScript JSX namespace issue with dynamic tags
+      const tagName = level === 1 ? "h2" : level === 2 ? "h3" : "h4";
+      nodes.push(React.createElement(tagName, { key: bi, className: styles.mdHeading }, inlineFormat(content)));
+      return;
+    }
+
+    // Bullet list block
+    const lines = trimmed.split("\n");
+    const isList = lines.every(l => /^[-*•]\s/.test(l.trim()) || /^\d+\.\s/.test(l.trim()) || l.trim() === "");
+    if (isList && lines.some(l => /^[-*•]\s/.test(l.trim()) || /^\d+\.\s/.test(l.trim()))) {
+      nodes.push(
+        <ul key={bi} className={styles.mdList}>
+          {lines
+            .filter(l => l.trim())
+            .map((l, li) => (
+              <li key={li} className={styles.mdListItem}>
+                {inlineFormat(l.replace(/^[-*•]\s+/, "").replace(/^\d+\.\s+/, ""))}
+              </li>
+            ))}
+        </ul>
+      );
+      return;
+    }
+
+    // Mixed block — render line-by-line
+    const lineNodes: React.ReactNode[] = [];
+    lines.forEach((line, li) => {
+      const t = line.trim();
+      if (!t) return;
+      if (/^[-*•]\s/.test(t) || /^\d+\.\s/.test(t)) {
+        lineNodes.push(
+          <div key={li} className={styles.mdInlineItem}>
+            <span className={styles.mdBullet}>•</span>
+            {inlineFormat(t.replace(/^[-*•]\s+/, "").replace(/^\d+\.\s+/, ""))}
+          </div>
+        );
+      } else {
+        lineNodes.push(<span key={li} className={styles.mdLine}>{inlineFormat(t)}{li < lines.length - 1 ? " " : ""}</span>);
+      }
+    });
+    nodes.push(<p key={bi} className={styles.mdParagraph}>{lineNodes}</p>);
+  });
+
+  return nodes.length > 0 ? nodes : [<p key="empty" className={styles.mdParagraph}>{text}</p>];
+}
+
+function inlineFormat(text: string): React.ReactNode {
+  // Split on **bold** markers
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.startsWith("**") && part.endsWith("**") ? (
+          <strong key={i}>{part.slice(2, -2)}</strong>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
 }
 
 async function readError(response: Response, fallback: string): Promise<string> {
@@ -267,7 +358,7 @@ export default function AssistantPanel() {
     }
   }
 
-  const openPrompt = "What are my top action items?";
+
 
   return (
     <div className={styles.page}>
@@ -285,7 +376,7 @@ export default function AssistantPanel() {
             Content library
           </Link>
           <Link href="/dashboard/actions" className={styles.secondaryButton}>
-            View action plan
+            Action plan
           </Link>
         </div>
       </header>
@@ -293,9 +384,10 @@ export default function AssistantPanel() {
       <main className={styles.content}>
         <section className={styles.hero}>
           <div>
-            <h1>Ask what to do next</h1>
+            <h1>Your AI visibility co-pilot</h1>
             <p>
-              The assistant uses your active business profile, latest scan summary, and open action items.
+              Ask about your scan results, request content to fix visibility gaps,
+              or ask what to prioritize next. Drafts stay in the Content Library until you approve them.
             </p>
           </div>
           {state.client && <span className={styles.clientPill}>{state.client.name}</span>}
@@ -303,9 +395,35 @@ export default function AssistantPanel() {
 
         {state.error && <div className={styles.notice}>{state.error}</div>}
         {draftNotice && (
-          <div className={styles.notice}>
-            Draft saved: {draftNotice.title}.{" "}
-            <Link href="/dashboard/assistant/drafts">Open Content Library</Link>
+          <div className={styles.draftNotice}>
+            <div className={styles.draftNoticeMeta}>
+              <span className={styles.draftNoticeType}>{contentTypeLabel(draftNotice.content_type)}</span>
+              <strong className={styles.draftNoticeTitle}>{draftNotice.title}</strong>
+              <span className={styles.draftNoticeStatus}>Saved · pending review</span>
+            </div>
+            <div className={styles.draftNoticeActions}>
+              <a
+                href={`${API}/v1/assistant/content-drafts/${draftNotice.id}/export?format=pdf`}
+                className={styles.exportButton}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+              >
+                ↓ PDF
+              </a>
+              <a
+                href={`${API}/v1/assistant/content-drafts/${draftNotice.id}/export?format=docx`}
+                className={styles.exportButton}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+              >
+                ↓ DOCX
+              </a>
+              <Link href="/dashboard/assistant/drafts" className={styles.draftNoticeLink}>
+                Open Content Library →
+              </Link>
+            </div>
           </div>
         )}
         {state.loading && <div className={styles.notice}>Loading assistant...</div>}
@@ -325,10 +443,24 @@ export default function AssistantPanel() {
             <div className={styles.messageList}>
               {messages.length === 0 && (
                 <div className={styles.welcome}>
-                  <h2>Start with a practical next-step question.</h2>
-                  <button type="button" onClick={() => setDraft(openPrompt)}>
-                    {openPrompt}
-                  </button>
+                  <h2>How can I help you today?</h2>
+                  <div className={styles.welcomePrompts}>
+                    {[
+                      "What are my top visibility gaps right now?",
+                      "Write a LinkedIn post to improve my AI presence",
+                      "Which AI providers mention me least?",
+                      "Draft a blog post to address my biggest gap",
+                    ].map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        className={styles.promptChip}
+                        onClick={() => setDraft(prompt)}
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -344,7 +476,13 @@ export default function AssistantPanel() {
                     <span>{formatTime(message.created_at)}</span>
                   </div>
                   {message.content ? (
-                    <p className={styles.messageContent}>{message.content}</p>
+                    message.role === "assistant" ? (
+                      <div className={styles.mdContent}>
+                        {renderMarkdown(message.content)}
+                      </div>
+                    ) : (
+                      <p className={styles.messageContent}>{message.content}</p>
+                    )
                   ) : state.streaming ? (
                     <p className={styles.thinkingLabel}>
                       <span className={styles.thinkingDot} />
