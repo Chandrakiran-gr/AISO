@@ -8,7 +8,7 @@ import styles from "./Sidebar.module.css";
 
 type NavItem = {
   href: string;
-  icon: "overview" | "scans" | "compare" | "progress" | "competitors" | "responses" | "actions" | "settings";
+  icon: "overview" | "scans" | "compare" | "progress" | "assistant" | "content" | "competitors" | "responses" | "actions" | "settings";
   label: string;
 };
 
@@ -20,6 +20,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/dashboard/scans", icon: "scans", label: "Scan History" },
       { href: "/dashboard/compare", icon: "compare", label: "Compare" },
       { href: "/dashboard/progress", icon: "progress", label: "Progress" },
+      { href: "/dashboard/assistant", icon: "assistant", label: "Assistant" },
+      { href: "/dashboard/assistant/drafts", icon: "content", label: "Content Library" },
       { href: "/dashboard/competitors", icon: "competitors", label: "Competitors" },
       { href: "/dashboard/responses", icon: "responses", label: "Responses" },
       { href: "/dashboard/actions", icon: "actions", label: "Action Plan" },
@@ -94,6 +96,7 @@ export default function Sidebar({
 
   function isActive(href: string) {
     if (href === "/dashboard") return pathname === "/dashboard";
+    if (href === "/dashboard/assistant") return pathname === href;
     return pathname.startsWith(href);
   }
 

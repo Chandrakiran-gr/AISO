@@ -36,11 +36,19 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("scan_analysis", inspector.get_table_names())
                     self.assertIn("scan_citations", inspector.get_table_names())
                     self.assertIn("client_contexts", inspector.get_table_names())
+                    self.assertIn("conversations", inspector.get_table_names())
+                    self.assertIn("messages", inspector.get_table_names())
+                    self.assertIn("content_drafts", inspector.get_table_names())
+                    self.assertIn("assistant_rate_limit_events", inspector.get_table_names())
                     self.assertIn("alembic_version", inspector.get_table_names())
                     action_columns = {
                         column["name"] for column in inspector.get_columns("actions")
                     }
                     self.assertIn("evidence_json", action_columns)
+                    conversation_columns = {
+                        column["name"] for column in inspector.get_columns("conversations")
+                    }
+                    self.assertIn("summary_json", conversation_columns)
             finally:
                 engine.dispose()
 
@@ -66,6 +74,14 @@ class AlembicMigrationTests(unittest.TestCase):
                     }
                     self.assertIn("action_key", action_columns)
                     self.assertIn("client_contexts", inspector.get_table_names())
+                    self.assertIn("conversations", inspector.get_table_names())
+                    self.assertIn("messages", inspector.get_table_names())
+                    self.assertIn("content_drafts", inspector.get_table_names())
+                    self.assertIn("assistant_rate_limit_events", inspector.get_table_names())
+                    conversation_columns = {
+                        column["name"] for column in inspector.get_columns("conversations")
+                    }
+                    self.assertIn("summary_json", conversation_columns)
             finally:
                 engine.dispose()
 

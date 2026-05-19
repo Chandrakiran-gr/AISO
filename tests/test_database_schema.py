@@ -14,6 +14,8 @@ from api.database import (
     Base,
     Client,
     ClientContext,
+    Conversation,
+    Message,
     Scan,
     ScanAnalysis,
     ScanArtifact,
@@ -53,6 +55,10 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertIn("scan_citations", inspector.get_table_names())
             self.assertIn("source_profiles", inspector.get_table_names())
             self.assertIn("client_contexts", inspector.get_table_names())
+            self.assertIn("conversations", inspector.get_table_names())
+            self.assertIn("messages", inspector.get_table_names())
+            self.assertIn("content_drafts", inspector.get_table_names())
+            self.assertIn("assistant_rate_limit_events", inspector.get_table_names())
 
             artifact_columns = {
                 column["name"] for column in inspector.get_columns("scan_artifacts")
@@ -132,6 +138,60 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "evidence_json",
                     "warnings_json",
                 }.issubset(context_columns)
+            )
+
+            conversation_columns = {
+                column["name"] for column in inspector.get_columns("conversations")
+            }
+            self.assertTrue(
+                {
+                    "client_id",
+                    "user_id",
+                    "title",
+                    "summary_json",
+                    "archived_at",
+                }.issubset(conversation_columns)
+            )
+
+            message_columns = {
+                column["name"] for column in inspector.get_columns("messages")
+            }
+            self.assertTrue(
+                {
+                    "conversation_id",
+                    "role",
+                    "content",
+                    "metadata_json",
+                }.issubset(message_columns)
+            )
+
+            draft_columns = {
+                column["name"] for column in inspector.get_columns("content_drafts")
+            }
+            self.assertTrue(
+                {
+                    "conversation_id",
+                    "client_id",
+                    "created_by",
+                    "content_type",
+                    "title",
+                    "content",
+                    "status",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "review_notes",
+                }.issubset(draft_columns)
+            )
+
+            rate_limit_columns = {
+                column["name"] for column in inspector.get_columns("assistant_rate_limit_events")
+            }
+            self.assertTrue(
+                {
+                    "user_id",
+                    "event_type",
+                    "created_at",
+                }.issubset(rate_limit_columns)
             )
 
     def test_persists_scan_artifact_analysis_and_citation_rows(self):

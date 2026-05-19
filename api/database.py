@@ -83,6 +83,76 @@ class ClientContext(Base):
     updated_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class Conversation(Base):
+    """Persisted assistant conversation scoped to one client and user."""
+    __tablename__ = "conversations"
+    __table_args__ = (
+        Index("ix_conversations_client_user", "client_id", "user_id"),
+        Index("ix_conversations_archived", "archived_at"),
+    )
+
+    id          = Column(String, primary_key=True)
+    client_id   = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    user_id     = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    title       = Column(String, nullable=True)
+    summary_json = Column(Text, nullable=True)
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    archived_at = Column(DateTime, nullable=True)
+
+
+class Message(Base):
+    """One persisted assistant conversation message."""
+    __tablename__ = "messages"
+    __table_args__ = (
+        Index("ix_messages_conversation_created", "conversation_id", "created_at"),
+        Index("ix_messages_role", "role"),
+    )
+
+    id              = Column(String, primary_key=True)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False, index=True)
+    role            = Column(String, nullable=False)  # user | assistant | system
+    content         = Column(Text, nullable=False)
+    metadata_json   = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ContentDraft(Base):
+    """Human-reviewed content generated from assistant conversations."""
+    __tablename__ = "content_drafts"
+    __table_args__ = (
+        Index("ix_content_drafts_client_status", "client_id", "status"),
+        Index("ix_content_drafts_conversation", "conversation_id"),
+    )
+
+    id              = Column(String, primary_key=True)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=True)
+    client_id       = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    created_by      = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    content_type    = Column(String, nullable=False)          # blog_post | linkedin_post | platform_listing | review_response | other
+    title           = Column(String, nullable=False)
+    content         = Column(Text, nullable=False)
+    status          = Column(String, default="pending_review", nullable=False)  # pending_review | approved | rejected | archived
+    reviewed_by     = Column(String, ForeignKey("users.id"), nullable=True)
+    reviewed_at     = Column(DateTime, nullable=True)
+    review_notes    = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class AssistantRateLimitEvent(Base):
+    """Per-user assistant usage event for sliding-window rate limits."""
+    __tablename__ = "assistant_rate_limit_events"
+    __table_args__ = (
+        Index("ix_assistant_rate_limit_user_event_created", "user_id", "event_type", "created_at"),
+    )
+
+    id         = Column(String, primary_key=True)
+    user_id    = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    event_type = Column(String, nullable=False, default="assistant_message")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+
 class Scan(Base):
     """A pipeline run for a client."""
     __tablename__ = "scans"
