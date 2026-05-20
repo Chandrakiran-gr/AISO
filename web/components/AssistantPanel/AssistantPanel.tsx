@@ -81,6 +81,29 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
   other: "Content draft",
 };
 
+const SUGGESTED_PROMPTS = [
+  {
+    label: "Find the weakest visibility gap",
+    prompt: "What are my top visibility gaps right now?",
+    helper: "Prioritize what to fix before the next scan.",
+  },
+  {
+    label: "Draft improvement content",
+    prompt: "Write a LinkedIn post to improve my AI presence",
+    helper: "Create a source-backed post from scan evidence.",
+  },
+  {
+    label: "Compare provider performance",
+    prompt: "Which AI providers mention me least?",
+    helper: "See where ChatGPT, Claude, Gemini, or Perplexity miss you.",
+  },
+  {
+    label: "Turn a gap into an article",
+    prompt: "Draft a blog post to address my biggest gap",
+    helper: "Generate a draft for the Content Library.",
+  },
+];
+
 function contentTypeLabel(type: string): string {
   return CONTENT_TYPE_LABELS[type] ?? "Content draft";
 }
@@ -598,17 +621,6 @@ export default function AssistantPanel() {
         {/* ── Main area ── */}
         <main className={styles.mainColumn}>
           <div className={styles.content}>
-            <section className={styles.hero}>
-              <div>
-                <h1>Your AI visibility co-pilot</h1>
-                <p>
-                  Ask about your scan results, request content to fix visibility gaps,
-                  or ask what to prioritize next. Drafts stay in the Content Library until you approve them.
-                </p>
-              </div>
-              {state.client && <span className={styles.clientPill}>{state.client.name}</span>}
-            </section>
-
             {state.error && <div className={styles.notice}>{state.error}</div>}
 
             {draftNotice && (
@@ -660,9 +672,13 @@ export default function AssistantPanel() {
               <section className={styles.chatShell} aria-label="AISO assistant chat">
                 {/* Chat header */}
                 <div className={styles.chatHeader}>
-                  <span className={styles.chatHeaderTitle}>
-                    {titleForConversation(state.conversation)}
-                  </span>
+                  <div className={styles.chatHeaderCopy}>
+                    <span className={styles.chatKicker}>AISO Assistant</span>
+                    <span className={styles.chatHeaderTitle}>
+                      {titleForConversation(state.conversation)}
+                    </span>
+                  </div>
+                  {state.client && <span className={styles.clientPill}>{state.client.name}</span>}
                   <button
                     className={styles.clearChatBtn}
                     onClick={() => void clearChat()}
@@ -677,21 +693,21 @@ export default function AssistantPanel() {
                 <div className={styles.messageList}>
                   {messages.length === 0 && (
                     <div className={styles.welcome}>
-                      <h2>How can I help you today?</h2>
+                      <h2>Ask about this scan</h2>
+                      <p>
+                        Ask about scan results, source gaps, action priorities, or content drafts.
+                        I will use the latest evidence for {state.client.name}.
+                      </p>
                       <div className={styles.welcomePrompts}>
-                        {[
-                          "What are my top visibility gaps right now?",
-                          "Write a LinkedIn post to improve my AI presence",
-                          "Which AI providers mention me least?",
-                          "Draft a blog post to address my biggest gap",
-                        ].map(prompt => (
+                        {SUGGESTED_PROMPTS.map(({ label, prompt, helper }) => (
                           <button
                             key={prompt}
                             type="button"
                             className={styles.promptChip}
                             onClick={() => setDraft(prompt)}
                           >
-                            {prompt}
+                            <strong>{label}</strong>
+                            <span>{helper}</span>
                           </button>
                         ))}
                       </div>
