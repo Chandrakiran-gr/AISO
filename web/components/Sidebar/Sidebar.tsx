@@ -14,17 +14,32 @@ type NavItem = {
 
 const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
-    label: "Workspace",
+    label: "Command",
     items: [
       { href: "/dashboard", icon: "overview", label: "Overview" },
+      { href: "/dashboard/responses", icon: "responses", label: "Responses" },
+      { href: "/dashboard/actions", icon: "actions", label: "Action Plan" },
+    ],
+  },
+  {
+    label: "Analysis",
+    items: [
       { href: "/dashboard/scans", icon: "scans", label: "Scan History" },
       { href: "/dashboard/compare", icon: "compare", label: "Compare" },
       { href: "/dashboard/progress", icon: "progress", label: "Progress" },
+      { href: "/dashboard/competitors", icon: "competitors", label: "Competitors" },
+    ],
+  },
+  {
+    label: "Workbench",
+    items: [
       { href: "/dashboard/assistant", icon: "assistant", label: "Assistant" },
       { href: "/dashboard/assistant/drafts", icon: "content", label: "Content Library" },
-      { href: "/dashboard/competitors", icon: "competitors", label: "Competitors" },
-      { href: "/dashboard/responses", icon: "responses", label: "Responses" },
-      { href: "/dashboard/actions", icon: "actions", label: "Action Plan" },
+    ],
+  },
+  {
+    label: "Setup",
+    items: [
       { href: "/dashboard/settings", icon: "settings", label: "Settings" },
     ],
   },
@@ -113,11 +128,11 @@ export default function Sidebar({
           <span className={styles.logoMark} aria-hidden="true" />
           <span className={styles.logoCopy}>
             <span className={styles.logoTitle}>AISO</span>
-            <span className={styles.logoSubtitle}>AI Visibility OS</span>
+            <span className={styles.logoSubtitle}>Evidence Console</span>
           </span>
         </Link>
 
-        <nav className={styles.nav} aria-label="Workspace navigation">
+        <nav className={styles.nav} aria-label="Evidence console navigation">
           {NAV_GROUPS.map((group) => (
             <div key={group.label} className={styles.group}>
               <span className={styles.groupLabel}>{group.label}</span>

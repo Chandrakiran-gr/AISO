@@ -12,8 +12,8 @@
   flex: 1;
   padding: var(--space-3xl) var(--space-2xl);
   background:
-    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(0,212,170,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(124,92,252,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(143,149,255,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(192,132,252,0.08) 0%, transparent 60%),
     var(--bg-deep);
   border-right: var(--border-subtle);
   flex-direction: column;
@@ -82,7 +82,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0,212,170,0.08);
+  background: rgba(143,149,255,0.08);
   border-radius: var(--radius-md);
   font-size: 1.125rem;
   flex-shrink: 0;
