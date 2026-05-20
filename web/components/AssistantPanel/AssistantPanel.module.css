@@ -1,8 +1,9 @@
 .page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  min-width: 0;
+  overflow-x: clip;
   color: var(--text-primary);
 }
 
@@ -11,6 +12,8 @@
 .pageBody {
   display: flex;
   flex: 1;
+  min-height: calc(100vh - 72px);
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -19,10 +22,10 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 224px;
+  width: 248px;
   flex-shrink: 0;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(10, 12, 18, 0.96);
+  background: rgba(8, 10, 14, 0.94);
   overflow: hidden;
 }
 
@@ -38,9 +41,9 @@
   gap: 7px;
   width: 100%;
   min-height: 36px;
-  border: 1px solid rgba(0, 212, 170, 0.22);
-  border-radius: 9px;
-  background: rgba(0, 212, 170, 0.07);
+  border: 1px solid rgba(143, 149, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(143, 149, 255, 0.07);
   color: var(--accent-teal);
   font-family: var(--font-body);
   font-size: 0.8125rem;
@@ -51,8 +54,8 @@
 }
 
 .newChatBtn:hover:not(:disabled) {
-  background: rgba(0, 212, 170, 0.14);
-  border-color: rgba(0, 212, 170, 0.4);
+  background: rgba(143, 149, 255, 0.14);
+  border-color: rgba(143, 149, 255, 0.4);
 }
 
 .newChatBtn:disabled {
@@ -93,8 +96,8 @@
   align-items: flex-start;
   gap: 2px;
   padding: 8px 8px;
-  border: none;
-  border-radius: 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -110,7 +113,8 @@
 }
 
 .convItemActive .convItemBtn {
-  background: rgba(0, 212, 170, 0.09);
+  border: 1px solid rgba(143, 149, 255, 0.18);
+  background: rgba(143, 149, 255, 0.09);
 }
 
 .convItemTitle {
@@ -201,8 +205,9 @@
 
 .mainColumn {
   flex: 1;
-  overflow-y: auto;
   min-width: 0;
+  overflow-x: clip;
+  overflow-y: auto;
 }
 
 .topBar {
@@ -216,7 +221,7 @@
   min-height: 72px;
   padding: 0 32px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(15, 17, 23, 0.82);
+  background: rgba(15, 17, 23, 0.84);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
@@ -224,7 +229,7 @@
 .topTitle {
   font-family: var(--font-body);
   font-size: 1.125rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0;
 }
 
@@ -243,31 +248,34 @@
 
 .content {
   display: flex;
-  max-width: 1180px;
+  width: min(100%, 1440px);
   flex-direction: column;
-  gap: 24px;
-  padding: 44px 28px 32px;
+  gap: 22px;
+  padding: 28px 24px 32px;
 }
 
 .hero {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: end;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background: rgba(17, 22, 28, 0.72);
+  padding: 18px;
 }
 
 .hero h1 {
-  max-width: 720px;
   font-family: var(--font-body);
-  font-size: 1.875rem;
+  font-size: 1.25rem;
   font-weight: 850;
-  line-height: 1.24;
+  line-height: 1.3;
   letter-spacing: 0;
 }
 
 .hero p {
-  max-width: 720px;
-  margin-top: 8px;
+  max-width: 760px;
+  margin-top: 6px;
   color: var(--text-secondary);
   font-size: 0.9375rem;
   line-height: 1.6;
@@ -275,11 +283,11 @@
 
 .clientPill {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
-  border: 1px solid rgba(0, 212, 170, 0.2);
+  border: 1px solid rgba(143, 149, 255, 0.2);
   border-radius: var(--radius-full);
-  background: rgba(0, 212, 170, 0.08);
+  background: rgba(143, 149, 255, 0.08);
   color: var(--accent-teal);
   font-size: 0.75rem;
   font-weight: 850;
@@ -292,14 +300,13 @@
 .emptyState,
 .notice {
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 18px;
-  background: rgba(22, 25, 35, 0.82);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+  border-radius: 10px;
+  background: rgba(17, 22, 28, 0.76);
 }
 
 .chatShell {
   display: grid;
-  min-height: 480px;
+  min-height: 560px;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
 }
@@ -311,7 +318,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 20px;
+  padding: 12px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -354,7 +361,7 @@
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
-  padding: 24px;
+  padding: 20px;
 }
 
 .welcome {
@@ -374,9 +381,9 @@
 
 .welcome button {
   min-height: 42px;
-  border: 1px solid rgba(0, 212, 170, 0.18);
+  border: 1px solid rgba(143, 149, 255, 0.18);
   border-radius: var(--radius-md);
-  background: rgba(0, 212, 170, 0.08);
+  background: rgba(143, 149, 255, 0.08);
   color: var(--accent-teal);
   font-family: var(--font-body);
   font-size: 0.8125rem;
@@ -389,7 +396,7 @@
   width: min(780px, 92%);
   gap: 8px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
+  border-radius: 10px;
   padding: 15px 17px;
 }
 
@@ -400,8 +407,8 @@
 
 .userMessage {
   align-self: flex-end;
-  border-color: rgba(0, 212, 170, 0.16);
-  background: rgba(0, 212, 170, 0.08);
+  border-color: rgba(143, 149, 255, 0.16);
+  background: rgba(143, 149, 255, 0.08);
 }
 
 .messageMeta {
@@ -450,8 +457,8 @@
 }
 
 .editMsgBtn:hover {
-  background: rgba(0, 212, 170, 0.12);
-  border-color: rgba(0, 212, 170, 0.3);
+  background: rgba(143, 149, 255, 0.12);
+  border-color: rgba(143, 149, 255, 0.3);
   color: var(--accent-teal);
 }
 
@@ -468,13 +475,13 @@
   gap: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(15, 17, 23, 0.72);
-  padding: 18px;
+  padding: 16px;
 }
 
 .composer textarea {
   width: 100%;
   border: var(--border-muted);
-  border-radius: 14px;
+  border-radius: 10px;
   background: rgba(30, 34, 49, 0.78);
   color: var(--text-primary);
   font: inherit;
@@ -501,9 +508,9 @@
   justify-content: space-between;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(0, 212, 170, 0.07);
-  border: 1px solid rgba(0, 212, 170, 0.18);
+  border-radius: 10px;
+  background: rgba(143, 149, 255, 0.07);
+  border: 1px solid rgba(143, 149, 255, 0.18);
   color: var(--accent-teal);
   font-size: 0.775rem;
   font-weight: 600;
@@ -512,7 +519,7 @@
 .editCancelBtn {
   flex-shrink: 0;
   height: 24px;
-  border: 1px solid rgba(0, 212, 170, 0.25);
+  border: 1px solid rgba(143, 149, 255, 0.25);
   border-radius: 6px;
   background: transparent;
   color: var(--accent-teal);
@@ -524,12 +531,12 @@
 }
 
 .editCancelBtn:hover {
-  background: rgba(0, 212, 170, 0.12);
+  background: rgba(143, 149, 255, 0.12);
 }
 
 .textareaEditing {
-  border-color: rgba(0, 212, 170, 0.5) !important;
-  box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.12) !important;
+  border-color: rgba(143, 149, 255, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(143, 149, 255, 0.12) !important;
 }
 
 .composerFooter {
@@ -579,7 +586,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
+  min-height: 40px;
   border-radius: 10px;
   font-size: 0.8125rem;
   font-weight: 850;
@@ -591,7 +598,7 @@
 
 .composerFooter button,
 .primaryButton {
-  border: 1px solid rgba(0, 212, 170, 0.18);
+  border: 1px solid rgba(143, 149, 255, 0.18);
   background: var(--gradient-brand);
   color: var(--text-inverse);
   cursor: pointer;
@@ -612,7 +619,7 @@
   display: grid;
   gap: 14px;
   justify-items: start;
-  padding: 28px;
+  padding: 22px;
 }
 
 .emptyState h2 {
@@ -650,6 +657,7 @@
   }
 
   .topBar {
+    position: static;
     padding: 18px 22px;
   }
 
@@ -727,9 +735,9 @@
   display: inline-flex;
   align-items: center;
   min-height: 38px;
-  border: 1px solid rgba(0, 212, 170, 0.18);
+  border: 1px solid rgba(143, 149, 255, 0.18);
   border-radius: 20px;
-  background: rgba(0, 212, 170, 0.07);
+  background: rgba(143, 149, 255, 0.07);
   color: var(--text-secondary);
   font-family: var(--font-body);
   font-size: 0.8125rem;
@@ -742,8 +750,8 @@
 }
 
 .promptChip:hover {
-  background: rgba(0, 212, 170, 0.14);
-  border-color: rgba(0, 212, 170, 0.35);
+  background: rgba(143, 149, 255, 0.14);
+  border-color: rgba(143, 149, 255, 0.35);
   color: var(--text-primary);
 }
 
@@ -825,10 +833,10 @@
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  border: 1px solid rgba(0, 212, 170, 0.2);
-  border-radius: 14px;
-  background: rgba(0, 212, 170, 0.06);
-  padding: 14px 18px;
+  border: 1px solid rgba(143, 149, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(143, 149, 255, 0.06);
+  padding: 14px 16px;
 }
 
 .draftNoticeMeta {
@@ -844,7 +852,7 @@
   align-items: center;
   height: 22px;
   border-radius: var(--radius-full);
-  background: rgba(0, 212, 170, 0.12);
+  background: rgba(143, 149, 255, 0.12);
   color: var(--accent-teal);
   font-size: 0.6875rem;
   font-weight: 850;
@@ -879,9 +887,9 @@
   display: inline-flex;
   align-items: center;
   height: 34px;
-  border: 1px solid rgba(0, 212, 170, 0.25);
+  border: 1px solid rgba(143, 149, 255, 0.25);
   border-radius: 8px;
-  background: rgba(0, 212, 170, 0.1);
+  background: rgba(143, 149, 255, 0.1);
   color: var(--accent-teal);
   font-size: 0.75rem;
   font-weight: 850;
@@ -892,8 +900,8 @@
 }
 
 .exportButton:hover {
-  background: rgba(0, 212, 170, 0.18);
-  border-color: rgba(0, 212, 170, 0.45);
+  background: rgba(143, 149, 255, 0.18);
+  border-color: rgba(143, 149, 255, 0.45);
 }
 
 .draftNoticeLink {

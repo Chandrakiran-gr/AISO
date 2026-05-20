@@ -68,8 +68,8 @@
 .buildNote {
   margin-top: var(--space-xl);
   padding: var(--space-md) var(--space-lg);
-  background: rgba(124, 92, 252, 0.06);
-  border: 1px solid rgba(124, 92, 252, 0.15);
+  background: rgba(192, 132, 252, 0.06);
+  border: 1px solid rgba(192, 132, 252, 0.15);
   border-radius: var(--radius-md);
   font-size: 0.875rem;
   color: var(--text-muted);

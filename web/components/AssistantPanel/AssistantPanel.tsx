@@ -626,7 +626,7 @@ export default function AssistantPanel() {
                     rel="noopener noreferrer"
                     download
                   >
-                    ↓ PDF
+                    PDF
                   </a>
                   <a
                     href={`${API}/v1/assistant/content-drafts/${draftNotice.id}/export?format=docx`}
@@ -635,10 +635,10 @@ export default function AssistantPanel() {
                     rel="noopener noreferrer"
                     download
                   >
-                    ↓ DOCX
+                    DOCX
                   </a>
                   <Link href="/dashboard/assistant/drafts" className={styles.draftNoticeLink}>
-                    Open Content Library →
+                    Open Content Library
                   </Link>
                 </div>
               </div>
@@ -789,7 +789,7 @@ export default function AssistantPanel() {
                           className={styles.stopButton}
                           onClick={handleStop}
                         >
-                          ⬛ Stop
+                          Stop
                         </button>
                       ) : (
                         <button type="submit" disabled={!draft.trim()}>

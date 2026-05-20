@@ -1,11 +1,18 @@
 .card {
   display: grid;
-  gap: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 18px;
-  background: rgba(22, 25, 35, 0.82);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
-  padding: 22px;
+  min-width: 0;
+  gap: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background: rgba(17, 22, 28, 0.76);
+  padding: 18px;
+}
+
+.primary {
+  border-color: rgba(143, 149, 255, 0.14);
+  background:
+    linear-gradient(135deg, rgba(143, 149, 255, 0.06), transparent 42%),
+    rgba(17, 22, 28, 0.78);
 }
 
 .header {
@@ -17,10 +24,10 @@
 
 .header h2 {
   color: var(--text-primary);
-  font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 900;
   letter-spacing: 0;
+  line-height: 1.35;
 }
 
 .header p {
@@ -32,27 +39,25 @@
 }
 
 .header span {
-  border: 1px solid rgba(0, 212, 170, 0.18);
-  border-radius: var(--radius-full);
-  color: var(--accent-teal);
   flex: 0 0 auto;
+  border: 1px solid rgba(143, 149, 255, 0.18);
+  border-radius: var(--radius-full);
+  background: rgba(143, 149, 255, 0.08);
+  color: var(--accent-teal);
   font-size: 0.6875rem;
   font-weight: 900;
   line-height: 1;
   padding: 7px 10px;
+  white-space: nowrap;
 }
 
 .chartFrame {
-  height: 320px;
+  height: 308px;
   min-width: 0;
 }
 
-.primary .header h2 {
-  font-size: 1.25rem;
-}
-
 .primary .chartFrame {
-  height: 390px;
+  height: 360px;
 }
 
 @media (max-width: 760px) {

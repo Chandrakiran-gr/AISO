@@ -51,8 +51,8 @@
 .section { max-width: 760px; margin: 0 auto; padding: 0 var(--space-xl) var(--space-2xl); }
 
 .missionCard {
-  border: 1px solid rgba(0,212,170,0.15);
-  background: rgba(0,212,170,0.04);
+  border: 1px solid rgba(143,149,255,0.15);
+  background: rgba(143,149,255,0.04);
   border-radius: var(--radius-xl);
   padding: var(--space-xl);
   position: relative;
@@ -61,7 +61,7 @@
 .missionCard::before {
   content: "";
   position: absolute; top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(0,212,170,0.4), transparent);
+  background: linear-gradient(90deg, transparent, rgba(143,149,255,0.4), transparent);
 }
 .missionLabel { font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-teal); margin-bottom: var(--space-sm); }
 .missionText { font-size: 1.125rem; line-height: 1.75; color: var(--text-secondary); }

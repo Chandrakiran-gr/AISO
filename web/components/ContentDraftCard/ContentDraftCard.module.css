@@ -1,15 +1,15 @@
 .card {
   display: grid;
-  gap: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
-  background: rgba(22, 25, 35, 0.82);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
-  padding: 20px;
+  min-width: 0;
+  gap: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background: rgba(17, 22, 28, 0.76);
+  padding: 16px;
 }
 
 .status_approved {
-  border-color: rgba(0, 212, 170, 0.16);
+  border-color: rgba(143, 149, 255, 0.16);
 }
 
 .status_rejected {
@@ -24,46 +24,48 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
 }
 
 .header h3 {
   margin-top: 10px;
   color: var(--text-primary);
-  font-size: 1rem;
-  font-weight: 850;
-  line-height: 1.35;
+  font-size: 0.9375rem;
+  font-weight: 900;
   letter-spacing: 0;
+  line-height: 1.35;
 }
 
 .typePill,
 .statusPill {
   display: inline-flex;
-  min-height: 26px;
+  min-height: 25px;
   align-items: center;
   border-radius: var(--radius-full);
-  padding: 0 10px;
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 900;
+  letter-spacing: 0.04em;
   line-height: 1;
+  padding: 0 9px;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .typePill {
-  border: 1px solid rgba(0, 212, 170, 0.16);
-  background: rgba(0, 212, 170, 0.08);
+  border: 1px solid rgba(143, 149, 255, 0.16);
+  background: rgba(143, 149, 255, 0.08);
   color: var(--accent-teal);
 }
 
 .statusPill {
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(30, 34, 49, 0.72);
+  background: rgba(30, 34, 49, 0.62);
   color: var(--text-secondary);
 }
 
 .field {
   display: grid;
-  gap: 8px;
+  gap: 7px;
 }
 
 .field span {
@@ -75,14 +77,14 @@
 .field input,
 .field textarea {
   width: 100%;
-  border: var(--border-muted);
-  border-radius: 12px;
-  background: rgba(15, 17, 23, 0.56);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(11, 14, 18, 0.56);
   color: var(--text-primary);
   font: inherit;
   line-height: 1.55;
   outline: none;
-  padding: 12px 14px;
+  padding: 11px 12px;
 }
 
 .field textarea {
@@ -109,16 +111,13 @@
   line-height: 1.55;
 }
 
-.reviewNote {
+.reviewNote,
+.error {
   color: #fca5a5;
 }
 
 .reviewMeta {
   color: var(--text-muted);
-}
-
-.error {
-  color: #fca5a5;
 }
 
 .actions {
@@ -130,42 +129,59 @@
 .primaryButton,
 .secondaryButton,
 .dangerButton,
-.ghostButton {
+.ghostButton,
+.exportLink {
   display: inline-flex;
-  min-height: 36px;
+  min-height: 34px;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: 9px;
   font-family: var(--font-body);
   font-size: 0.75rem;
   font-weight: 850;
   line-height: 1;
   padding: 0 12px;
-  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .primaryButton {
-  border: 1px solid rgba(0, 212, 170, 0.18);
+  border: 1px solid rgba(143, 149, 255, 0.18);
   background: var(--gradient-brand);
   color: var(--text-inverse);
+  cursor: pointer;
 }
 
 .secondaryButton {
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(30, 34, 49, 0.92);
+  background: rgba(30, 34, 49, 0.84);
   color: var(--text-primary);
+  cursor: pointer;
 }
 
 .dangerButton {
   border: 1px solid rgba(239, 68, 68, 0.22);
   background: rgba(239, 68, 68, 0.1);
   color: #fca5a5;
+  cursor: pointer;
 }
 
 .ghostButton {
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: transparent;
   color: var(--text-muted);
+  cursor: pointer;
+}
+
+.exportLink {
+  border: 1px solid rgba(143, 149, 255, 0.22);
+  background: rgba(143, 149, 255, 0.08);
+  color: var(--accent-teal);
+}
+
+.exportLink:hover {
+  background: rgba(143, 149, 255, 0.15);
+  border-color: rgba(143, 149, 255, 0.4);
 }
 
 .primaryButton:disabled,
@@ -188,27 +204,4 @@
     width: 100%;
     justify-content: center;
   }
-}
-
-.exportLink {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  border: 1px solid rgba(0, 212, 170, 0.22);
-  border-radius: 10px;
-  background: rgba(0, 212, 170, 0.08);
-  color: var(--accent-teal);
-  font-family: var(--font-body);
-  font-size: 0.75rem;
-  font-weight: 850;
-  line-height: 1;
-  padding: 0 12px;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.exportLink:hover {
-  background: rgba(0, 212, 170, 0.15);
-  border-color: rgba(0, 212, 170, 0.4);
 }

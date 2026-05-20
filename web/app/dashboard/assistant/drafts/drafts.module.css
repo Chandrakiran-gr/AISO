@@ -1,5 +1,7 @@
 .page {
   min-height: 100vh;
+  min-width: 0;
+  overflow-x: clip;
   color: var(--text-primary);
 }
 
@@ -13,24 +15,24 @@
   justify-content: space-between;
   gap: 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(15, 17, 23, 0.82);
+  background: rgba(15, 17, 23, 0.84);
+  padding: 0 32px;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  padding: 0 32px;
 }
 
 .topTitle {
-  font-family: var(--font-body);
+  color: var(--text-primary);
   font-size: 1.125rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0;
 }
 
 .topCrumb {
   color: var(--text-muted);
   font-size: 0.8125rem;
-  font-weight: 600;
-  line-height: 1.4;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .topActions {
@@ -41,53 +43,56 @@
 
 .content {
   display: flex;
-  max-width: 1280px;
+  width: min(100%, 1440px);
   flex-direction: column;
-  gap: 28px;
-  padding: 44px 28px 32px;
+  gap: 22px;
+  padding: 28px 24px 32px;
 }
 
 .hero {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: end;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background: rgba(17, 22, 28, 0.72);
+  padding: 18px;
 }
 
 .hero h1 {
-  max-width: 760px;
-  font-family: var(--font-body);
-  font-size: 1.875rem;
+  color: var(--text-primary);
+  font-size: 1.25rem;
   font-weight: 850;
-  line-height: 1.24;
   letter-spacing: 0;
+  line-height: 1.3;
 }
 
 .hero p {
   max-width: 760px;
-  margin-top: 8px;
+  margin-top: 6px;
   color: var(--text-secondary);
-  font-size: 0.9375rem;
-  line-height: 1.6;
+  font-size: 0.875rem;
+  line-height: 1.55;
 }
 
 .clientPill {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
-  border: 1px solid rgba(0, 212, 170, 0.2);
+  border: 1px solid rgba(143, 149, 255, 0.2);
   border-radius: var(--radius-full);
-  background: rgba(0, 212, 170, 0.08);
+  background: rgba(143, 149, 255, 0.08);
   color: var(--accent-teal);
   font-size: 0.75rem;
   font-weight: 850;
   line-height: 1;
-  padding: 0 14px;
+  padding: 0 12px;
   white-space: nowrap;
 }
 
-.secondaryButton,
-.primaryButton {
+.primaryButton,
+.secondaryButton {
   display: inline-flex;
   min-height: 40px;
   align-items: center;
@@ -99,12 +104,17 @@
   padding: 0 16px;
   text-decoration: none;
   white-space: nowrap;
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .primaryButton {
-  border: 1px solid rgba(0, 212, 170, 0.18);
+  border: 1px solid rgba(143, 149, 255, 0.18);
   background: var(--gradient-brand);
   color: var(--text-inverse);
+  box-shadow: 0 8px 24px rgba(143, 149, 255, 0.12);
 }
 
 .secondaryButton {
@@ -113,12 +123,19 @@
   color: var(--text-primary);
 }
 
+.primaryButton:hover,
+.secondaryButton:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
 .notice,
-.emptyState {
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
-  background: rgba(22, 25, 35, 0.82);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+.emptyState,
+.statCard,
+.sectionEmpty {
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background: rgba(17, 22, 28, 0.76);
 }
 
 .notice {
@@ -130,17 +147,17 @@
 
 .emptyState {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   justify-items: start;
-  padding: 28px;
+  padding: 22px;
 }
 
 .emptyState h2 {
   color: var(--text-primary);
-  font-family: var(--font-body);
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 900;
   letter-spacing: 0;
+  line-height: 1.35;
 }
 
 .emptyState p {
@@ -152,52 +169,56 @@
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .statCard {
   display: grid;
-  gap: 7px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
-  background: rgba(22, 25, 35, 0.82);
-  padding: 18px;
+  min-height: 94px;
+  align-content: center;
+  gap: 8px;
+  padding: 16px;
 }
 
 .statCard span {
-  color: var(--accent-teal);
-  font-size: 1.75rem;
+  color: var(--text-primary);
+  font-size: 1.45rem;
   font-weight: 900;
   line-height: 1;
 }
 
 .statCard strong {
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-  font-weight: 800;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  text-transform: uppercase;
 }
 
 .draftSections {
   display: grid;
-  gap: 28px;
+  gap: 22px;
 }
 
 .draftSection {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .sectionHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
 }
 
 .sectionHeader h2 {
   color: var(--text-primary);
-  font-size: 1rem;
-  font-weight: 850;
+  font-size: 0.9375rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.35;
 }
 
 .sectionHeader span {
@@ -209,15 +230,14 @@
 .draftGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  gap: 14px;
 }
 
 .sectionEmpty {
-  border: 1px dashed rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
   color: var(--text-muted);
   font-size: 0.875rem;
-  padding: 18px;
+  line-height: 1.55;
+  padding: 16px;
 }
 
 @media (max-width: 980px) {
@@ -232,12 +252,17 @@
   .hero,
   .topActions,
   .sectionHeader {
+    position: static;
     align-items: flex-start;
     flex-direction: column;
   }
 
   .topBar {
-    padding: 18px 22px;
+    padding: 18px 16px;
+  }
+
+  .content {
+    padding: 24px 16px 30px;
   }
 
   .statsGrid,

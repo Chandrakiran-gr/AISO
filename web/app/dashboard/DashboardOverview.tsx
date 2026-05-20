@@ -111,90 +111,8 @@ function providerOrder(id: string): number {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
-function providerStyle(color: string, score: number): CSSProperties {
-  return {
-    "--provider-color": color,
-    "--provider-score": `${Math.max(0, Math.min(score, 100))}%`,
-  } as CSSProperties;
-}
-
 function formatProvider(id: string): string {
   return PROVIDER_META[id]?.name ?? id.charAt(0).toUpperCase() + id.slice(1);
-}
-
-function ScoreRing({ score }: { score: number }) {
-  const safeScore = Math.max(0, Math.min(score, 100));
-  const radius = 64;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (safeScore / 100) * circumference;
-
-  return (
-    <div className={styles.scoreRingWrap} aria-label={`AI visibility score ${safeScore} out of 100`}>
-      <svg className={styles.scoreRing} viewBox="0 0 160 160" role="img">
-        <defs>
-          <linearGradient id="visibilityGradient" x1="20" y1="140" x2="142" y2="22">
-            <stop offset="0%" stopColor="#00d4aa" />
-            <stop offset="100%" stopColor="#7c5cfc" />
-          </linearGradient>
-        </defs>
-        <circle className={styles.scoreRingBase} cx="80" cy="80" r={radius} />
-        <circle
-          className={styles.scoreRingValue}
-          cx="80"
-          cy="80"
-          r={radius}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-        />
-      </svg>
-      <div className={styles.scoreCenter}>
-        <span className={styles.scoreNumber}>{Math.round(safeScore)}</span>
-        <span className={styles.scoreDenominator}>/100</span>
-      </div>
-    </div>
-  );
-}
-
-function ProviderCard({
-  provider,
-  metric,
-  selected = false,
-  onSelect,
-}: {
-  provider: ProviderMeta;
-  metric?: ProviderMetric;
-  selected?: boolean;
-  onSelect: () => void;
-}) {
-  const score = metric?.score ?? 0;
-  return (
-    <button
-      type="button"
-      className={`${styles.providerCard} ${selected ? styles.providerCardSelected : ""}`}
-      style={providerStyle(provider.color, score)}
-      onClick={onSelect}
-      aria-expanded={selected}
-      aria-label={`Open ${provider.name} provider breakdown`}
-    >
-      <div className={styles.providerHeader}>
-        <span className={styles.providerDot} />
-        <span className={styles.providerName}>{provider.name}</span>
-      </div>
-      <div className={styles.providerMetric}>
-        <span className={styles.providerScore}>{Math.round(score)}</span>
-        <span className={styles.providerOutOf}>/100</span>
-      </div>
-      <span className={styles.providerTrack}>
-        <span className={styles.providerFill} />
-      </span>
-      <p className={styles.heroSub}>
-        {metric
-          ? `${metric.mention_count}/${metric.total_questions} mentions`
-          : "No completed scan data"}
-      </p>
-      <span className={styles.providerCardHint}>View breakdown</span>
-    </button>
-  );
 }
 
 function CompetitorRow({
@@ -202,35 +120,39 @@ function CompetitorRow({
   rank,
   selected,
   onSelect,
+  ownBusinessName,
 }: {
   competitor: CompetitorMetric;
   rank: number;
   selected: boolean;
   onSelect: () => void;
+  ownBusinessName: string;
 }) {
+  const displayName = competitor.is_you ? ownBusinessName : competitor.name;
+
   return (
     <button
       type="button"
       className={`${styles.competitorRow} ${selected ? styles.competitorRowSelected : ""}`}
       onClick={onSelect}
       aria-expanded={selected}
-      title={competitor.is_you ? "Your Business" : competitor.name}
+      title={displayName}
     >
       <span className={styles.competitorRank}>#{rank}</span>
-      <span className={styles.competitorName}>
-        {competitor.is_you ? "Your Business" : competitor.name}
+      <span className={styles.competitorIdentity}>
+        <strong>{displayName}</strong>
+        <small>{competitor.mention_count} mentions</small>
       </span>
+      <span className={styles.competitorScore}>{Math.round(competitor.score)}</span>
       <span className={styles.competitorTrack}>
         <span
           className={`${styles.competitorFill} ${competitor.is_you ? styles.gradientFill : ""}`}
           style={{
-            "--competitor-color": competitor.is_you ? "#00d4aa" : "#ffd93d",
+            "--competitor-color": competitor.is_you ? "#8f95ff" : "#f6c177",
             "--competitor-score": `${Math.max(0, Math.min(competitor.score, 100))}%`,
           } as CSSProperties}
         />
       </span>
-      <span className={styles.competitorMentions}>{competitor.mention_count} mentions</span>
-      <span className={styles.competitorScore}>{Math.round(competitor.score)}</span>
     </button>
   );
 }
@@ -280,37 +202,151 @@ export function DashboardOverview({
   const selectedCompetitor = selectedCompetitorName
     ? topCompetitors.find((competitor) => competitor.name === selectedCompetitorName) ?? null
     : null;
+  const matrixGroups = useMemo(() => {
+    const groups = new Map<string, string>();
+    gapReport?.query_results.forEach((query) => {
+      groups.set(query.group.toLowerCase(), query.group_label || query.group);
+    });
+    metrics?.group_metrics.forEach((metric) => {
+      if (!groups.has(metric.id.toLowerCase())) {
+        groups.set(metric.id.toLowerCase(), metric.label);
+      }
+    });
+    return Array.from(groups, ([id, label]) => ({ id, label })).slice(0, 7);
+  }, [gapReport, metrics]);
+  const groupMetrics = useMemo(() => {
+    const map = new Map<string, GroupMetric>();
+    metrics?.group_metrics.forEach((metric) => map.set(metric.id.toLowerCase(), metric));
+    return map;
+  }, [metrics]);
+  const weakestGroup = metrics?.group_metrics
+    .slice()
+    .sort((a, b) => a.score - b.score)[0];
+  const totalMentions = metrics?.provider_metrics.reduce((sum, metric) => sum + metric.mention_count, 0) ?? 0;
+  const totalQuestions = metrics?.provider_metrics.reduce((sum, metric) => sum + metric.total_questions, 0) ?? 0;
+  const missedCount = Math.max(0, totalQuestions - totalMentions);
+  const overallScore = Math.round(metrics?.overall_score ?? 0);
+  const overallScorePercent = Math.max(0, Math.min(overallScore, 100));
+  const competitorLeader = topCompetitors[0] ?? null;
+  const ownCompetitor = topCompetitors.find((competitor) => competitor.is_you) ?? null;
+  const strongestOtherCompetitor = topCompetitors
+    .filter((competitor) => !competitor.is_you)
+    .slice()
+    .sort((a, b) => b.score - a.score)[0] ?? null;
+  const competitorDelta =
+    ownCompetitor && strongestOtherCompetitor
+      ? Math.round(ownCompetitor.score - strongestOtherCompetitor.score)
+      : null;
+  const ownMetricName = ownCompetitor?.name?.trim();
+  const ownBusinessName =
+    clientName?.trim()
+    || (ownMetricName && !/^your business$/i.test(ownMetricName) ? ownMetricName : "Current business");
+
+  function matrixCell(providerId: string, groupId: string) {
+    const rows = gapReport?.query_results.filter((query) => (
+      query.provider.toLowerCase() === providerId.toLowerCase()
+      && query.group.toLowerCase() === groupId.toLowerCase()
+    )) ?? [];
+
+    if (rows.length) {
+      const mentions = rows.filter((query) => query.appeared).length;
+      return {
+        empty: false,
+        mentions,
+        score: Math.round((mentions / rows.length) * 100),
+        total: rows.length,
+      };
+    }
+
+    const fallback = groupMetrics.get(groupId.toLowerCase());
+    return {
+      empty: !fallback,
+      mentions: fallback?.mention_count ?? 0,
+      score: Math.round(fallback?.score ?? 0),
+      total: fallback?.total_questions ?? 0,
+    };
+  }
 
   return (
     <>
-      <section className={styles.summaryGrid}>
-        <article className={`${styles.card} ${styles.scoreCard}`}>
-          <span className={styles.cardLabelTeal}>Overall score</span>
-          <ScoreRing score={metrics?.overall_score ?? 0} />
-          <p className={styles.scoreCaption}>AI Visibility Score</p>
-          <Link href="/dashboard/responses" className={styles.proofCta}>View proof report</Link>
+      <section className={styles.consoleGrid} aria-label="AI visibility command summary">
+        <article className={styles.scoreConsolePanel}>
+          <div className={styles.scoreConsoleHeader}>
+            <span className={styles.cardLabelTeal}>AI visibility</span>
+            <small>{totalQuestions ? `${totalMentions}/${totalQuestions} answers` : "No scan data"}</small>
+          </div>
+          <div className={styles.scoreHeadline}>
+            <strong>{overallScore}</strong>
+            <span>/100</span>
+          </div>
+          <div className={styles.scoreSignalTrack} aria-hidden="true">
+            <span style={{ "--score-percent": `${overallScorePercent}%` } as CSSProperties} />
+          </div>
+          <div className={styles.scoreMicroStats}>
+            <span>
+              <strong>{totalMentions}</strong>
+              Mentions
+            </span>
+            <span>
+              <strong>{missedCount}</strong>
+              Misses
+            </span>
+          </div>
+          <Link href="/dashboard/responses" className={styles.proofCta}>Open proof</Link>
         </article>
 
-        <article className={`${styles.card} ${styles.urgencyCard}`}>
-          <span className={styles.cardLabelWarning}>Intent gaps</span>
-          <strong className={styles.gapMetric}>
-            {metrics?.group_metrics.length ?? 0}
-          </strong>
-          <p className={styles.gapCopy}>intent groups measured in the {metricScopeLabel}</p>
-          <div className={styles.cardDivider} />
-          <span className={styles.smallMuted}>Weakest group</span>
-          <div className={styles.nextMoveRow}>
-            <strong>
-              {metrics?.group_metrics
-                .slice()
-                .sort((a, b) => a.score - b.score)[0]?.label ?? "Waiting for scan data"}
-            </strong>
-            <Link href="/dashboard/actions" className={styles.primaryButton}>Open actions</Link>
+        <article className={styles.consoleReadoutPanel}>
+          <div className={styles.consoleReadoutHeader}>
+            <div>
+              <span className={styles.cardLabel}>Latest scan readout</span>
+              <h2>{clientName ? `${clientName} evidence summary` : "Evidence summary"}</h2>
+            </div>
+            <Link href="/dashboard/actions" className={styles.secondaryButton}>Open action queue</Link>
+          </div>
+          <div className={styles.consoleStatsRow}>
+            <span>
+              <strong>{totalMentions}</strong>
+              Mentions
+            </span>
+            <span>
+              <strong>{missedCount}</strong>
+              Misses
+            </span>
+            <span>
+              <strong>{matrixGroups.length || metrics?.group_metrics.length || 0}</strong>
+              Intent groups
+            </span>
+            <span>
+              <strong>{topActions.length}</strong>
+              Open actions
+            </span>
+          </div>
+          <div className={styles.weakestSignalRow}>
+            <span>Weakest signal</span>
+            <strong>{weakestGroup?.label ?? "Waiting for scan data"}</strong>
+            <small>{weakestGroup ? `${Math.round(weakestGroup.score)}/100 across this group` : metricScopeLabel}</small>
           </div>
         </article>
 
-        <article className={`${styles.card} ${styles.competitorCard}`}>
-          <span className={styles.cardLabelViolet}>Top competitors</span>
+        <article className={styles.competitorConsolePanel}>
+          <div className={styles.consoleReadoutHeader}>
+            <div>
+              <span className={styles.cardLabelViolet}>Competitor pressure</span>
+              <h2>Top mentions</h2>
+            </div>
+            <Link href="/dashboard/competitors" className={styles.secondaryButton}>Compare</Link>
+          </div>
+          {competitorLeader ? (
+            <div className={styles.competitorInsight}>
+              <span>Leader</span>
+              <strong>{competitorLeader.is_you ? ownBusinessName : competitorLeader.name}</strong>
+              <small>
+                {competitorDelta !== null
+                  ? `${competitorDelta >= 0 ? "+" : ""}${competitorDelta} pts vs ${strongestOtherCompetitor?.name}`
+                  : `${competitorLeader.mention_count} mentions captured`}
+              </small>
+            </div>
+          ) : null}
           <div className={styles.competitorList}>
             {topCompetitors.length ? (
               topCompetitors.map((competitor, index) => (
@@ -319,6 +355,7 @@ export function DashboardOverview({
                   competitor={competitor}
                   rank={index + 1}
                   selected={selectedCompetitorName === competitor.name}
+                  ownBusinessName={ownBusinessName}
                   onSelect={() => {
                     setSelectedCompetitorName(competitor.name);
                     setSelectedProviderId(null);
@@ -329,25 +366,71 @@ export function DashboardOverview({
               <p className={styles.heroSub}>Competitor metrics will appear after a completed scan.</p>
             )}
           </div>
-          <Link href="/dashboard/competitors" className={styles.secondaryButton}>View comparison</Link>
         </article>
       </section>
 
-      <section aria-labelledby="providers-heading">
-        <h2 id="providers-heading" className={styles.sectionLabel}>Provider breakdown</h2>
-        <div className={styles.providerGrid}>
-          {visibleProviders.map((provider) => (
-            <ProviderCard
-              key={provider.id}
-              provider={provider}
-              metric={providerMetrics.get(provider.id)}
-              selected={selectedProviderId === provider.id}
-              onSelect={() => {
-                setSelectedProviderId(provider.id);
-                setSelectedCompetitorName(null);
-              }}
-            />
-          ))}
+      <section className={styles.matrixPanel} aria-labelledby="providers-heading">
+        <div className={styles.matrixHeader}>
+          <div>
+            <span className={styles.sectionLabel}>Provider x Intent Evidence Matrix</span>
+            <h2 id="providers-heading">Where AI sees the brand, and where it misses</h2>
+          </div>
+          <Link href="/dashboard/responses" className={styles.secondaryButton}>Review responses</Link>
+        </div>
+        <div className={styles.matrixScroller}>
+          <div
+            className={styles.evidenceMatrix}
+            style={{ "--matrix-columns": Math.max(1, matrixGroups.length) } as CSSProperties}
+          >
+            <div className={`${styles.matrixCell} ${styles.matrixCorner}`}>Provider</div>
+            {matrixGroups.map((group) => (
+              <div key={`matrix-head-${group.id}`} className={`${styles.matrixCell} ${styles.matrixHead}`}>
+                {group.label}
+              </div>
+            ))}
+            {!matrixGroups.length && (
+              <div className={`${styles.matrixCell} ${styles.matrixHead}`}>No intent data</div>
+            )}
+
+            {visibleProviders.map((provider) => {
+              const metric = providerMetrics.get(provider.id);
+              return (
+                <div key={`matrix-row-${provider.id}`} className={styles.matrixRow}>
+                  <button
+                    type="button"
+                    className={`${styles.matrixProviderCell} ${selectedProviderId === provider.id ? styles.matrixProviderCellActive : ""}`}
+                    onClick={() => {
+                      setSelectedProviderId(provider.id);
+                      setSelectedCompetitorName(null);
+                    }}
+                  >
+                    <span className={styles.providerDot} style={{ "--provider-color": provider.color } as CSSProperties} />
+                    <strong>{provider.name}</strong>
+                    <small>{metric ? `${metric.mention_count}/${metric.total_questions} mentions` : "No data"}</small>
+                  </button>
+                  {(matrixGroups.length ? matrixGroups : [{ id: "none", label: "No intent data" }]).map((group) => {
+                    const cell = group.id === "none" ? { empty: true, mentions: 0, score: 0, total: 0 } : matrixCell(provider.id, group.id);
+                    return (
+                      <button
+                        key={`matrix-${provider.id}-${group.id}`}
+                        type="button"
+                        className={`${styles.matrixIntentCell} ${cell.empty ? styles.matrixIntentCellEmpty : ""}`}
+                        onClick={() => {
+                          setSelectedProviderId(provider.id);
+                          setSelectedCompetitorName(null);
+                        }}
+                        style={{ "--cell-score": `${cell.score}%` } as CSSProperties}
+                        aria-label={`${provider.name} ${group.label}: ${cell.empty ? "no data" : `${cell.score} percent appearance rate`}`}
+                      >
+                        <strong>{cell.empty ? "—" : `${cell.score}`}</strong>
+                        <span>{cell.empty ? "No data" : `${cell.mentions}/${cell.total}`}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -424,7 +507,7 @@ export function DashboardOverview({
             {selectedCompetitor && (
               <>
                 <span className={styles.cardLabelViolet}>Competitor breakdown</span>
-                <h2>{selectedCompetitor.is_you ? "Your Business" : selectedCompetitor.name}</h2>
+                <h2>{selectedCompetitor.is_you ? ownBusinessName : selectedCompetitor.name}</h2>
                 <p className={styles.heroSub}>Compare mention share and provider-level pressure before opening the full competitor report.</p>
                 <div className={styles.sidePanelMeta}>
                   <span>{Math.round(selectedCompetitor.score)} overall</span>

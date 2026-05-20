@@ -753,46 +753,49 @@ export default function ResponsesPage() {
                         recommendedFixes.map(({ evidence, fix, title, why, nextStep, example, providers }) => (
                           <article key={title} className={styles.recommendedFixCard}>
                             <header className={styles.recommendedFixHeader}>
-                              <div>
-                                <span>Problem</span>
-                                <h3>{title}</h3>
+                              <div className={styles.fixTopLine}>
+                                <span className={`${styles.impactBadge} ${impactClass(fix.impact)}`}>
+                                  {humanizeToken(fix.impact)}
+                                </span>
+                                {providers.length > 0 && (
+                                  <span className={styles.fixProviderPill}>
+                                    {providers.map(formatProvider).join(", ")}
+                                  </span>
+                                )}
                               </div>
-                              <span className={`${styles.impactBadge} ${impactClass(fix.impact)}`}>
-                                {fix.impact}
-                              </span>
-                            </header>
-                            <div className={styles.fixExplanationGrid}>
-                              <div>
-                                <span>Why it matters</span>
-                                <p>{why}</p>
-                              </div>
-                              <div>
-                                <span>Do this next</span>
-                                <p>{nextStep}</p>
-                              </div>
-                            </div>
-                            <div className={styles.fixEvidenceGrid}>
-                              <div>
-                                <span>Evidence</span>
-                                <strong>{evidence[0]}</strong>
-                                {evidence.slice(1, 3).map((item) => (
-                                  <small key={item}>{item}</small>
-                                ))}
-                              </div>
-                              {example && (
-                                <button type="button" className={styles.fixEvidenceButton} onClick={() => setSelectedQuery(example)}>
-                                  <span>Example missed question</span>
-                                  <strong>{example.question}</strong>
-                                  <small>{formatProvider(example.provider)} · {example.group}</small>
-                                </button>
-                              )}
-                              {providers.length > 0 && (
+                              <div className={styles.fixSummaryBody}>
                                 <div>
-                                  <span>Providers</span>
-                                  <strong>{providers.map(formatProvider).join(", ")}</strong>
+                                  <span className={styles.fixEyebrow}>Problem</span>
+                                  <h3>{title}</h3>
+                                  <p className={styles.fixNextSummary}>{nextStep}</p>
                                 </div>
-                              )}
-                            </div>
+                              </div>
+                            </header>
+                            <details className={styles.fixDetails}>
+                              <summary className={styles.fixDetailsSummary}>View reasoning and proof</summary>
+                              <div className={styles.fixExplanationGrid}>
+                                <div>
+                                  <span>Why it matters</span>
+                                  <p>{why}</p>
+                                </div>
+                              </div>
+                              <div className={styles.fixEvidenceGrid}>
+                                <div>
+                                  <span>Evidence</span>
+                                  <strong>{evidence[0]}</strong>
+                                  {evidence.slice(1, 3).map((item) => (
+                                    <small key={item}>{item}</small>
+                                  ))}
+                                </div>
+                                {example && (
+                                  <button type="button" className={styles.fixEvidenceButton} onClick={() => setSelectedQuery(example)}>
+                                    <span>Example missed question</span>
+                                    <strong>{example.question}</strong>
+                                    <small>{formatProvider(example.provider)} · {example.group}</small>
+                                  </button>
+                                )}
+                              </div>
+                            </details>
                           </article>
                         ))
                       ) : (

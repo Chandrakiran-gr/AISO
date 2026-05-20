@@ -155,9 +155,10 @@ export default function DashboardPage() {
       </header>
 
       <main className={styles.content}>
-        <section className={styles.hero}>
-          <div>
-            <h2 className={styles.heroTitle}>
+        <section className={styles.commandHeader}>
+          <div className={styles.commandHeaderCopy}>
+            <span className={styles.commandEyebrow}>Overview</span>
+            <h2 className={styles.commandTitle}>
               {showOnboardingRecommendation
                 ? state.client
                   ? `Finish setting up ${state.client.name}`
@@ -166,15 +167,18 @@ export default function DashboardPage() {
                 ? `What AI is saying about ${state.client.name}`
                 : "Set up your first AI visibility scan"}
             </h2>
-            <p className={styles.heroSub}>
+            <p className={styles.commandSub}>
               {state.metrics
                 ? `${state.metrics.total_questions} provider-question results analyzed from the latest completed scan.`
                 : "Complete onboarding to review your business context, launch the first scan, and unlock visibility insights."}
             </p>
           </div>
-          <Link href="/onboarding" className={styles.newScanBtn}>
-            {state.client && state.scans.length > 0 ? "Run new scan" : "Complete onboarding"}
-          </Link>
+          <div className={styles.commandActions}>
+            <span>{scanMetaLabel}</span>
+            <Link href="/onboarding" className={styles.newScanBtn}>
+              {state.client && state.scans.length > 0 ? "Run new scan" : "Complete onboarding"}
+            </Link>
+          </div>
         </section>
 
         {state.error && <div className={styles.previewBanner}>{state.error}</div>}

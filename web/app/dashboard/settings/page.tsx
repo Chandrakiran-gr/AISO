@@ -103,9 +103,9 @@ function ProviderKeyRow({ provider }: { provider: typeof PROVIDERS[number] }) {
           {provider.name}
         </div>
         <div className={styles.providerBadge}>
-          {saved && <span className={styles.savedPill}>✓ Session active</span>}
+          {saved && <span className={styles.savedPill}>Session active</span>}
           {!saved && hadPrev && (
-            <span className={styles.prevPill}>⟳ Re-enter key</span>
+            <span className={styles.prevPill}>Re-enter key</span>
           )}
           <a
             href={provider.keyLink}
@@ -113,7 +113,7 @@ function ProviderKeyRow({ provider }: { provider: typeof PROVIDERS[number] }) {
             rel="noopener noreferrer"
             className={styles.getKeyLink}
           >
-            Get API key →
+            Get API key
           </a>
         </div>
       </div>
@@ -159,7 +159,7 @@ function KeyGuide() {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
-        <span className={`${styles.guideArrow} ${open ? styles.open : ""}`}>▶</span>
+        <span className={`${styles.guideArrow} ${open ? styles.open : ""}`}>{">"}</span>
         How to get API keys for each provider
       </button>
       {open && (
@@ -197,7 +197,7 @@ export default function SettingsPage() {
           </h2>
 
           <div className={styles.trustBanner} role="note">
-            <span className={styles.trustIcon}>🔒</span>
+            <span className={styles.trustIcon}>BYOK</span>
             <div className={styles.trustText}>
               <strong className={styles.trustTitle}>Your keys are never saved to our servers</strong>
               <p className={styles.trustDesc}>
