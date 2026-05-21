@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { CURRENT_PLAN, PRO_UPGRADE_HREF, canAccessRawArtifacts } from "@/lib/plan";
@@ -428,6 +429,8 @@ function groupRecommendedFixes(fixes: GapFix[], clientName: string, missedQuerie
 export default function ResponsesPage() {
   const { data: session } = useSession();
   const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN, session?.user?.email);
+  const searchParams = useSearchParams();
+  const scanIdParam = searchParams.get("scan_id");
   const [client, setClient] = useState<ClientData | null>(null);
   const [scan, setScan] = useState<ScanData | null>(null);
   const [citations, setCitations] = useState<CitationData[]>([]);
@@ -460,20 +463,25 @@ export default function ResponsesPage() {
         });
         if (!scansRes.ok) throw new Error("Unable to load scans");
         const scans: ScanData[] = await scansRes.json();
-        const latestComplete = scans.find((item) => item.status === "complete") ?? scans[0] ?? null;
+
+        // If a scan_id was provided in the URL (e.g. from scan history detail),
+        // use that specific scan; otherwise fall back to the latest complete scan.
+        const targetScan: ScanData | null = scanIdParam
+          ? (scans.find((item) => item.id === scanIdParam) ?? null)
+          : (scans.find((item) => item.status === "complete") ?? scans[0] ?? null);
 
         let scanDetail: ScanData | null = null;
         let citationRows: CitationData[] = [];
         let sourceRows: SourceProfile[] = [];
         let report: GapReport | null = null;
-        if (latestComplete) {
+        if (targetScan) {
           const [detailRes, citationsRes, sourcesRes, gapReportRes] = await Promise.all([
-            fetch(`${API}/v1/clients/${firstClient.id}/scans/${latestComplete.id}`, { cache: "no-store" }),
-            fetch(`${API}/v1/clients/${firstClient.id}/scans/${latestComplete.id}/citations`, { cache: "no-store" }),
-            fetch(`${API}/v1/clients/${firstClient.id}/sources?scan_id=${latestComplete.id}&limit=40`, { cache: "no-store" }),
-            fetch(`${API}/v1/clients/${firstClient.id}/gap-report?scan_id=${latestComplete.id}`, { cache: "no-store" }),
+            fetch(`${API}/v1/clients/${firstClient.id}/scans/${targetScan.id}`, { cache: "no-store" }),
+            fetch(`${API}/v1/clients/${firstClient.id}/scans/${targetScan.id}/citations`, { cache: "no-store" }),
+            fetch(`${API}/v1/clients/${firstClient.id}/sources?scan_id=${targetScan.id}&limit=40`, { cache: "no-store" }),
+            fetch(`${API}/v1/clients/${firstClient.id}/gap-report?scan_id=${targetScan.id}`, { cache: "no-store" }),
           ]);
-          scanDetail = detailRes.ok ? await detailRes.json() : latestComplete;
+          scanDetail = detailRes.ok ? await detailRes.json() : targetScan;
           citationRows = citationsRes.ok ? await citationsRes.json() : [];
           sourceRows = sourcesRes.ok ? await sourcesRes.json() : [];
           report = gapReportRes.ok ? await gapReportRes.json() : null;
@@ -499,7 +507,7 @@ export default function ResponsesPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [scanIdParam]);
 
   function selectTab(tab: ProofTab) {
     setActiveTab(tab);

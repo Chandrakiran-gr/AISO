@@ -91,6 +91,9 @@ type DashboardOverviewProps = {
   actionScopeLabel?: string;
   metricScopeLabel?: string;
   scanMetaLabel?: string | null;
+  /** When set, all links to /dashboard/responses include ?scan_id= so the
+   *  responses page loads data for this specific historical scan. */
+  scanId?: string | null;
 };
 
 const PROVIDERS = [
@@ -165,7 +168,15 @@ export function DashboardOverview({
   actionScopeLabel = "latest scans",
   metricScopeLabel = "latest scan",
   scanMetaLabel,
+  scanId,
 }: DashboardOverviewProps) {
+  function responsesHref(extraParams?: string): string {
+    const base = "/dashboard/responses";
+    const parts: string[] = [];
+    if (scanId) parts.push(`scan_id=${encodeURIComponent(scanId)}`);
+    if (extraParams) parts.push(extraParams);
+    return parts.length ? `${base}?${parts.join("&")}` : base;
+  }
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [selectedCompetitorName, setSelectedCompetitorName] = useState<string | null>(null);
   const providerMetrics = useMemo(() => {
@@ -292,7 +303,7 @@ export function DashboardOverview({
               Misses
             </span>
           </div>
-          <Link href="/dashboard/responses" className={styles.proofCta}>Open proof</Link>
+          <Link href={responsesHref()} className={styles.proofCta}>Open proof</Link>
         </article>
 
         <article className={styles.consoleReadoutPanel}>
@@ -375,7 +386,7 @@ export function DashboardOverview({
             <span className={styles.sectionLabel}>Provider x Intent Evidence Matrix</span>
             <h2 id="providers-heading">Where AI sees the brand, and where it misses</h2>
           </div>
-          <Link href="/dashboard/responses" className={styles.secondaryButton}>Review responses</Link>
+          <Link href={responsesHref()} className={styles.secondaryButton}>Review responses</Link>
         </div>
         <div className={styles.matrixScroller}>
           <div
@@ -476,7 +487,7 @@ export function DashboardOverview({
                   {selectedProviderMisses.length ? selectedProviderMisses.map((query) => (
                     <Link
                       key={`${query.provider}-${query.group}-${query.question}`}
-                      href={`/dashboard/responses?tab=missed&provider=${selectedProvider.id}`}
+                      href={responsesHref(`tab=missed&provider=${selectedProvider.id}`)}
                       className={styles.drilldownRow}
                     >
                       <span>{query.group_label || query.group}</span>
@@ -491,7 +502,7 @@ export function DashboardOverview({
                   {selectedProviderSources.length ? selectedProviderSources.map((source) => (
                     <Link
                       key={`${selectedProvider.id}-${source.domain}`}
-                      href={`/dashboard/responses?tab=sources&provider=${selectedProvider.id}`}
+                      href={responsesHref(`tab=sources&provider=${selectedProvider.id}`)}
                       className={styles.drilldownRowCompact}
                     >
                       <strong>{source.domain}</strong>

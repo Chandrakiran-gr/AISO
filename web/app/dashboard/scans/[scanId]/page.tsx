@@ -288,6 +288,7 @@ export default function ScanDetailPage() {
                 actions={actions}
                 actionScopeLabel="this scan"
                 metricScopeLabel="this scan"
+                scanId={scanId}
                 scanMetaLabel={`Selected scan: ${formatStatus(scan.status)}${
                   scan.providers?.length ? ` · ${scan.providers.length} platforms` : ""
                 }`}
