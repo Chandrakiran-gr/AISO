@@ -96,15 +96,23 @@ function formatStatus(value: string): string {
   return value ? `${value.charAt(0).toUpperCase()}${value.slice(1)}` : "Unknown";
 }
 
+/** Only these artifact types are shown to users. JSON/JSONL files are
+ *  internal-only and must never appear in the exports section. */
+const CSV_ARTIFACT_TYPES = new Set([
+  "collect_csv",
+  "collect_questions_csv",
+  "question_bank_csv",
+  "question_log",
+  "report",
+]);
+
 function artifactTitle(artifact: ArtifactData): string {
   const labels: Record<string, string> = {
     collect_csv: "Scan results export",
     collect_questions_csv: "Questions run in this scan",
     question_bank_csv: "Selected question bank",
-    question_ranking_report_json: "Question ranking report",
-    source_evidence_jsonl: "Source evidence export",
-    report: "Visibility report",
     question_log: "Question set export",
+    report: "Visibility report",
   };
   return labels[artifact.artifact_type] ?? "Scan export";
 }
@@ -260,7 +268,7 @@ export default function ScanDetailPage() {
                 <span className={styles.statLabel}>Intent groups</span>
               </div>
               <div className={styles.statCard}>
-                <span className={styles.statValue}>{scan.artifacts.length}</span>
+                <span className={styles.statValue}>{scan.artifacts.filter(a => CSV_ARTIFACT_TYPES.has(a.artifact_type)).length}</span>
                 <span className={styles.statLabel}>Exports</span>
               </div>
             </div>
@@ -385,9 +393,9 @@ export default function ScanDetailPage() {
                   <span className={styles.exportsPlanBadge}>Pro feature</span>
                 )}
               </div>
-              {scan.artifacts.length ? (
+              {scan.artifacts.filter(a => CSV_ARTIFACT_TYPES.has(a.artifact_type)).length ? (
                 <div className={styles.scanList}>
-                  {scan.artifacts.map((artifact) => (
+                  {scan.artifacts.filter(a => CSV_ARTIFACT_TYPES.has(a.artifact_type)).map((artifact) => (
                     <div
                       key={artifact.id}
                       className={`${styles.artifactRow} ${rawArtifactsUnlocked ? "" : styles.artifactLocked}`}
