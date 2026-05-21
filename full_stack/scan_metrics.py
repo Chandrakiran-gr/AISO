@@ -688,12 +688,12 @@ def persist_collect_csv_results(
     try:
         db.query(ScanResult).filter(ScanResult.scan_id == scan_id).delete()
         db.query(Action).filter(Action.scan_id == scan_id).delete()
+        # Only CSV artifacts are registered. JSON/JSONL files are used
+        # internally for citation extraction but must not be shown to users.
         registered_artifact_types = [
             "question_bank_csv",
-            "question_ranking_report_json",
             "collect_questions_csv",
             "collect_csv",
-            "source_evidence_jsonl",
         ]
         db.query(ScanArtifact).filter(
             ScanArtifact.scan_id == scan_id,
@@ -715,16 +715,14 @@ def persist_collect_csv_results(
                     competitor_data=json.dumps(result.competitor_data),
                 )
             )
-        artifact_specs = [
+        # Only register CSV artifacts. JSON/JSONL files (question_ranking_report.json,
+        # source_evidence_jsonl) are used internally for analysis but must not be
+        # saved as downloadable artifact records shown to users.
+        artifact_specs: list[tuple[Path, str, str]] = [
             (
                 client_folder / "query_template_bank.csv",
                 "question_bank_csv",
                 "Final selected question bank used by collect.py.",
-            ),
-            (
-                client_folder / "question_ranking_report.json",
-                "question_ranking_report_json",
-                "Transparent local ranking report for generated questions.",
             ),
         ]
         collect_question_name = csv_path.name.replace("_aisodata_", "_collect_questions_")
@@ -743,14 +741,6 @@ def persist_collect_csv_results(
                 "Raw provider responses used to aggregate scan metrics.",
             )
         )
-        if evidence_path and evidence_path.exists():
-            artifact_specs.append(
-                (
-                    evidence_path,
-                    "source_evidence_jsonl",
-                    "Structured provider citation and source evidence.",
-                )
-            )
 
         for artifact_path, artifact_type, description in artifact_specs:
             if not artifact_path.exists():
