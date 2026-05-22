@@ -1,0 +1,309 @@
+"""Phase 12 onboarding intake API.
+
+This adapter owns HTTP/auth/database concerns. Minimum Context Floor decisions
+live in ``api.domain.onboarding`` so the business rule stays framework-free.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Optional
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
+
+from api.auth import get_current_user_id
+from api.database import BusinessProfile, Client, get_db
+from api.domain.onboarding import (
+    context_floor_met,
+    merge_profile_patch,
+    missing_context_fields,
+    normalize_objective,
+    normalize_vertical,
+    profile_data_from_snapshot,
+)
+from api.domain.ports import BusinessProfileSnapshot
+
+router = APIRouter(tags=["onboarding"])
+
+
+class OnboardingStartRequest(BaseModel):
+    client_id: Optional[str] = None
+    display_name: Optional[str] = None
+    name: Optional[str] = None
+    url: str
+    vertical: str
+    objective: str
+    category: Optional[str] = None
+
+    @property
+    def resolved_name(self) -> str:
+        return " ".join((self.display_name or self.name or "").split())
+
+    @property
+    def resolved_url(self) -> str:
+        return self.url.strip()
+
+
+class OnboardingPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    vertical: Optional[str] = None
+    objective: Optional[str] = None
+    category: Optional[str] = None
+    icp: Optional[dict[str, Any]] = None
+    geographic_scope: Optional[dict[str, Any]] = None
+    competitors: Optional[list[str]] = None
+    personas: Optional[dict[str, Any]] = None
+    crawl_artifacts: Optional[dict[str, Any]] = None
+
+
+class BusinessProfileResponse(BaseModel):
+    onboarding_id: str
+    client_id: str
+    vertical: str
+    objective: str
+    category: str
+    icp: dict[str, Any] = Field(default_factory=dict)
+    geographic_scope: dict[str, Any] = Field(default_factory=dict)
+    competitors: list[str] = Field(default_factory=list)
+    personas: dict[str, Any] = Field(default_factory=dict)
+    crawl_artifacts: dict[str, Any] = Field(default_factory=dict)
+    floor_met: bool
+    missing_fields: list[str] = Field(default_factory=list)
+    onboarding_completed_at: Optional[datetime] = None
+    founder_reviewed_at: Optional[datetime] = None
+
+
+class OnboardingStartResponse(BusinessProfileResponse):
+    client_name: str
+    client_url: str
+
+
+class OnboardingSubmitResponse(BaseModel):
+    ok: bool
+    onboarding_id: str
+    client_id: str
+    floor_met: bool
+    missing_fields: list[str] = Field(default_factory=list)
+    onboarding_completed_at: datetime
+
+
+def _profile_snapshot(profile: BusinessProfile) -> BusinessProfileSnapshot:
+    return BusinessProfileSnapshot(
+        client_id=profile.client_id,
+        vertical=profile.vertical,
+        objective=profile.objective,
+        category=profile.category or "",
+        icp=_dict_or_empty(profile.icp),
+        geographic_scope=_dict_or_empty(profile.geographic_scope),
+        competitors=_list_or_empty(profile.competitors),
+        personas=_dict_or_empty(profile.personas),
+        crawl_artifacts=_dict_or_empty(profile.crawl_artifacts),
+        floor_met=bool(profile.floor_met),
+        onboarding_completed_at=profile.onboarding_completed_at,
+        founder_reviewed_at=profile.founder_reviewed_at,
+    )
+
+
+def _profile_response(profile: BusinessProfile) -> BusinessProfileResponse:
+    snapshot = _profile_snapshot(profile)
+    return BusinessProfileResponse(
+        onboarding_id=profile.client_id,
+        client_id=profile.client_id,
+        vertical=snapshot.vertical,
+        objective=snapshot.objective,
+        category=snapshot.category,
+        icp=snapshot.icp,
+        geographic_scope=snapshot.geographic_scope,
+        competitors=snapshot.competitors,
+        personas=snapshot.personas,
+        crawl_artifacts=snapshot.crawl_artifacts,
+        floor_met=snapshot.floor_met,
+        missing_fields=missing_context_fields(snapshot),
+        onboarding_completed_at=snapshot.onboarding_completed_at,
+        founder_reviewed_at=snapshot.founder_reviewed_at,
+    )
+
+
+def _apply_profile_data(profile: BusinessProfile, data: dict[str, Any]) -> None:
+    profile.vertical = data["vertical"]
+    profile.objective = data["objective"]
+    profile.category = str(data.get("category") or "").strip()
+    profile.icp = _dict_or_empty(data.get("icp"))
+    profile.geographic_scope = _dict_or_empty(data.get("geographic_scope"))
+    profile.competitors = _list_or_empty(data.get("competitors"))
+    profile.personas = _dict_or_empty(data.get("personas"))
+    profile.crawl_artifacts = _dict_or_empty(data.get("crawl_artifacts"))
+    profile.floor_met = context_floor_met(_profile_snapshot(profile))
+    profile.updated_at = datetime.now(timezone.utc)
+    if not profile.floor_met:
+        profile.onboarding_completed_at = None
+
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _list_or_empty(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _client_for_user(db: Session, client_id: str, user_id: str) -> Client:
+    client = db.query(Client).filter(Client.id == client_id, Client.user_id == user_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Onboarding profile not found")
+    return client
+
+
+def _profile_for_user(db: Session, onboarding_id: str, user_id: str) -> BusinessProfile:
+    client = _client_for_user(db, onboarding_id, user_id)
+    profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Onboarding profile not found")
+    return profile
+
+
+@router.post(
+    "/onboarding/start",
+    response_model=OnboardingStartResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def start_onboarding(
+    payload: OnboardingStartRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Create a client and business-profile shell for the upstream pipeline."""
+    name = payload.resolved_name
+    if not name:
+        raise HTTPException(status_code=422, detail="name or display_name is required")
+    if not payload.resolved_url:
+        raise HTTPException(status_code=422, detail="url is required")
+
+    try:
+        vertical = normalize_vertical(payload.vertical)
+        objective = normalize_objective(payload.objective)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    client_id = (payload.client_id or str(uuid.uuid4())).strip()
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if client and client.user_id != user_id:
+        raise HTTPException(status_code=409, detail="Client id already exists")
+
+    now = datetime.now(timezone.utc)
+    if client:
+        client.name = name
+        client.url = payload.resolved_url
+        client.updated_at = now
+        response.status_code = status.HTTP_200_OK
+    else:
+        client = Client(
+            id=client_id,
+            user_id=user_id,
+            name=name,
+            url=payload.resolved_url,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(client)
+
+    profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client_id).first()
+    if profile:
+        profile.vertical = vertical
+        profile.objective = objective
+        profile.category = payload.category or profile.category or ""
+        profile.floor_met = False
+        profile.onboarding_completed_at = None
+        profile.updated_at = now
+    else:
+        profile = BusinessProfile(
+            client_id=client_id,
+            vertical=vertical,
+            objective=objective,
+            category=payload.category or "",
+            icp={},
+            geographic_scope={},
+            competitors=[],
+            personas={},
+            crawl_artifacts={},
+            floor_met=False,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(profile)
+
+    db.commit()
+    db.refresh(client)
+    db.refresh(profile)
+    profile_response = _profile_response(profile)
+    return OnboardingStartResponse(
+        **profile_response.model_dump(),
+        client_name=client.name,
+        client_url=client.url,
+    )
+
+
+@router.patch("/onboarding/{onboarding_id}", response_model=BusinessProfileResponse)
+async def patch_onboarding(
+    onboarding_id: str,
+    payload: OnboardingPatchRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Update business-profile fields incrementally during intake."""
+    profile = _profile_for_user(db, onboarding_id, user_id)
+    current = profile_data_from_snapshot(_profile_snapshot(profile))
+    patch = payload.model_dump(exclude_unset=True)
+
+    try:
+        merged = merge_profile_patch(current, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    _apply_profile_data(profile, merged)
+    db.commit()
+    db.refresh(profile)
+    return _profile_response(profile)
+
+
+@router.post("/onboarding/{onboarding_id}/submit", response_model=OnboardingSubmitResponse)
+async def submit_onboarding(
+    onboarding_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Validate the Minimum Context Floor and complete the intake if it passes."""
+    profile = _profile_for_user(db, onboarding_id, user_id)
+    snapshot = _profile_snapshot(profile)
+    missing = missing_context_fields(snapshot)
+    if missing:
+        profile.floor_met = False
+        profile.onboarding_completed_at = None
+        profile.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "ContextFloorNotMet", "missing_fields": missing},
+        )
+
+    completed_at = datetime.now(timezone.utc)
+    profile.floor_met = True
+    profile.onboarding_completed_at = completed_at
+    profile.updated_at = completed_at
+    db.commit()
+    db.refresh(profile)
+    return OnboardingSubmitResponse(
+        ok=True,
+        onboarding_id=profile.client_id,
+        client_id=profile.client_id,
+        floor_met=True,
+        missing_fields=[],
+        onboarding_completed_at=profile.onboarding_completed_at or completed_at,
+    )
