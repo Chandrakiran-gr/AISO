@@ -183,13 +183,11 @@ HIGH_VALUE_INTENTS = {
 }
 
 BAD_ENTITY_MARKERS = (
-    "additional facial add-ons",
     "affected by nature",
     "book now",
     "can be booked as stand-alone",
     "defined, lifted, and polished",
     "everyday pollutants",
-    "ideal for sensitive skin",
     "perfect for refreshing",
 )
 
@@ -210,50 +208,6 @@ INTERNAL_SCAN_INTENT_MARKERS = (
     "ai visibility",
 )
 
-SKINCARE_MARKERS = (
-    "acne",
-    "aesthetic",
-    "brow",
-    "dermaplane",
-    "facial",
-    "lash",
-    "medspa",
-    "microneedling",
-    "peel",
-    "skin",
-    "spa",
-)
-
-SKINCARE_MARKET_EXPANSION = [
-    ("Cambridge, MA", "growth_market", 9.5),
-    ("Back Bay Boston, MA", "growth_market", 9.4),
-    ("Brighton Boston, MA", "growth_market", 9.1),
-    ("Allston Boston, MA", "growth_market", 9.0),
-    ("Beacon Hill Boston, MA", "growth_market", 8.9),
-    ("Boston, MA", "growth_market", 8.8),
-    ("Newton, MA", "core_market", 8.2),
-    ("Brookline, MA", "core_market", 8.0),
-    ("Chestnut Hill, MA", "secondary_market", 6.8),
-    ("Needham, MA", "secondary_market", 6.4),
-    ("Wellesley, MA", "secondary_market", 6.2),
-]
-
-LOCATION_QUALIFIERS = {
-    "allston": "Allston Boston, MA",
-    "back bay": "Back Bay Boston, MA",
-    "beacon hill": "Beacon Hill Boston, MA",
-    "boston": "Boston, MA",
-    "brighton": "Brighton Boston, MA",
-    "brookline": "Brookline, MA",
-    "cambridge": "Cambridge, MA",
-    "chestnut hill": "Chestnut Hill, MA",
-    "greater boston": "Greater Boston, MA",
-    "needham": "Needham, MA",
-    "newton": "Newton, MA",
-    "newton centre": "Newton Centre, MA",
-    "newton center": "Newton Centre, MA",
-    "wellesley": "Wellesley, MA",
-}
 
 
 @dataclass(frozen=True)
@@ -291,13 +245,6 @@ def _is_internal_scan_intent(value: Any) -> bool:
 
 def _qualify_location_name(value: Any) -> str:
     clean = _clean(value)
-    if not clean:
-        return ""
-    normalized = re.sub(r"[^a-z0-9]+", " ", clean.casefold()).strip()
-    if normalized in LOCATION_QUALIFIERS:
-        return LOCATION_QUALIFIERS[normalized]
-    if re.search(r"\b(?:ma|massachusetts|boston|united states|usa)\b", normalized) or "," in clean:
-        return clean
     return clean
 
 
@@ -436,18 +383,8 @@ def _locations(profile: dict[str, Any], usage: str) -> list[tuple[str, str]]:
     else:
         raw = []
     cleaned = [(_qualify_location_name(name), kind) for name, kind in raw if _clean(name)]
-    return _dedupe_location_pairs(cleaned) or [("your area", "fallback")]
+    return _dedupe_location_pairs(cleaned)
 
-
-def _is_skincare_context(profile: dict[str, Any]) -> bool:
-    haystack = " ".join(
-        [
-            *[item.get("name", "") for item in _items(profile, "categories") if isinstance(item, dict)],
-            *[item.get("name", "") for item in _items(profile, "offerings") if isinstance(item, dict)],
-            *[item.get("name", "") for item in _items(profile, "offering_groups") if isinstance(item, dict)],
-        ]
-    ).casefold()
-    return any(marker in haystack for marker in SKINCARE_MARKERS)
 
 
 def _market_locations(profile: dict[str, Any]) -> list[dict[str, Any]]:
@@ -462,8 +399,6 @@ def _market_locations(profile: dict[str, Any]) -> list[dict[str, Any]]:
         base.append({"name": name, "usage": usage, "weight": weight})
     if local_candidates:
         base.insert(0, {"name": local_candidates[0], "usage": "local_proxy", "weight": 10.0})
-    if _is_skincare_context(profile):
-        base.extend({"name": name, "usage": usage, "weight": weight} for name, usage, weight in SKINCARE_MARKET_EXPANSION)
 
     seen: set[str] = set()
     result: list[dict[str, Any]] = []
@@ -473,32 +408,15 @@ def _market_locations(profile: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         seen.add(key)
         result.append(item)
-    return result or [{"name": "local area", "usage": "fallback", "weight": 4.0}]
+    # Return empty list when no real location data exists (e.g. SaaS/remote businesses).
+    # Callers that iterate over this list will produce zero location-based questions, which
+    # is correct — we must never interpolate "local area" literally into question text.
+    return result
 
 
 def _generic_offering_name(name: str) -> str:
-    lowered = name.casefold()
-    replacements = (
-        ("balanced bliss", "classic facial"),
-        ("brightening bliss", "vitamin C facial"),
-        ("deluxe dermaplane", "dermaplane facial"),
-        ("hydroboost", "hydrodermabrasion facial"),
-        ("hydro boost", "hydrodermabrasion facial"),
-        ("acne clearing oxygen", "oxygen facial"),
-        ("lift and tighten", "anti-aging facial"),
-        ("dermapeel", "dermaplane and chemical peel combo"),
-        ("micro-dermabrasion", "microdermabrasion"),
-        ("microdermabrasion", "microdermabrasion"),
-        ("collagen boost microneedling", "microneedling"),
-        ("revitalizing bliss", "revitalizing facial"),
-        ("chemical peel", "chemical peel"),
-    )
-    for marker, generic in replacements:
-        if marker in lowered:
-            return generic
-    if "brow" in lowered or "lash" in lowered:
-        return "brow and lash services"
-    clean = re.sub(r"\b(?:classic|signature|deluxe|renewal|plus)\b", "", name, flags=re.I)
+    # Strip brand-modifier adjectives to derive a generic service type
+    clean = re.sub(r"\b(?:classic|signature|deluxe|renewal|plus|premium|advanced|express)\b", "", name, flags=re.I)
     return _clean(clean).lower() or name.lower()
 
 
@@ -510,35 +428,10 @@ def _search_terms_for_offering(offering: dict[str, Any]) -> dict[str, Any]:
         for alias in offering.get("aliases", [])
         if isinstance(offering.get("aliases"), list) and _clean(alias)
     ]
-    lowered = f"{name} {generic} {' '.join(aliases)}".casefold()
     concerns: list[str] = []
     outcomes: list[str] = []
     comparisons: list[str] = []
     adjacency: list[str] = []
-
-    if any(term in lowered for term in ("chemical peel", "vitamin c", "brightening", "dermapeel")):
-        concerns += ["hyperpigmentation", "melasma", "dark spots", "acne marks", "sun damage"]
-        outcomes += ["brighter skin", "even skin tone", "smoother texture"]
-        comparisons += ["chemical peel vs laser", "chemical peel vs microneedling"]
-    if any(term in lowered for term in ("dermaplane", "microdermabrasion", "hydrodermabrasion")):
-        concerns += ["blackheads", "clogged pores", "dull skin", "rough texture"]
-        outcomes += ["glowing skin", "smooth skin before an event"]
-        comparisons += ["dermaplane vs microdermabrasion", "hydrodermabrasion vs HydraFacial"]
-        adjacency += ["HydraFacial alternative"]
-    if any(term in lowered for term in ("acne", "oxygen")):
-        concerns += ["acne", "breakouts", "oily skin", "congested skin"]
-        outcomes += ["clearer skin", "calmer acne-prone skin"]
-    if any(term in lowered for term in ("anti-aging", "lift", "tighten", "microneedling", "collagen")):
-        concerns += ["fine lines", "sagging skin", "skin laxity"]
-        outcomes += ["firmer skin", "non-injectable anti-aging results"]
-        comparisons += ["microneedling vs chemical peel", "microneedling vs laser"]
-        adjacency += ["Botox alternative", "Morpheus8 alternative"]
-    if any(term in lowered for term in ("facial", "classic", "signature")):
-        concerns += ["sensitive skin", "first facial", "dull skin"]
-        outcomes += ["hydrated skin", "pre-event glow"]
-    if any(term in lowered for term in ("brow", "lash")):
-        concerns += ["uneven brows", "straight lashes"]
-        outcomes += ["natural-looking brows and lashes"]
 
     explicit_concerns = offering.get("concerns") if isinstance(offering.get("concerns"), list) else []
     explicit_outcomes = offering.get("outcomes") if isinstance(offering.get("outcomes"), list) else []
@@ -620,25 +513,6 @@ def _buyer_contexts(profile: dict[str, Any], goals: list[dict[str, Any]], person
 
 
 def _post_purchase_templates(profile: dict[str, Any], category_name: str, generic_offering: str) -> tuple[str, ...]:
-    haystack = f"{category_name} {generic_offering}".casefold()
-    if _is_skincare_context(profile):
-        return (
-            f"{generic_offering} aftercare?",
-            f"what should I avoid after {generic_offering}?",
-            f"{generic_offering} recovery time?",
-        )
-    if any(term in haystack for term in ("software", "saas", "platform", "crm", "app", "tool")):
-        return (
-            f"what support should I expect after buying {category_name}?",
-            f"{category_name} onboarding checklist?",
-            f"{category_name} implementation timeline?",
-        )
-    if any(term in haystack for term in ("contractor", "repair", "plumber", "roof", "hvac", "electrician", "home service")):
-        return (
-            f"what happens after a {category_name} service visit?",
-            f"{category_name} warranty questions?",
-            f"how to prepare for a {category_name} appointment?",
-        )
     return (
         f"what should I expect after choosing {category_name}?",
         f"what support should I expect after booking {generic_offering}?",
@@ -649,9 +523,6 @@ def _competitor_tier(competitor: dict[str, Any]) -> str:
     explicit = _clean(competitor.get("tier") or competitor.get("competitor_tier")).casefold()
     if explicit in {"direct", "adjacent"}:
         return explicit
-    name = _clean(competitor.get("name")).casefold()
-    if any(term in name for term in ("medical", "aesthetic", "medspa", "dr.", "doctor", "botox", "laser")):
-        return "adjacent"
     return "direct"
 
 
@@ -1119,7 +990,7 @@ def _generate_candidates(profile: dict[str, Any], selected_groups: Iterable[str]
             for location in market_locations[:4]:
                 _add_candidate(
                     candidates,
-                    f"{category_name} vs medspa {location['name']}?",
+                    f"{category_name} vs {competitor['name']} {location['name']}?",
                     "G3",
                     evidence_items=(competitor, categories[0]),
                     competitor=competitor["name"],
@@ -1292,11 +1163,11 @@ def _generate_candidates(profile: dict[str, Any], selected_groups: Iterable[str]
             for outcome in terms["outcomes"][:4]:
                 for template in (
                     "how to get {outcome}?",
-                    "best facial for {outcome}?",
+                    "best {offering} for {outcome}?",
                 ):
                     _add_candidate(
                         candidates,
-                        template.format(outcome=outcome),
+                        template.format(outcome=outcome, offering=terms["generic"]),
                         "G6",
                         evidence_items=(offering,),
                         offering=terms["generic"],
@@ -1396,13 +1267,9 @@ def _generate_candidates(profile: dict[str, Any], selected_groups: Iterable[str]
                     pattern="buyer_decision_criteria",
                 )
         occasion_questions = (
-            ("wedding facial timeline", "facial before vacation", "pre-event glow treatment")
-            if _is_skincare_context(profile)
-            else (
-                f"{category_name} buying timeline",
-                f"{category_name} before a major decision",
-                f"when should I contact a {category_name} provider",
-            )
+            f"{category_name} buying timeline",
+            f"{category_name} before a major decision",
+            f"when should I contact a {category_name} provider",
         )
         for occasion in occasion_questions:
             _add_candidate(
@@ -1418,13 +1285,9 @@ def _generate_candidates(profile: dict[str, Any], selected_groups: Iterable[str]
                 pattern="occasion",
             )
         education_questions = (
-            ("first facial what to expect?", "do I need a consultation before a facial?", "how often should I get a facial?")
-            if _is_skincare_context(profile)
-            else (
-                f"first time choosing {category_name} what to expect?",
-                f"do I need a consultation before choosing {category_name}?",
-                f"how often should I review my {category_name} provider?",
-            )
+            f"first time choosing {category_name} what to expect?",
+            f"do I need a consultation before choosing {category_name}?",
+            f"how often should I review my {category_name} provider?",
         )
         for question in education_questions:
             _add_candidate(
@@ -1440,8 +1303,8 @@ def _generate_candidates(profile: dict[str, Any], selected_groups: Iterable[str]
             )
 
     if "G7" in group_set:
-        local_target = next((item for item in market_locations if item["usage"] == "local_proxy"), market_locations[0])
-        local_phrase = f"near {local_target['name']}" if local_target["usage"] == "local_proxy" else f"in {local_target['name']}"
+        local_target = next((item for item in market_locations if item["usage"] == "local_proxy"), market_locations[0] if market_locations else None)
+        local_phrase = (f"near {local_target['name']}" if local_target["usage"] == "local_proxy" else f"in {local_target['name']}") if local_target else None
         for offering, terms in offering_terms[:10]:
             base_comparisons = list(terms["comparisons"][:5])
             if not base_comparisons:
@@ -1469,9 +1332,10 @@ def _generate_candidates(profile: dict[str, Any], selected_groups: Iterable[str]
             if not adjacency_terms:
                 adjacency_terms = [f"alternatives to {terms['generic']}", f"{terms['generic']} alternatives"]
             for adjacent in adjacency_terms:
+                question_text = f"{adjacent} {local_phrase}?" if local_phrase else f"{adjacent}?"
                 _add_candidate(
                     candidates,
-                    f"{adjacent} {local_phrase}?",
+                    question_text,
                     "G7",
                     evidence_items=(offering,),
                     offering=terms["generic"],
@@ -1482,29 +1346,6 @@ def _generate_candidates(profile: dict[str, Any], selected_groups: Iterable[str]
                     query_mode="keyword",
                     priority="high",
                     pattern="adjacency_intercept",
-                )
-        if _is_skincare_context(profile):
-            for question, subtype in (
-                (f"HydraFacial alternative {local_phrase}?", "adjacency"),
-                (f"hydrodermabrasion vs HydraFacial {local_phrase}?", "method_comparison"),
-                (f"facial spa vs medspa {local_phrase}?", "adjacency"),
-                (f"Botox alternative for anti-aging skin {local_phrase}?", "adjacency"),
-            ):
-                _add_candidate(
-                    candidates,
-                    question,
-                    "G7",
-                    evidence_items=(categories[0],),
-                    category=category_name,
-                    location=local_target["name"],
-                    location_usage=local_target["usage"],
-                    geography_weight=local_target["weight"],
-                    left_type="method",
-                    right_type="adjacent_service",
-                    intent_subtype=subtype,
-                    query_mode="keyword",
-                    priority="high",
-                    pattern="skincare_adjacency",
                 )
         for competitor in direct_competitors[:8]:
             for offering, terms in offering_terms[:8]:

@@ -21,14 +21,6 @@ DEFAULT_SCAN_OBJECTIVE = {
     "source_url": "fallback",
     "confidence": 0.45,
 }
-KNOWN_PRODUCT_BRANDS = (
-    "Face Reality",
-    "SkinBetter",
-    "HydraFacial",
-    "ZO Skin Health",
-    "Obagi",
-    "iS Clinical",
-)
 
 
 def _clean(value: Any) -> str:
@@ -254,18 +246,9 @@ def _looks_like_group(text: str) -> bool:
     lowered = text.casefold()
     if _skip_context_text(text):
         return False
-    if any(
-        term in lowered
-        for term in (
-            "additional facial services",
-            "detailed facials designed",
-            "prices subject to change",
-            "results-driven",
-        )
-    ):
+    if any(term in lowered for term in ("prices subject to change", "results-driven")):
         return False
     plural_group_terms = (
-        "facials",
         "treatments",
         "services",
         "packages",
@@ -284,6 +267,12 @@ def _looks_like_offering(text: str) -> bool:
         return False
     if len(text) < 3:
         return False
+    # Reject negation and declarative sentences — these are marketing copy, not service names
+    # e.g. "Private sessions do not scale." or "Not a chat bot. Not a private session."
+    if re.match(r"not\s+an?\s", lowered):
+        return False
+    if re.search(r"\b(?:do not|does not|don't|doesn't|is not|are not|isn't|aren't|cannot|can't|won't|will not)\b", lowered):
+        return False
     if re.search(r"\b(?:provide|provides|include|includes|targeting|designed to|serving|specializing)\b", lowered):
         return False
     if _price_from_text(text):
@@ -291,9 +280,6 @@ def _looks_like_offering(text: str) -> bool:
     return any(
         term in lowered
         for term in (
-            "facial",
-            "peel",
-            "massage",
             "consultation",
             "appointment",
             "session",
@@ -325,10 +311,8 @@ def _skip_context_text(text: str) -> bool:
     lowered = text.casefold()
     noisy_terms = (
         "account",
-        "additional facial services",
         "available only",
         "book an appointment",
-        "detailed facials designed",
         "gift card",
         "group appointment",
         "home service menu",
@@ -354,20 +338,13 @@ def _skip_context_text(text: str) -> bool:
         "book now",
         "learn more",
         "get directions",
-        "to promote circulation",
-        "transform your brows",
     )
-    if any(term in lowered for term in noisy_terms):
-        return True
-    if "boutique" in lowered and re.search(r"\bnewton,\s?(ma|massachusetts)\b", lowered):
-        return True
-    return False
+    return any(term in lowered for term in noisy_terms)
 
 
 def _extract_brand_names(text: str) -> list[str]:
     brands: list[str] = []
     patterns = [
-        rf"\b({'|'.join(re.escape(name) for name in KNOWN_PRODUCT_BRANDS)})\b",
         r"(?:use|uses|carry|carries|sells|sold|partnered with)\s+([A-Z][A-Za-z0-9&' ]+)",
     ]
     for pattern in patterns:
@@ -381,15 +358,11 @@ def _extract_brand_names(text: str) -> list[str]:
 
 def _reject_brand_candidate(candidate: str) -> bool:
     clean = _clean(candidate)
-    if clean in KNOWN_PRODUCT_BRANDS:
-        return False
     lowered = clean.casefold()
     blocked = {
         "pain",
         "pain free",
         "online bookings",
-        "your skin",
-        "natural collagen",
         "all rights reserved",
     }
     if lowered in blocked:
@@ -402,7 +375,7 @@ def _reject_brand_candidate(candidate: str) -> bool:
 def _extract_personas(text: str, source_url: str) -> list[dict[str, Any]]:
     personas: list[dict[str, Any]] = []
     patterns = (
-        r"\bfor\s+([a-z][a-z -]{2,50}\s(?:skin|clients?|customers?|homeowners|founders|teams))\b",
+        r"\bfor\s+([a-z][a-z -]{2,50}\s(?:clients?|customers?|homeowners|founders|teams|users?))\b",
         r"\b(first-time\s+[a-z -]{2,45}\sclients?)\b",
         r"\b(?:ideal for|suitable for|good for)\s+([^.;]{2,70})",
     )
@@ -415,8 +388,6 @@ def _extract_personas(text: str, source_url: str) -> list[dict[str, Any]]:
                 maxsplit=1,
                 flags=re.I,
             )[0]
-            if candidate.casefold() == "mature":
-                candidate = "mature skin"
             candidate = _sanitize_profile_name(candidate, "persona")
             if candidate:
                 personas.append(_item(candidate, "persona", 0.58, source_url))
@@ -494,20 +465,18 @@ def _extract_location_items(text: str, source_url: str) -> tuple[list[dict[str, 
     visibility: list[dict[str, Any]] = []
     city_state = re.findall(r"\b([A-Z][A-Za-z .'-]+,\s?[A-Z]{2})\b", text)
     for location in city_state:
-        if re.search(r"\b(skincare|facial|boutique|service|treatment)\b", location, re.I):
-            continue
         physical.append(_item(location, "physical_location", 0.72, source_url))
     for match in re.finditer(
-        r"\b(\d{2,5}\s+[^.;\n,]+\b(?:Avenue|Ave|Street|St|Road|Rd|Drive|Dr|Boulevard|Blvd|Lane|Ln|Way)\b[^.;\n,]*,\s*(?:Suite\s*\d+,\s*)?[A-Z][A-Za-z .'-]+,\s*(?:Massachusetts|MA)\s*\d{5})\b",
+        r"\b(\d{2,5}\s+[^.;\n,]+\b(?:Avenue|Ave|Street|St|Road|Rd|Drive|Dr|Boulevard|Blvd|Lane|Ln|Way)\b[^.;\n,]*,\s*(?:Suite\s*\d+,\s*)?[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}\s*\d{5})\b",
         text,
         re.I,
     ):
         address = _clean_physical_address(match.group(1))
-        if re.match(r"\d+\s+(?:daily|monthly|weekly|yearly)\b", address, re.I) or "PemSpa" in address.split("Avenue", 1)[0]:
+        if re.match(r"\d+\s+(?:daily|monthly|weekly|yearly)\b", address, re.I):
             continue
         physical.append(_item(address, "physical_location", 0.82, source_url))
     for match in re.finditer(r"(?:serving|serves|service areas include|available in)\s+([^.;\n]+)", text, re.I):
-        area_text = re.split(r"\b(?:since|PemSpa| is | with treatments| tailored)\b", match.group(1), maxsplit=1, flags=re.I)[0]
+        area_text = re.split(r"\b(?:since| is | with treatments| tailored)\b", match.group(1), maxsplit=1, flags=re.I)[0]
         for area in re.split(r",| and ", area_text):
             clean = _clean(re.sub(r"^(?:nearby|surrounding|including)\s+", "", area, flags=re.I))
             if 2 < len(clean) < 60:
@@ -522,8 +491,7 @@ def _infer_category(text: str, source_url: str, client: Client) -> list[dict[str
     if client.industry:
         categories.append(_item(client.industry, "category", 0.86, source_url or client.url))
     category_patterns = [
-        r"\b(skincare spa|facial spa|med spa|coffee shop|restaurant|law firm|dental clinic|marketing agency|software platform|home services?)\b",
-        r"\b([A-Z][A-Za-z ]+)\s+(?:services|studio|clinic|spa|salon|agency|company)\b",
+        r"\b([A-Z][A-Za-z ]+)\s+(?:services|studio|clinic|spa|salon|agency|company|platform|consultancy)\b",
     ]
     for pattern in category_patterns:
         for match in re.finditer(pattern, text, re.I):
@@ -535,13 +503,9 @@ def _infer_category(text: str, source_url: str, client: Client) -> list[dict[str
             if any(
                 noisy in candidate
                 for noisy in (
-                    "all skincare",
                     "alone",
                     "book book",
-                    "brow and lash",
-                    "facials advanced",
                     "home service",
-                    "lash",
                     "may not",
                     "more radiant",
                     "service menu",
