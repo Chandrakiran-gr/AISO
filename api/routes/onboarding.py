@@ -7,12 +7,14 @@ live in ``api.domain.onboarding`` so the business rule stays framework-free.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
+import yaml
 
 from api.auth import get_current_user_id
 from api.database import BusinessProfile, Client, get_db
@@ -27,6 +29,7 @@ from api.domain.onboarding import (
 from api.domain.ports import BusinessProfileSnapshot
 
 router = APIRouter(tags=["onboarding"])
+SCHEMA_DIR = Path(__file__).resolve().parents[2] / "intake_schemas"
 
 
 class OnboardingStartRequest(BaseModel):
@@ -89,6 +92,25 @@ class OnboardingSubmitResponse(BaseModel):
     floor_met: bool
     missing_fields: list[str] = Field(default_factory=list)
     onboarding_completed_at: datetime
+
+
+class IntakeFieldResponse(BaseModel):
+    id: str
+    label: str
+    type: str
+    required: bool = False
+    placeholder: Optional[str] = None
+    patch_field: str
+    options: list[str] = Field(default_factory=list)
+    validators: dict[str, Any] = Field(default_factory=dict)
+
+
+class IntakeSchemaResponse(BaseModel):
+    vertical: str
+    label: str
+    description: str = ""
+    required_fields: list[str] = Field(default_factory=list)
+    fields: list[IntakeFieldResponse] = Field(default_factory=list)
 
 
 def _profile_snapshot(profile: BusinessProfile) -> BusinessProfileSnapshot:
@@ -166,6 +188,32 @@ def _profile_for_user(db: Session, onboarding_id: str, user_id: str) -> Business
     if not profile:
         raise HTTPException(status_code=404, detail="Onboarding profile not found")
     return profile
+
+
+def _load_intake_schema(vertical: str) -> IntakeSchemaResponse:
+    try:
+        normalized = normalize_vertical(vertical)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Intake schema not found") from exc
+
+    schema_path = SCHEMA_DIR / f"{normalized}.yml"
+    if not schema_path.exists():
+        raise HTTPException(status_code=404, detail="Intake schema not found")
+
+    with schema_path.open(encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=500, detail="Invalid intake schema")
+    try:
+        return IntakeSchemaResponse.model_validate(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Invalid intake schema") from exc
+
+
+@router.get("/onboarding/intake-schemas/{vertical}", response_model=IntakeSchemaResponse)
+async def get_intake_schema(vertical: str):
+    """Return a vertical-conditioned intake schema for the onboarding UI."""
+    return _load_intake_schema(vertical)
 
 
 @router.post(

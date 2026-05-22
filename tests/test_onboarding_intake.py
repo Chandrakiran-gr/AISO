@@ -110,6 +110,64 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_phase_12_2_serves_starting_vertical_intake_schemas(self):
+        for vertical in ("b2b_saas", "local_services", "ecommerce"):
+            response = self.client.get(f"/api/v1/onboarding/intake-schemas/{vertical}")
+            self.assertEqual(response.status_code, 200)
+            schema = response.json()
+            self.assertEqual(schema["vertical"], vertical)
+            self.assertGreaterEqual(len(schema["fields"]), 3)
+            self.assertTrue(schema["required_fields"])
+            self.assertTrue(
+                all(
+                    {"id", "label", "type", "required", "patch_field"}.issubset(field)
+                    for field in schema["fields"]
+                )
+            )
+
+    def test_phase_12_2_b2b_saas_required_fields_are_enforced(self):
+        start = self.client.post(
+            "/api/v1/onboarding/start",
+            json={
+                "display_name": "Schema CRM",
+                "url": "https://schema.example",
+                "vertical": "b2b_saas",
+                "objective": "preference",
+            },
+        )
+        self.assertEqual(start.status_code, 201)
+        onboarding_id = start.json()["onboarding_id"]
+
+        partial = self.client.patch(
+            f"/api/v1/onboarding/{onboarding_id}",
+            json={
+                "category": "sales CRM",
+                "industry": "B2B SaaS",
+                "employee_band": "51-200",
+                "revenue_band": "$10M-$50M",
+                "firmographic_geography": "United States",
+                "acv_band": "$25k-$50k",
+                "primary_persona": "VP Sales",
+                "geographic_scope_description": "United States",
+                "competitors": ["HubSpot", "Salesforce"],
+            },
+        )
+        self.assertEqual(partial.status_code, 200)
+
+        blocked = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
+        self.assertEqual(blocked.status_code, 400)
+        self.assertEqual(blocked.json()["detail"]["error"], "ContextFloorNotMet")
+        self.assertIn("competitors", blocked.json()["detail"]["missing_fields"])
+
+        completed = self.client.patch(
+            f"/api/v1/onboarding/{onboarding_id}",
+            json={"competitors": ["HubSpot", "Salesforce", "Pipedrive"]},
+        )
+        self.assertEqual(completed.status_code, 200)
+        submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
+        self.assertEqual(submitted.status_code, 200)
+        self.assertTrue(submitted.json()["floor_met"])
+
 
 if __name__ == "__main__":
     unittest.main()

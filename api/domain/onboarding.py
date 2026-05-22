@@ -162,6 +162,7 @@ PATCH_FIELD_PATHS: dict[str, tuple[str, ...]] = {
     "nap": ("geographic_scope", "nap"),
     "service_radius": ("geographic_scope", "service_radius"),
     "hours": ("geographic_scope", "hours"),
+    "geographic_scope_description": ("geographic_scope", "description"),
     "jurisdictions": ("geographic_scope", "jurisdictions"),
     "shipping_geographic_scope": ("geographic_scope", "shipping"),
     "shipping_scope": ("geographic_scope", "shipping"),

@@ -40,12 +40,29 @@ const SCAN_OBJECTIVES = [
   { id: "new_market_service_audience", label: "Validate a new market, service, or audience" },
 ] as const;
 
+const PIPELINE_OBJECTIVES = [
+  { id: "awareness", label: "Awareness building" },
+  { id: "consideration", label: "Consideration" },
+  { id: "preference", label: "Preference / displacement" },
+  { id: "reputation_defense", label: "Reputation defense" },
+  { id: "competitive_intelligence", label: "Competitive intelligence" },
+] as const;
+
+const VERTICAL_OPTIONS = [
+  { id: "b2b_saas", label: "B2B SaaS" },
+  { id: "local_services", label: "Local Services" },
+  { id: "ecommerce", label: "E-commerce / DTC" },
+] as const;
+
 interface FormState {
   businessName: string;
   websiteUrl: string;
+  vertical: string;
+  pipelineObjective: string;
   industry: string;
   location: string;
   competitors: string;
+  intake: Record<string, string>;
   providers: string[];
   groups: string[];
   customQuestions: string[];
@@ -54,12 +71,34 @@ interface FormState {
 const DEFAULT: FormState = {
   businessName: "",
   websiteUrl: "",
+  vertical: "b2b_saas",
+  pipelineObjective: "preference",
   industry: "",
   location: "",
   competitors: "",
+  intake: {},
   providers: ["openai", "claude", "perplexity", "gemini"],
   groups: GROUPS.map((group) => group.id),
   customQuestions: [],
+};
+
+type IntakeField = {
+  id: string;
+  label: string;
+  type: "text" | "textarea" | "select" | "list" | string;
+  required: boolean;
+  placeholder?: string | null;
+  patch_field: string;
+  options: string[];
+  validators: { min_items?: number };
+};
+
+type IntakeSchema = {
+  vertical: string;
+  label: string;
+  description: string;
+  required_fields: string[];
+  fields: IntakeField[];
 };
 
 type ExistingClient = {
@@ -202,10 +241,75 @@ function missingSelectedProviderKeys(providerIds: string[]): Provider[] {
 
 function parseCompetitors(raw: string): string[] {
   return raw
-    .split(",")
+    .split(/[,\n]/)
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 10);
+}
+
+function splitListValue(raw: string): string[] {
+  return raw
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function fieldValue(form: FormState, fieldId: string): string {
+  return form.intake[fieldId] ?? "";
+}
+
+function primaryLocationFromIntake(form: FormState): string {
+  return (
+    form.intake.geographic_scope_description
+    || form.intake.shipping_geographic_scope
+    || form.intake.service_radius
+    || form.intake.firmographic_geography
+    || form.location
+    || ""
+  ).trim();
+}
+
+function legacyFormFromIntake(form: FormState, schema: IntakeSchema | null): FormState {
+  const fields = schema?.fields ?? [];
+  const categoryField = fields.find((field) => field.patch_field === "category");
+  const competitorsField = fields.find((field) => field.patch_field === "competitors");
+  return {
+    ...form,
+    industry: (categoryField ? fieldValue(form, categoryField.id) : form.industry).trim(),
+    location: primaryLocationFromIntake(form),
+    competitors: (competitorsField ? fieldValue(form, competitorsField.id) : form.competitors).trim(),
+  };
+}
+
+function validateIntake(form: FormState, schema: IntakeSchema | null): string[] {
+  if (!schema) return ["Intake schema is still loading."];
+
+  const missing: string[] = [];
+  for (const field of schema.fields) {
+    if (!field.required) continue;
+    const raw = fieldValue(form, field.id);
+    const values = field.type === "list" ? splitListValue(raw) : [raw.trim()].filter(Boolean);
+    const minItems = field.validators?.min_items;
+    if (minItems && values.length < minItems) {
+      missing.push(`${field.label} needs at least ${minItems}`);
+    } else if (!minItems && values.length === 0) {
+      missing.push(field.label);
+    }
+  }
+  return missing;
+}
+
+function buildIntakePatch(form: FormState, schema: IntakeSchema): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const field of schema.fields) {
+    const raw = fieldValue(form, field.id).trim();
+    if (!raw) continue;
+    const parsed = field.type === "list" ? splitListValue(raw) : raw;
+    patch[field.patch_field] = field.patch_field === "category" && Array.isArray(parsed)
+      ? parsed.join(", ")
+      : parsed;
+  }
+  return patch;
 }
 
 function competitorNamesFromProfile(profile: ContextProfile): string[] {
@@ -470,6 +574,9 @@ async function readApiError(res: Response, fallback: string): Promise<string> {
   try {
     const data = await res.json();
     if (typeof data?.detail === "string") return data.detail;
+    if (data?.detail?.error && Array.isArray(data.detail.missing_fields)) {
+      return `${data.detail.error}: ${data.detail.missing_fields.join(", ")}`;
+    }
     if (Array.isArray(data?.detail)) return data.detail.map((item: unknown) => String(item)).join(", ");
   } catch {
     // Keep fallback.
@@ -477,21 +584,48 @@ async function readApiError(res: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
-async function createClient(slug: string, form: FormState): Promise<ExistingClient> {
-  const res = await fetch(`${API}/v1/clients`, {
+async function getIntakeSchema(vertical: string): Promise<IntakeSchema> {
+  const res = await fetch(`${API}/v1/onboarding/intake-schemas/${vertical}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to load intake schema (${res.status})`));
+  return res.json();
+}
+
+async function startPipelineOnboarding(slug: string, form: FormState, schema: IntakeSchema): Promise<ExistingClient> {
+  const res = await fetch(`${API}/v1/onboarding/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      id: slug,
+      client_id: slug,
       display_name: form.businessName,
       url: form.websiteUrl,
-      industry: form.industry || null,
-      location: form.location || null,
-      competitors: parseCompetitors(form.competitors),
+      vertical: form.vertical,
+      objective: form.pipelineObjective,
+      category: form.industry || null,
     }),
   });
-  if (!res.ok) throw new Error(await readApiError(res, `Failed to save business (${res.status})`));
-  return res.json();
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to start onboarding (${res.status})`));
+  const started = await res.json();
+  const onboardingId = started.onboarding_id as string;
+
+  const patch = buildIntakePatch(form, schema);
+  const patchRes = await fetch(`${API}/v1/onboarding/${onboardingId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!patchRes.ok) throw new Error(await readApiError(patchRes, `Failed to save intake (${patchRes.status})`));
+
+  const submitRes = await fetch(`${API}/v1/onboarding/${onboardingId}/submit`, { method: "POST" });
+  if (!submitRes.ok) throw new Error(await readApiError(submitRes, `Minimum context floor failed (${submitRes.status})`));
+
+  return {
+    id: started.client_id,
+    name: started.client_name,
+    url: started.client_url,
+    industry: form.industry,
+    location: form.location,
+    competitors: parseCompetitors(form.competitors),
+  };
 }
 
 async function getClientContext(clientId: string): Promise<ClientContextData | null> {
@@ -690,25 +824,43 @@ async function pollScan(clientId: string, scanId: string): Promise<{
 function Step1({
   form,
   set,
+  schema,
+  schemaStatus,
+  schemaError,
   onNext,
   status,
   error,
 }: {
   form: FormState;
   set: (f: FormState) => void;
+  schema: IntakeSchema | null;
+  schemaStatus: ActionStatus;
+  schemaError: string | null;
   onNext: () => void;
   status: ActionStatus;
   error: string | null;
 }) {
-  const valid = form.businessName.trim().length > 0 && form.websiteUrl.startsWith("http");
+  const intakeIssues = schemaStatus === "loading" ? ["Intake schema is still loading."] : validateIntake(form, schema);
+  const valid = form.businessName.trim().length > 0 && form.websiteUrl.startsWith("http") && intakeIssues.length === 0;
+  function updateIntake(field: IntakeField, value: string) {
+    const intake = { ...form.intake, [field.id]: value };
+    let nextForm = { ...form, intake };
+    if (field.patch_field === "category") nextForm = { ...nextForm, industry: value };
+    if (field.patch_field === "competitors") nextForm = { ...nextForm, competitors: value };
+    if (field.patch_field.includes("geographic") || field.id.includes("radius")) {
+      nextForm = { ...nextForm, location: value };
+    }
+    set(nextForm);
+  }
   return (
     <form onSubmit={(e) => { e.preventDefault(); if (valid && status !== "loading") onNext(); }}>
       <span className={styles.stepBadge}>Step 1 of 4 · Business basics</span>
       <h2 className={styles.stepTitle}>Tell AISO which business to analyze</h2>
       <p className={styles.stepSubtitle}>
-        The website is the source of truth. These details help AISO understand the business faster if the site is vague.
+        Choose a vertical and complete the required context before AISO builds the question bank.
       </p>
       {error && <div className={styles.validationError} role="alert">{error}</div>}
+      {schemaError && <div className={styles.validationError} role="alert">{schemaError}</div>}
       <div className={styles.fields}>
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="ob-name">Business name *</label>
@@ -736,56 +888,104 @@ function Step1({
         </div>
         <div className={styles.optionalGrid}>
           <div className={styles.fieldGroup}>
-            <div className={styles.labelRow}>
-              <label className={styles.label} htmlFor="ob-industry">Business category</label>
-              <span className={styles.labelHint}>Optional</span>
-            </div>
-            <input
-              id="ob-industry"
+            <label className={styles.label} htmlFor="ob-vertical">Vertical *</label>
+            <select
+              id="ob-vertical"
               className="input"
-              type="text"
-              placeholder="Facial spa, B2B SaaS, roofing company"
-              value={form.industry}
-              onChange={(e) => set({ ...form, industry: e.target.value })}
-            />
-            <p className={styles.fieldHelp}>Used to avoid generic questions if the website does not clearly explain the category.</p>
+              value={form.vertical}
+              onChange={(e) => set({ ...form, vertical: e.target.value, intake: {}, industry: "", location: "", competitors: "" })}
+            >
+              {VERTICAL_OPTIONS.map((vertical) => (
+                <option key={vertical.id} value={vertical.id}>{vertical.label}</option>
+              ))}
+            </select>
           </div>
           <div className={styles.fieldGroup}>
-            <div className={styles.labelRow}>
-              <label className={styles.label} htmlFor="ob-location">Primary market</label>
-              <span className={styles.labelHint}>Optional</span>
-            </div>
-            <input
-              id="ob-location"
+            <label className={styles.label} htmlFor="ob-objective">Measurement objective *</label>
+            <select
+              id="ob-objective"
               className="input"
-              type="text"
-              placeholder="Newton, Greater Boston, United States"
-              value={form.location}
-              onChange={(e) => set({ ...form, location: e.target.value })}
-            />
-            <p className={styles.fieldHelp}>Used for location-aware questions when the website has broad or unclear service areas.</p>
+              value={form.pipelineObjective}
+              onChange={(e) => set({ ...form, pipelineObjective: e.target.value })}
+            >
+              {PIPELINE_OBJECTIVES.map((objective) => (
+                <option key={objective.id} value={objective.id}>{objective.label}</option>
+              ))}
+            </select>
           </div>
         </div>
-        <div className={styles.fieldGroup}>
-          <div className={styles.labelRow}>
-            <label className={styles.label} htmlFor="ob-competitors">Competitors to compare against</label>
-            <span className={styles.labelHint}>Recommended</span>
+        <section className={styles.intakePanel} aria-labelledby="ob-intake-heading">
+          <div className={styles.intakeHeader}>
+            <div>
+              <h3 id="ob-intake-heading">{schema?.label ?? "Vertical intake"}</h3>
+              <p>{schema?.description ?? "Loading the required intake fields for this vertical."}</p>
+            </div>
+            <span>{schemaStatus === "loading" ? "Loading" : `${schema?.fields.filter((field) => field.required).length ?? 0} required`}</span>
           </div>
-          <input
-            id="ob-competitors"
-            className="input"
-            type="text"
-            placeholder="Competitor A, Competitor B, Competitor C"
-            value={form.competitors}
-            onChange={(e) => set({ ...form, competitors: e.target.value })}
-          />
-          <p className={styles.fieldHelp}>Add competitors only if you know them. AISO will skip competitor-only coverage when this is blank.</p>
-        </div>
+          {schema && (
+            <div className={styles.intakeGrid}>
+              {schema.fields.map((field) => {
+                const value = fieldValue(form, field.id);
+                const controlId = `ob-intake-${field.id}`;
+                return (
+                  <div key={field.id} className={styles.fieldGroup}>
+                    <div className={styles.labelRow}>
+                      <label className={styles.label} htmlFor={controlId}>{field.label}{field.required ? " *" : ""}</label>
+                      {!field.required && <span className={styles.labelHint}>Optional</span>}
+                    </div>
+                    {field.type === "textarea" || field.type === "list" ? (
+                      <textarea
+                        id={controlId}
+                        className={styles.contextTextarea}
+                        rows={field.type === "list" ? 3 : 4}
+                        placeholder={field.placeholder ?? ""}
+                        value={value}
+                        onChange={(e) => updateIntake(field, e.target.value)}
+                      />
+                    ) : field.type === "select" ? (
+                      <select
+                        id={controlId}
+                        className="input"
+                        value={value}
+                        onChange={(e) => updateIntake(field, e.target.value)}
+                      >
+                        <option value="">Select...</option>
+                        {field.options.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        id={controlId}
+                        className="input"
+                        type="text"
+                        placeholder={field.placeholder ?? ""}
+                        value={value}
+                        onChange={(e) => updateIntake(field, e.target.value)}
+                      />
+                    )}
+                    {field.type === "list" && (
+                      <p className={styles.fieldHelp}>
+                        Separate items with commas or line breaks.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+        {intakeIssues.length > 0 && form.businessName && form.websiteUrl && (
+          <div className={styles.warningPanel}>
+            <strong>Required before continuing</strong>
+            <span>{intakeIssues.join(", ")}</span>
+          </div>
+        )}
       </div>
       <div className={styles.navRow}>
         <div />
         <button type="submit" className={styles.nextBtn} disabled={!valid || status === "loading"} id="ob-step1-next">
-          {status === "loading" ? "Saving..." : "Read website and build profile"}
+          {status === "loading" ? "Saving..." : "Validate intake and read website"}
         </button>
       </div>
     </form>
@@ -1555,6 +1755,9 @@ export default function OnboardingPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [context, setContext] = useState<ClientContextData | null>(null);
   const [profile, setProfile] = useState<ContextProfile>(emptyProfile(DEFAULT));
+  const [intakeSchema, setIntakeSchema] = useState<IntakeSchema | null>(null);
+  const [schemaStatus, setSchemaStatus] = useState<ActionStatus>("idle");
+  const [schemaError, setSchemaError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [basicsStatus, setBasicsStatus] = useState<ActionStatus>("idle");
   const [discovering, setDiscovering] = useState(false);
@@ -1571,6 +1774,29 @@ export default function OnboardingPage() {
     const id = setInterval(() => setScanIdx((i) => (i + 1) % SCAN_STEPS.length), 1800);
     return () => clearInterval(id);
   }, [scanning]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadSchema() {
+      setSchemaStatus("loading");
+      setSchemaError(null);
+      try {
+        const schema = await getIntakeSchema(form.vertical);
+        if (!active) return;
+        setIntakeSchema(schema);
+        setSchemaStatus("idle");
+      } catch (err) {
+        if (!active) return;
+        setIntakeSchema(null);
+        setSchemaStatus("error");
+        setSchemaError(err instanceof Error ? err.message : "Unable to load intake schema.");
+      }
+    }
+    void loadSchema();
+    return () => {
+      active = false;
+    };
+  }, [form.vertical]);
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
@@ -1612,11 +1838,11 @@ export default function OnboardingPage() {
     };
   }, []);
 
-  async function runDiscovery(id: string) {
+  async function runDiscovery(id: string, sourceForm: FormState = form) {
     setDiscovering(true);
     setError(null);
     try {
-      const workspace = await createCrawlerWorkspace(id, form.websiteUrl);
+      const workspace = await createCrawlerWorkspace(id, sourceForm.websiteUrl);
       setWorkspaceId(workspace.workspace_id);
       let job = await createCrawlJob(workspace.workspace_id);
 
@@ -1642,11 +1868,11 @@ export default function OnboardingPage() {
       const discoveredContext = await getClientContext(id);
       const nextContext = discoveredContext?.profile_json
         ? discoveredContext
-        : reviewProfileToContext(review, id, form);
+        : reviewProfileToContext(review, id, sourceForm);
 
       setContext(nextContext);
       setWarnings(nextContext.warnings_json ?? []);
-      setProfile(normalizedProfile(nextContext.profile_json ?? emptyProfile(form)));
+      setProfile(normalizedProfile(nextContext.profile_json ?? emptyProfile(sourceForm)));
 
       if (job.status === "failed" || nextContext.status === "failed") {
         setError("AISO could not finish website discovery. Please confirm the client context manually.");
@@ -1655,7 +1881,7 @@ export default function OnboardingPage() {
       setContext(null);
       setWorkspaceId(null);
       setWarnings(["Website discovery failed safely. Please confirm the client context manually."]);
-      setProfile(emptyProfile(form));
+      setProfile(emptyProfile(sourceForm));
       setError(err instanceof Error ? err.message : "Website discovery failed safely.");
     } finally {
       setDiscovering(false);
@@ -1666,18 +1892,26 @@ export default function OnboardingPage() {
     setBasicsStatus("loading");
     setError(null);
     try {
-      const client = await createClient(slugify(form.businessName), form);
+      const validationErrors = validateIntake(form, intakeSchema);
+      if (validationErrors.length > 0 || !intakeSchema) {
+        setBasicsStatus("error");
+        setError(`Complete required intake fields: ${validationErrors.join(", ")}`);
+        return;
+      }
+      const nextForm = legacyFormFromIntake(form, intakeSchema);
+      const client = await startPipelineOnboarding(slugify(nextForm.businessName), nextForm, intakeSchema);
+      setForm(nextForm);
       setClientId(client.id);
       setWorkspaceId(null);
       const confirmedProfile = context?.profile_json;
-      if (contextMatchesForm(context, form, client.id) && confirmedProfile) {
+      if (contextMatchesForm(context, nextForm, client.id) && confirmedProfile) {
         setProfile(normalizedProfile(confirmedProfile));
         setWarnings(context.warnings_json ?? []);
         setStep(3);
         return;
       }
       setStep(2);
-      await runDiscovery(client.id);
+      await runDiscovery(client.id, nextForm);
     } catch (err) {
       setBasicsStatus("error");
       setError(err instanceof Error ? err.message : "Unable to save the business.");
@@ -1812,9 +2046,12 @@ export default function OnboardingPage() {
               setForm(nextForm);
               setProfile(emptyProfile(nextForm));
             }}
+            schema={intakeSchema}
+            schemaStatus={schemaStatus}
+            schemaError={schemaError}
             onNext={() => void handleBasicsNext()}
             status={basicsStatus}
-            error={basicsStatus === "error" ? error : null}
+            error={step === 1 ? error : null}
           />
         )}
         {step === 2 && (
