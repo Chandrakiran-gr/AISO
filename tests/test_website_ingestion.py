@@ -9,6 +9,7 @@ from api.website_ingestion import (
     discover_website,
     extract_html_evidence,
     fetch_public_page,
+    should_use_playwright_fallback,
     validate_public_url,
 )
 
@@ -92,6 +93,41 @@ class WebsiteIngestionTests(unittest.TestCase):
 
         self.assertIsNone(detect_stop_reason(text, []))
 
+    def test_playwright_fallback_triggers_are_explicit(self):
+        short_html = "<html><body><h1>Loading</h1></body></html>"
+        fallback, reason = should_use_playwright_fallback(
+            short_html,
+            extract_html_evidence(short_html, "https://example.com/"),
+        )
+        self.assertTrue(fallback)
+        self.assertEqual(reason, "static_body_text_below_500")
+
+        empty_root_html = (
+            "<html><body>"
+            + ("Visible launch copy. " * 80)
+            + "<div id='root'></div></body></html>"
+        )
+        fallback, reason = should_use_playwright_fallback(
+            empty_root_html,
+            extract_html_evidence(empty_root_html, "https://example.com/"),
+        )
+        self.assertTrue(fallback)
+        self.assertEqual(reason, "empty_app_root")
+
+        low_ratio_html = (
+            "<html><body><h1>Real copy that is comfortably over five hundred characters "
+            + ("for the parser and static body text. " * 20)
+            + "</h1>"
+            + ("<span data-noise='x'></span>" * 800)
+            + "</body></html>"
+        )
+        fallback, reason = should_use_playwright_fallback(
+            low_ratio_html,
+            extract_html_evidence(low_ratio_html, "https://example.com/"),
+        )
+        self.assertTrue(fallback)
+        self.assertEqual(reason, "text_to_html_ratio_below_5_percent")
+
     def test_discovery_respects_robots_and_sitemap_fixtures(self):
         pages = {
             "https://example.com/robots.txt": "User-agent: *\nAllow: /\n",
@@ -122,6 +158,42 @@ class WebsiteIngestionTests(unittest.TestCase):
         self.assertGreaterEqual(evidence["page_count"], 2)
         urls = {page["url"] for page in evidence["pages"]}
         self.assertIn("https://example.com/services", urls)
+
+    def test_discovery_caps_playwright_fallback_to_five_pages(self):
+        calls = {"rendered": 0}
+
+        def fetcher(url: str, config: IngestionConfig) -> FetchResult:
+            if url.endswith("/robots.txt") or url.endswith("/sitemap.xml"):
+                return FetchResult(url=url, final_url=url, status_code=404, content_type="text/plain", text="")
+            return FetchResult(
+                url=url,
+                final_url=url,
+                status_code=200,
+                content_type="text/html",
+                text="<html><body><div id='root'></div></body></html>",
+            )
+
+        def renderer(url: str, config: IngestionConfig) -> FetchResult:
+            calls["rendered"] += 1
+            return FetchResult(
+                url=url,
+                final_url=url,
+                status_code=200,
+                content_type="text/html; rendered=playwright",
+                text="<html><body><h1>Rendered app page</h1><p>Useful rendered content.</p></body></html>",
+            )
+
+        evidence = discover_website(
+            "https://example.com",
+            config=IngestionConfig(max_pages=7, max_playwright_pages=99),
+            fetch_page=fetcher,
+            render_page=renderer,
+            resolver=public_resolver,
+        )
+
+        self.assertEqual(calls["rendered"], 5)
+        self.assertEqual(evidence["playwright_invocations"], 5)
+        self.assertIn("Rendered DOM extraction skipped after the 5-page Playwright fallback limit.", evidence["warnings"])
 
     def test_discovery_follows_public_booking_cta_on_allowlisted_platform(self):
         pages = {

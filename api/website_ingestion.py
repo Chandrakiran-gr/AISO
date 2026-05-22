@@ -10,9 +10,9 @@ from typing import Callable, Iterable
 from urllib.parse import urljoin, urlparse, urlunparse
 import ssl
 import json
-import os
 import re
 import socket
+import time
 import xml.etree.ElementTree as ET
 
 
@@ -26,7 +26,10 @@ class IngestionConfig:
     max_depth: int = 1
     max_bytes: int = 1_200_000
     timeout_seconds: float = 8.0
+    total_timeout_seconds: float = 60.0
     max_redirects: int = 5
+    allow_playwright_fallback: bool = True
+    max_playwright_pages: int = 5
     user_agent: str = "AISOContextBot/1.0 (+https://sapienic.com)"
 
 
@@ -42,6 +45,23 @@ class FetchResult:
 
 FetchPage = Callable[[str, IngestionConfig], FetchResult]
 Resolver = Callable[..., list]
+
+TIER1_PATHS = (
+    "/",
+    "/about",
+    "/products",
+    "/services",
+    "/pricing",
+    "/customers",
+    "/blog",
+)
+
+DEADLINE_WARNING = (
+    "We couldn't fully crawl this website within 60 seconds. "
+    "Review the extracted fields or enter missing context manually."
+)
+
+PLAYWRIGHT_LIMIT_WARNING = "Rendered DOM extraction skipped after the 5-page Playwright fallback limit."
 
 CTA_TERMS = (
     "facial",
@@ -463,6 +483,56 @@ def extract_html_evidence(html: str, page_url: str) -> dict[str, object]:
     }
 
 
+def _evidence_text(evidence: dict[str, object]) -> str:
+    text_parts: list[str] = []
+    for key in ("title",):
+        value = evidence.get(key)
+        if isinstance(value, str):
+            text_parts.append(value)
+    for key in ("headings", "text_blocks"):
+        values = evidence.get(key)
+        if isinstance(values, list):
+            text_parts.extend(str(item) for item in values)
+    return _clean_text(" ".join(text_parts))
+
+
+def _static_body_text(html: str) -> str:
+    match = re.search(r"(?is)<body\b[^>]*>(.*?)</body>", html or "")
+    body_html = match.group(1) if match else html or ""
+    body_html = re.sub(r"(?is)<(script|style|noscript)\b.*?</\1>", " ", body_html)
+    body_text = re.sub(r"(?is)<[^>]+>", " ", body_html)
+    return _clean_text(body_text)
+
+
+def _has_empty_app_root(html: str) -> bool:
+    return bool(
+        re.search(
+            r"(?is)<div\b(?=[^>]*\bid=['\"](?:root|app)['\"])[^>]*>\s*</div>",
+            html or "",
+        )
+    )
+
+
+def should_use_playwright_fallback(html: str, evidence: dict[str, object]) -> tuple[bool, str | None]:
+    """Return whether static HTML looks like a JS-rendered shell.
+
+    Playwright fallback is intentionally narrow and documented here:
+    (a) static HTML body text is below 500 characters, OR
+    (b) the page contains an empty ``<div id="root">`` or ``<div id="app">``,
+    OR (c) extracted text-to-HTML ratio is below 5%.
+    """
+    body_text = _static_body_text(html)
+    if len(body_text) < 500:
+        return True, "static_body_text_below_500"
+    if _has_empty_app_root(html):
+        return True, "empty_app_root"
+    html_length = len((html or "").strip())
+    extracted_text_length = len(_evidence_text(evidence))
+    if html_length and extracted_text_length / html_length < 0.05:
+        return True, "text_to_html_ratio_below_5_percent"
+    return False, None
+
+
 def _dedupe(values: Iterable[str], *, limit: int) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -550,34 +620,89 @@ def discover_website(
     *,
     config: IngestionConfig | None = None,
     fetch_page: FetchPage | None = None,
+    render_page: FetchPage | None = None,
     resolver: Resolver = socket.getaddrinfo,
 ) -> dict[str, object]:
     """Discover public website evidence without forms, logins, or private pages."""
     config = config or IngestionConfig()
+    started_at = time.monotonic()
     safe_home = validate_public_url(website_url, resolver=resolver)
     fetcher = fetch_page or (lambda url, cfg: fetch_public_page(url, cfg, resolver=resolver))
+    renderer = render_page
+    if renderer is None and fetch_page is None and config.allow_playwright_fallback:
+        renderer = lambda url, cfg: render_public_page(url, cfg, resolver=resolver)
     warnings: list[str] = []
     pages: list[dict[str, object]] = []
     seen: set[str] = set()
-    queue: list[tuple[str, int]] = [(safe_home, 0)]
+    queue: list[tuple[str, int]] = []
+    tier1_attempted: list[str] = []
+    tier1_fetched: list[str] = []
+    playwright_invocations = 0
+    playwright_page_limit = max(0, min(config.max_playwright_pages, 5))
+    rendered_dom = False
+    partial = False
+    truncation_reason: str | None = None
+    playwright_cap_warning_emitted = False
 
     parsed_home = urlparse(safe_home)
     robots_url = f"{parsed_home.scheme}://{parsed_home.netloc}/robots.txt"
     sitemap_url = f"{parsed_home.scheme}://{parsed_home.netloc}/sitemap.xml"
 
+    def deadline_exceeded() -> bool:
+        return time.monotonic() - started_at >= config.total_timeout_seconds
+
+    def mark_deadline() -> None:
+        nonlocal partial, truncation_reason
+        partial = True
+        truncation_reason = "deadline_exceeded"
+        if DEADLINE_WARNING not in warnings:
+            warnings.append(DEADLINE_WARNING)
+
+    def mark_tier1_attempt(url: str) -> None:
+        if url not in tier1_attempted:
+            tier1_attempted.append(url)
+
+    def mark_tier1_fetched(url: str) -> None:
+        if url not in tier1_fetched:
+            tier1_fetched.append(url)
+
+    def result() -> dict[str, object]:
+        return {
+            "start_url": safe_home,
+            "pages": pages,
+            "warnings": _dedupe(warnings, limit=20),
+            "page_count": len(pages),
+            "rendered_dom": rendered_dom,
+            "playwright_invocations": playwright_invocations,
+            "partial": partial,
+            "truncation_reason": truncation_reason,
+            "tier1_attempted": tier1_attempted,
+            "tier1_fetched": tier1_fetched,
+        }
+
     try:
+        if deadline_exceeded():
+            mark_deadline()
+            return result()
+        mark_tier1_attempt(robots_url)
         robots = fetcher(robots_url, config)
         if robots.status_code < 400:
+            mark_tier1_fetched(robots.final_url)
             allowed, robot_warnings = _robots_allows_homepage(robots.text)
             warnings.extend(robot_warnings)
             if not allowed:
-                return {"start_url": safe_home, "pages": [], "warnings": warnings, "page_count": 0}
+                return result()
     except Exception:
         warnings.append("Robots.txt could not be read; continuing with public homepage only.")
 
     try:
+        if deadline_exceeded():
+            mark_deadline()
+            return result()
+        mark_tier1_attempt(sitemap_url)
         sitemap = fetcher(sitemap_url, config)
         if sitemap.status_code < 400:
+            mark_tier1_fetched(sitemap.final_url)
             for loc in _parse_sitemap_urls(sitemap.text):
                 safe_loc = safe_join_url(safe_home, loc, resolver=resolver)
                 if safe_loc and _same_site(safe_home, safe_loc):
@@ -587,13 +712,29 @@ def discover_website(
     except Exception:
         pass
 
+    tier1_page_urls: list[str] = []
+    for path in TIER1_PATHS:
+        tier1_url = safe_join_url(safe_home, path, resolver=resolver)
+        if tier1_url and _same_site(safe_home, tier1_url) and tier1_url not in tier1_page_urls:
+            tier1_page_urls.append(tier1_url)
+    queue = [(url, 0) for url in tier1_page_urls] + [
+        item for item in queue if item[0] not in tier1_page_urls
+    ]
+
     while queue and len(pages) < config.max_pages:
+        if deadline_exceeded():
+            mark_deadline()
+            break
         url, depth = queue.pop(0)
         if url in seen or depth > config.max_depth:
             continue
         seen.add(url)
         try:
+            if url in tier1_page_urls:
+                mark_tier1_attempt(url)
             fetched = fetcher(url, config)
+            if url in tier1_page_urls and fetched.status_code < 400:
+                mark_tier1_fetched(fetched.final_url)
         except URLSafetyError as exc:
             warnings.append(str(exc))
             continue
@@ -602,15 +743,37 @@ def discover_website(
             continue
 
         page = extract_html_evidence(fetched.text, fetched.final_url)
-        if os.getenv("AISO_INGEST_RENDERED", "0") == "1" and not page.get("stop_reason"):
-            try:
-                rendered = render_public_page(fetched.final_url, config, resolver=resolver)
-                rendered_page = extract_html_evidence(rendered.text, rendered.final_url)
-                if len(rendered_page.get("text_blocks", [])) > len(page.get("text_blocks", [])):
-                    page = rendered_page
-                    fetched = rendered
-            except Exception:
-                warnings.append("Rendered DOM extraction was unavailable; static public HTML was used.")
+        page["rendered_dom"] = False
+        use_rendered, fallback_reason = should_use_playwright_fallback(fetched.text, page)
+        if (
+            config.allow_playwright_fallback
+            and renderer is not None
+            and use_rendered
+            and not page.get("stop_reason")
+        ):
+            if playwright_invocations >= playwright_page_limit:
+                if not playwright_cap_warning_emitted:
+                    warnings.append(PLAYWRIGHT_LIMIT_WARNING)
+                    playwright_cap_warning_emitted = True
+            elif not deadline_exceeded():
+                playwright_invocations += 1
+                # Playwright is used only for likely JS-rendered shells, using
+                # the documented fallback triggers in should_use_playwright_fallback().
+                # It is capped per crawl job by max_playwright_pages.
+                try:
+                    rendered = renderer(fetched.final_url, config)
+                    rendered_page = extract_html_evidence(rendered.text, rendered.final_url)
+                    rendered_dom = True
+                    if len(_evidence_text(rendered_page)) > len(_evidence_text(page)):
+                        page = rendered_page
+                        page["rendered_dom"] = True
+                        page["playwright_fallback_reason"] = fallback_reason
+                        fetched = rendered
+                except Exception:
+                    warnings.append("Rendered DOM extraction was unavailable; static public HTML was used.")
+            else:
+                mark_deadline()
+                break
         page["status_code"] = fetched.status_code
         page["content_type"] = fetched.content_type
         if page.get("stop_reason"):
@@ -638,10 +801,4 @@ def discover_website(
     if len(seen) >= config.max_pages:
         warnings.append("Discovery reached the configured page limit.")
 
-    return {
-        "start_url": safe_home,
-        "pages": pages,
-        "warnings": _dedupe(warnings, limit=20),
-        "page_count": len(pages),
-        "rendered_dom": os.getenv("AISO_INGEST_RENDERED", "0") == "1",
-    }
+    return result()
