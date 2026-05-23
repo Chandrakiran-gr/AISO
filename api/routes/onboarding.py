@@ -41,8 +41,15 @@ from api.domain.profile_draft import (
 )
 from api.domain.question_generation import QUESTION_GENERATION_PROMPT_VERSION
 from api.domain.question_scorer import QUESTION_SCORER_PROMPT_VERSION
+from api.domain.question_selection import (
+    DEFAULT_FRAME_MIN,
+    DEFAULT_INTENT_BAND,
+    DEFAULT_JOURNEY_MIN,
+    DEFAULT_SELECTION_TARGET_N,
+)
 from api.domain.realism_filter import REALISM_FILTER_PROMPT_VERSION
 from api.question_gen.scorer import apply_question_scorer
+from api.question_gen.selector import QuestionSelectionError, apply_question_selection
 from api.question_gen.realism import apply_realism_filter
 from api.question_gen.service import generate_and_persist_question_candidates
 
@@ -192,6 +199,42 @@ class QuestionScorerResponse(BaseModel):
     agreement_threshold: float
 
 
+class QuestionSelectionRequest(BaseModel):
+    target_n: int = Field(default=DEFAULT_SELECTION_TARGET_N, ge=1)
+    critical_question_ids: list[str] = Field(default_factory=list, max_length=3)
+    journey_min: Optional[dict[str, int]] = None
+    frame_min: Optional[dict[str, int]] = None
+    intent_band: Optional[dict[str, tuple[float, float]]] = None
+    personas: Optional[list[str]] = None
+    scan_run_id: Optional[str] = None
+    generator_version: Optional[str] = None
+    selection_mode: Optional[str] = Field(default="default")
+    lambda_mmr: Optional[float] = Field(default=None, ge=0)
+
+
+class QuestionSelectionResponse(BaseModel):
+    ok: bool
+    onboarding_id: str
+    client_id: str
+    target_n: int
+    objective: Optional[str] = None
+    objective_journey_targets: dict[str, int] = Field(default_factory=dict)
+    selected_count: int
+    selected_question_ids: list[str]
+    solver_status: str
+    solver_seconds: float
+    objective_value: float
+    mmr_lambda: float
+    high_similarity_pair_count: int
+    journey_distribution: dict[str, int] = Field(default_factory=dict)
+    frame_distribution: dict[str, int] = Field(default_factory=dict)
+    intent_distribution: dict[str, int] = Field(default_factory=dict)
+    persona_distribution: dict[str, int] = Field(default_factory=dict)
+    journey_min: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_JOURNEY_MIN))
+    frame_min: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_FRAME_MIN))
+    intent_band: dict[str, tuple[float, float]] = Field(default_factory=lambda: dict(DEFAULT_INTENT_BAND))
+
+
 class IntakeFieldResponse(BaseModel):
     id: str
     label: str
@@ -286,6 +329,23 @@ def _list_or_empty(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if str(item).strip()]
+
+
+def _persona_constraints(snapshot: BusinessProfileSnapshot) -> list[str]:
+    personas: list[str] = []
+
+    def collect(value: Any) -> None:
+        if isinstance(value, str) and value.strip():
+            personas.append(value.strip())
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, dict):
+            for item in value.values():
+                collect(item)
+
+    collect(snapshot.personas)
+    return list(dict.fromkeys(personas))
 
 
 def _client_for_user(db: Session, client_id: str, user_id: str) -> Client:
@@ -653,6 +713,62 @@ async def score_onboarding_questions(
         model=run.model,
         min_gwet_ac2=run.min_gwet_ac2,
         agreement_threshold=run.agreement_threshold,
+    )
+
+
+@router.post("/onboarding/{onboarding_id}/select-questions", response_model=QuestionSelectionResponse)
+async def select_onboarding_questions(
+    onboarding_id: str,
+    payload: QuestionSelectionRequest | None = None,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Select the final question portfolio from scored candidates using the Phase 12 MIP."""
+    payload = payload or QuestionSelectionRequest()
+    profile = _profile_for_user(db, onboarding_id, user_id)
+    snapshot = _profile_snapshot(profile)
+    personas = payload.personas if payload.personas is not None else _persona_constraints(snapshot)
+    try:
+        run = apply_question_selection(
+            db,
+            client_id=profile.client_id,
+            target_n=payload.target_n,
+            critical_question_ids=payload.critical_question_ids,
+            journey_min=payload.journey_min,
+            frame_min=payload.frame_min,
+            intent_band=payload.intent_band,
+            personas=personas,
+            scan_run_id=payload.scan_run_id,
+            generator_version=payload.generator_version,
+            objective=snapshot.objective,
+            selection_mode=payload.selection_mode,
+            lambda_mmr=payload.lambda_mmr,
+        )
+    except QuestionSelectionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    db.commit()
+    return QuestionSelectionResponse(
+        ok=True,
+        onboarding_id=profile.client_id,
+        client_id=profile.client_id,
+        target_n=run.target_n,
+        objective=run.objective,
+        objective_journey_targets=run.objective_stage_targets,
+        selected_count=len(run.selected_ids),
+        selected_question_ids=run.selected_ids,
+        solver_status=run.solver_status,
+        solver_seconds=run.solver_seconds,
+        objective_value=run.objective_value,
+        mmr_lambda=run.mmr_lambda,
+        high_similarity_pair_count=run.high_similarity_pair_count,
+        journey_distribution=run.journey_distribution,
+        frame_distribution=run.frame_distribution,
+        intent_distribution=run.intent_distribution,
+        persona_distribution=run.persona_distribution,
+        journey_min=payload.journey_min or dict(DEFAULT_JOURNEY_MIN),
+        frame_min=payload.frame_min or dict(DEFAULT_FRAME_MIN),
+        intent_band=payload.intent_band or dict(DEFAULT_INTENT_BAND),
     )
 
 

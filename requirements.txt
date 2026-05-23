@@ -2,6 +2,7 @@
 openai           # OpenAI + Perplexity (Perplexity uses OpenAI-compatible API)
 python-dotenv
 PyYAML>=6.0.0
+pulp>=3.3.0        # Phase 12 constrained question selection MIP solver
 alembic>=1.18.0        # Database migrations
 playwright
 anthropic        # Claude provider
