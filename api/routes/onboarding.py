@@ -18,6 +18,7 @@ import yaml
 
 from api.adapters.profile_draft import default_profile_draft_provider
 from api.adapters.question_generation import default_question_generation_provider
+from api.adapters.realism_filter import default_realism_filter_provider
 from api.adapters.prompt_registry import ensure_prompt_version
 from api.auth import get_current_user_id
 from api.database import BusinessProfile, Client, get_db
@@ -38,6 +39,8 @@ from api.domain.profile_draft import (
     render_profile_draft_prompt,
 )
 from api.domain.question_generation import QUESTION_GENERATION_PROMPT_VERSION
+from api.domain.realism_filter import REALISM_FILTER_PROMPT_VERSION
+from api.question_gen.realism import apply_realism_filter
 from api.question_gen.service import generate_and_persist_question_candidates
 
 router = APIRouter(tags=["onboarding"])
@@ -139,6 +142,27 @@ class QuestionGenerationResponse(BaseModel):
     model: str
     distribution: dict[str, int] = Field(default_factory=dict)
     brand_frame_distribution: dict[str, int] = Field(default_factory=dict)
+
+
+class RealismFilterRequest(BaseModel):
+    scan_run_id: Optional[str] = None
+    generator_version: Optional[str] = None
+
+
+class RealismFilterResponse(BaseModel):
+    ok: bool
+    onboarding_id: str
+    client_id: str
+    evaluated_count: int
+    passed_count: int
+    failed_count: int
+    threshold: float
+    prompt_version: str
+    prompt_hash: str
+    prompt_version_id: str
+    realism_filter_version: str
+    provider: str
+    model: str
 
 
 class IntakeFieldResponse(BaseModel):
@@ -281,6 +305,10 @@ def get_profile_draft_provider() -> LLMProvider:
 
 def get_question_generation_provider() -> LLMProvider:
     return default_question_generation_provider()
+
+
+def get_realism_filter_provider() -> LLMProvider:
+    return default_realism_filter_provider()
 
 
 def _load_intake_schema(vertical: str) -> IntakeSchemaResponse:
@@ -551,6 +579,46 @@ async def generate_onboarding_questions(
         model=run.model,
         distribution=run.distribution,
         brand_frame_distribution=run.brand_frame_distribution,
+    )
+
+
+@router.post("/onboarding/{onboarding_id}/filter-realism", response_model=RealismFilterResponse)
+async def filter_onboarding_question_realism(
+    onboarding_id: str,
+    payload: RealismFilterRequest | None = None,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    provider: LLMProvider = Depends(get_realism_filter_provider),
+):
+    """Run the v1 realism filter over persisted question candidates."""
+    payload = payload or RealismFilterRequest()
+    profile = _profile_for_user(db, onboarding_id, user_id)
+    run = apply_realism_filter(
+        db,
+        client_id=profile.client_id,
+        vertical=profile.vertical,
+        provider=provider,
+        scan_run_id=payload.scan_run_id,
+        generator_version=payload.generator_version,
+    )
+    if run.evaluated_count == 0:
+        raise HTTPException(status_code=409, detail="No question candidates available for realism filtering")
+
+    db.commit()
+    return RealismFilterResponse(
+        ok=True,
+        onboarding_id=profile.client_id,
+        client_id=profile.client_id,
+        evaluated_count=run.evaluated_count,
+        passed_count=run.passed_count,
+        failed_count=run.failed_count,
+        threshold=run.threshold,
+        prompt_version=REALISM_FILTER_PROMPT_VERSION,
+        prompt_hash=run.prompt_hash,
+        prompt_version_id=run.prompt_version_id,
+        realism_filter_version=run.realism_filter_version,
+        provider=run.provider,
+        model=run.model,
     )
 
 
