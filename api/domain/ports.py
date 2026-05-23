@@ -25,3 +25,22 @@ class BusinessProfileSnapshot:
 
 class BusinessProfileStore(Protocol):
     def get_profile(self, client_id: str) -> BusinessProfileSnapshot | None: ...
+
+
+@dataclass(frozen=True)
+class ProviderResponse:
+    text: str
+    provider: str
+    model: str
+    raw_metadata: dict[str, Any] = field(default_factory=dict)
+
+
+class LLMProvider(Protocol):
+    def complete(
+        self,
+        *,
+        prompt: str,
+        seed: int,
+        temperature: float,
+        idempotency_key: str,
+    ) -> ProviderResponse: ...

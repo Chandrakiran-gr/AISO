@@ -178,8 +178,19 @@ type ClientContextData = {
   client_id: string;
   status: "not_started" | "discovering" | "draft" | "confirmed" | "needs_review" | "failed" | string;
   profile_json: ContextProfile | null;
-  evidence_json: { page_count?: number; pages?: unknown[]; warnings?: string[] } | null;
+  evidence_json: { page_count?: number; pages?: unknown[]; warnings?: string[]; profile_draft?: { field_sources?: Record<string, string> } } | null;
   warnings_json: string[];
+};
+
+type PipelineProfileDraft = {
+  category: string;
+  icp: Record<string, unknown>;
+  geographic_scope: Record<string, unknown>;
+  competitors: string[];
+  personas: Record<string, unknown>;
+  field_flags: Record<string, string>;
+  field_sources: Record<string, string>;
+  rationale: Record<string, string>;
 };
 
 type CrawlJobData = {
@@ -562,6 +573,20 @@ function evidenceLabels(items: ContextItem[]): string[] {
   return labels;
 }
 
+function flagLabel(flag?: string): string {
+  if (flag === "crawled") return "Crawled";
+  if (flag === "guessed") return "Guessed";
+  if (flag === "needs_you") return "Needs you";
+  return "";
+}
+
+function flagClass(flag?: string): string {
+  if (flag === "crawled") return styles.flagCrawled;
+  if (flag === "guessed") return styles.flagGuessed;
+  if (flag === "needs_you") return styles.flagNeedsYou;
+  return "";
+}
+
 function contextMatchesForm(context: ClientContextData | null, form: FormState, clientId: string): boolean {
   if (context?.status !== "confirmed" || context.client_id !== clientId || !context.profile_json) {
     return false;
@@ -674,6 +699,55 @@ async function getReviewBundle(workspaceId: string): Promise<ReviewBundle> {
   return res.json();
 }
 
+async function draftPipelineProfile(clientId: string): Promise<PipelineProfileDraft> {
+  const res = await fetch(`${API}/v1/onboarding/${clientId}/draft-profile`, { method: "POST" });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to draft business profile (${res.status})`));
+  return res.json();
+}
+
+function applyPipelineDraftToContext(
+  base: ContextProfile,
+  draft: PipelineProfileDraft,
+  form: FormState,
+): ContextProfile {
+  const category = draft.category?.trim();
+  const categories = category ? [manualItem(category, "category", { source_url: form.websiteUrl, confidence: 0.78 })] : base.categories;
+  const competitors = draft.competitors?.length
+    ? draft.competitors.map((name) => manualItem(name, "competitor_business", { source_url: "manual_onboarding" }))
+    : base.competitors;
+  const nap = draft.geographic_scope?.nap;
+  const napName = formatNap(nap);
+  const physicalLocations = napName
+    ? [manualItem(napName, "physical_location", { source_url: form.websiteUrl, confidence: 0.78 })]
+    : base.locations.physical_locations;
+
+  return normalizedProfile({
+    ...base,
+    categories,
+    competitors,
+    locations: {
+      ...base.locations,
+      physical_locations: physicalLocations,
+    },
+  });
+}
+
+function formatNap(value: unknown): string {
+  if (typeof value !== "object" || value === null) return "";
+  const nap = value as { name?: unknown; telephone?: unknown; address?: Record<string, unknown> };
+  const address = typeof nap.address === "object" && nap.address !== null ? nap.address : {};
+  return [
+    typeof nap.name === "string" ? nap.name : "",
+    [
+      address.streetAddress,
+      address.addressLocality,
+      address.addressRegion,
+      address.postalCode,
+    ].filter((part): part is string => typeof part === "string" && part.trim().length > 0).join(", "),
+    typeof nap.telephone === "string" ? nap.telephone : "",
+  ].filter(Boolean).join(" | ");
+}
+
 function reviewProfileToContext(review: ReviewBundle, clientId: string, form: FormState): ClientContextData {
   const profile = review.profile;
   const confidence = profile?.confidence_score ?? 0.72;
@@ -759,6 +833,19 @@ async function saveClientContext(clientId: string, profile: ContextProfile, warn
   });
   if (!res.ok) throw new Error(await readApiError(res, `Failed to confirm client context (${res.status})`));
   return res.json();
+}
+
+async function confirmPipelineBusinessProfile(clientId: string, profile: ContextProfile): Promise<void> {
+  const res = await fetch(`${API}/v1/onboarding/${clientId}/confirm-profile`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      category: profile.categories[0]?.name ?? "",
+      competitors: competitorNamesFromProfile(profile),
+      primary_persona: profile.personas[0]?.name ?? undefined,
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to confirm business profile (${res.status})`));
 }
 
 async function createScan(
@@ -1069,6 +1156,7 @@ function ContextSection({
   type,
   onChange,
   extra,
+  flag,
 }: {
   title: string;
   hint: string;
@@ -1076,6 +1164,7 @@ function ContextSection({
   type: string;
   onChange: (items: ContextItem[]) => void;
   extra?: Partial<ContextItem>;
+  flag?: string;
 }) {
   const renderedItems = itemLines(items);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1107,7 +1196,10 @@ function ContextSection({
           <h3>{title}</h3>
           <p>{hint}</p>
         </div>
-        <span>{items.length}</span>
+        <div className={styles.sectionMeta}>
+          {flagLabel(flag) && <span className={`${styles.sourceFlag} ${flagClass(flag)}`}>{flagLabel(flag)}</span>}
+          <span>{items.length}</span>
+        </div>
       </div>
       <textarea
         ref={textareaRef}
@@ -1134,9 +1226,11 @@ function ContextSection({
 function BuyerContextSection({
   contexts,
   onChange,
+  flag,
 }: {
   contexts: BuyerContext[];
   onChange: (contexts: BuyerContext[]) => void;
+  flag?: string;
 }) {
   const safeContexts = contexts;
   function update(index: number, patch: Partial<BuyerContext>) {
@@ -1152,7 +1246,10 @@ function BuyerContextSection({
           <h3>Target customers <em>Optional</em></h3>
           <p>Add this only when you want AISO to test specific buyer needs, occasions, or constraints.</p>
         </div>
-        <span>{safeContexts.length}</span>
+        <div className={styles.sectionMeta}>
+          {flagLabel(flag) && <span className={`${styles.sourceFlag} ${flagClass(flag)}`}>{flagLabel(flag)}</span>}
+          <span>{safeContexts.length}</span>
+        </div>
       </div>
       {safeContexts.length === 0 ? (
         <div className={styles.optionalEmptyState}>
@@ -1243,6 +1340,7 @@ function BuyerContextSection({
 function Step3({
   profile,
   setProfile,
+  draftFlags,
   onBack,
   onConfirm,
   saving,
@@ -1250,6 +1348,7 @@ function Step3({
 }: {
   profile: ContextProfile;
   setProfile: (profile: ContextProfile) => void;
+  draftFlags: Record<string, string>;
   onBack: () => void;
   onConfirm: () => void;
   saving: boolean;
@@ -1307,7 +1406,10 @@ function Step3({
             <h3>What should this scan optimize for?</h3>
             <p>This changes which buyer questions are prioritized in the final bank.</p>
           </div>
-          <span>1</span>
+          <div className={styles.sectionMeta}>
+            {flagLabel(draftFlags.objective) && <span className={`${styles.sourceFlag} ${flagClass(draftFlags.objective)}`}>{flagLabel(draftFlags.objective)}</span>}
+            <span>1</span>
+          </div>
         </div>
         <OptimizationObjectiveSelector
           options={SCAN_OBJECTIVES}
@@ -1320,6 +1422,7 @@ function Step3({
       <div className={styles.contextGrid}>
         <BuyerContextSection
           contexts={buyerContexts}
+          flag={draftFlags.icp}
           onChange={(items) => setProfile({ ...profile, buyer_contexts: items })}
         />
         <ContextSection
@@ -1327,6 +1430,7 @@ function Step3({
           hint="Broad business categories, not individual services."
           items={profile.categories}
           type="category"
+          flag={draftFlags.category}
           onChange={(items) => update("categories", items)}
         />
         <ContextSection
@@ -1357,6 +1461,7 @@ function Step3({
           hint="Recommended for competitor and head-to-head insights. Leave blank to skip competitor-only coverage."
           items={profile.competitors}
           type="competitor_business"
+          flag={draftFlags.competitors}
           onChange={(items) => update("competitors", items)}
         />
         <ContextSection
@@ -1364,6 +1469,7 @@ function Step3({
           hint="Places tied to in-person availability."
           items={profile.locations.physical_locations}
           type="physical_location"
+          flag={draftFlags.geographic_scope}
           onChange={(items) => updateLocations("physical_locations", items)}
         />
         <ContextSection
@@ -1371,6 +1477,7 @@ function Step3({
           hint="Areas where the business can serve or take customers."
           items={profile.locations.service_areas}
           type="service_area"
+          flag={draftFlags.geographic_scope}
           onChange={(items) => updateLocations("service_areas", items)}
         />
         <ContextSection
@@ -1379,6 +1486,7 @@ function Step3({
           items={profile.locations.visibility_markets}
           type="visibility_market"
           extra={{ usage: "visibility_only" }}
+          flag={draftFlags.geographic_scope}
           onChange={(items) => updateLocations("visibility_markets", items)}
         />
         <ContextSection
@@ -1393,6 +1501,7 @@ function Step3({
           hint="Customer types, occasions, constraints, or use cases. These become customer-intent prompts."
           items={profile.personas}
           type="persona"
+          flag={draftFlags.personas}
           onChange={(items) => update("personas", items)}
         />
         <ContextSection
@@ -1755,6 +1864,7 @@ export default function OnboardingPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [context, setContext] = useState<ClientContextData | null>(null);
   const [profile, setProfile] = useState<ContextProfile>(emptyProfile(DEFAULT));
+  const [draftFlags, setDraftFlags] = useState<Record<string, string>>({});
   const [intakeSchema, setIntakeSchema] = useState<IntakeSchema | null>(null);
   const [schemaStatus, setSchemaStatus] = useState<ActionStatus>("idle");
   const [schemaError, setSchemaError] = useState<string | null>(null);
@@ -1825,6 +1935,7 @@ export default function OnboardingPage() {
         if (loadedContext.profile_json) {
           setProfile(normalizedProfile(loadedContext.profile_json));
           setWarnings(loadedContext.warnings_json ?? []);
+          setDraftFlags(loadedContext.evidence_json?.profile_draft?.field_sources ?? {});
         } else {
           setProfile(emptyProfile(nextForm));
         }
@@ -1869,10 +1980,24 @@ export default function OnboardingPage() {
       const nextContext = discoveredContext?.profile_json
         ? discoveredContext
         : reviewProfileToContext(review, id, sourceForm);
+      let profileDraft: PipelineProfileDraft | null = null;
+      try {
+        profileDraft = await draftPipelineProfile(id);
+      } catch {
+        profileDraft = null;
+      }
+      const draftedProfile = profileDraft
+        ? applyPipelineDraftToContext(normalizedProfile(nextContext.profile_json ?? emptyProfile(sourceForm)), profileDraft, sourceForm)
+        : normalizedProfile(nextContext.profile_json ?? emptyProfile(sourceForm));
+      const nextEvidence = {
+        ...(nextContext.evidence_json ?? {}),
+        profile_draft: profileDraft ? { field_sources: profileDraft.field_flags } : nextContext.evidence_json?.profile_draft,
+      };
 
-      setContext(nextContext);
+      setContext({ ...nextContext, profile_json: draftedProfile, evidence_json: nextEvidence });
       setWarnings(nextContext.warnings_json ?? []);
-      setProfile(normalizedProfile(nextContext.profile_json ?? emptyProfile(sourceForm)));
+      setProfile(draftedProfile);
+      setDraftFlags(profileDraft?.field_flags ?? nextContext.evidence_json?.profile_draft?.field_sources ?? {});
 
       if (job.status === "failed" || nextContext.status === "failed") {
         setError("AISO could not finish website discovery. Please confirm the client context manually.");
@@ -1880,6 +2005,7 @@ export default function OnboardingPage() {
     } catch (err) {
       setContext(null);
       setWorkspaceId(null);
+      setDraftFlags({});
       setWarnings(["Website discovery failed safely. Please confirm the client context manually."]);
       setProfile(emptyProfile(sourceForm));
       setError(err instanceof Error ? err.message : "Website discovery failed safely.");
@@ -1907,6 +2033,7 @@ export default function OnboardingPage() {
       if (contextMatchesForm(context, nextForm, client.id) && confirmedProfile) {
         setProfile(normalizedProfile(confirmedProfile));
         setWarnings(context.warnings_json ?? []);
+        setDraftFlags(context.evidence_json?.profile_draft?.field_sources ?? {});
         setStep(3);
         return;
       }
@@ -1936,6 +2063,7 @@ export default function OnboardingPage() {
         await editCrawlerBusinessProfile(workspaceId, normalized);
         await approveCrawlerBusinessProfile(workspaceId);
       }
+      await confirmPipelineBusinessProfile(clientId, normalized);
       const saved = await saveClientContext(clientId, normalized, warnings);
       setContext(saved);
       setProfile(normalizedProfile(saved.profile_json ?? normalized));
@@ -1951,6 +2079,7 @@ export default function OnboardingPage() {
 
   function handleManualContext() {
     setWorkspaceId(null);
+    setDraftFlags({});
     setProfile(emptyProfile(form));
     setWarnings(["Classification confidence is low. Please confirm services, competitors, and locations manually."]);
     setStep(3);
@@ -2069,6 +2198,7 @@ export default function OnboardingPage() {
           <Step3
             profile={profile}
             setProfile={setProfile}
+            draftFlags={draftFlags}
             onBack={() => setStep(context ? 2 : 1)}
             onConfirm={() => void handleConfirmContext()}
             saving={savingContext}

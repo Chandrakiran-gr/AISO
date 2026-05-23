@@ -739,6 +739,43 @@
   font-weight: 800;
 }
 
+.sectionMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.contextSectionHeader .sourceFlag {
+  width: auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.flagCrawled {
+  border-color: rgba(45,212,191,0.24) !important;
+  background: rgba(45,212,191,0.08);
+  color: var(--accent-teal) !important;
+}
+
+.flagGuessed {
+  border-color: rgba(251,191,36,0.24) !important;
+  background: rgba(251,191,36,0.08);
+  color: #fbbf24 !important;
+}
+
+.flagNeedsYou {
+  border-color: rgba(248,113,113,0.24) !important;
+  background: rgba(248,113,113,0.08);
+  color: #fca5a5 !important;
+}
+
 .contextTextarea {
   width: 100%;
   min-height: 92px;

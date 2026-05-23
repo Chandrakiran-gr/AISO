@@ -41,6 +41,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("content_drafts", inspector.get_table_names())
                     self.assertIn("assistant_rate_limit_events", inspector.get_table_names())
                     self.assertIn("business_profile", inspector.get_table_names())
+                    self.assertIn("methodology_prompt_version", inspector.get_table_names())
                     self.assertIn("question_candidate", inspector.get_table_names())
                     self.assertIn("question_score", inspector.get_table_names())
                     self.assertIn("alembic_version", inspector.get_table_names())
@@ -82,6 +83,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("content_drafts", inspector.get_table_names())
                     self.assertIn("assistant_rate_limit_events", inspector.get_table_names())
                     self.assertIn("business_profile", inspector.get_table_names())
+                    self.assertIn("methodology_prompt_version", inspector.get_table_names())
                     self.assertIn("question_candidate", inspector.get_table_names())
                     self.assertIn("question_score", inspector.get_table_names())
                     conversation_columns = {

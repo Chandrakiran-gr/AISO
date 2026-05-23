@@ -17,6 +17,7 @@ from api.database import (
     ClientContext,
     Conversation,
     Message,
+    MethodologyPromptVersion,
     QuestionCandidate,
     QuestionScore,
     Scan,
@@ -63,6 +64,7 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertIn("content_drafts", inspector.get_table_names())
             self.assertIn("assistant_rate_limit_events", inspector.get_table_names())
             self.assertIn("business_profile", inspector.get_table_names())
+            self.assertIn("methodology_prompt_version", inspector.get_table_names())
             self.assertIn("question_candidate", inspector.get_table_names())
             self.assertIn("question_score", inspector.get_table_names())
 
@@ -251,6 +253,22 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "weighted_score",
                     "scorer_version",
                 }.issubset(score_columns)
+            )
+
+            prompt_columns = {
+                column["name"] for column in inspector.get_columns("methodology_prompt_version")
+            }
+            self.assertTrue(
+                {
+                    "prompt_key",
+                    "version",
+                    "provider",
+                    "model",
+                    "prompt_text",
+                    "prompt_hash",
+                    "prev_chain_hash",
+                    "chain_hash",
+                }.issubset(prompt_columns)
             )
 
     def test_persists_scan_artifact_analysis_and_citation_rows(self):

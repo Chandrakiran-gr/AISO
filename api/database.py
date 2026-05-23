@@ -121,6 +121,31 @@ class BusinessProfile(Base):
     updated_at      = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
+class MethodologyPromptVersion(Base):
+    """Insert-only prompt version record with a hash-chain link."""
+    __tablename__ = "methodology_prompt_version"
+    __table_args__ = (
+        UniqueConstraint(
+            "prompt_key",
+            "version",
+            "prompt_hash",
+            name="uq_methodology_prompt_version_hash",
+        ),
+        Index("ix_methodology_prompt_version_key", "prompt_key"),
+    )
+
+    id              = Column(String, primary_key=True)
+    prompt_key      = Column(String, nullable=False)
+    version         = Column(String, nullable=False)
+    provider        = Column(String, nullable=False)
+    model           = Column(String, nullable=False)
+    prompt_text     = Column(Text, nullable=False)
+    prompt_hash     = Column(String, nullable=False)
+    prev_chain_hash = Column(String, nullable=False)
+    chain_hash      = Column(String, nullable=False)
+    created_at      = Column(DateTime, nullable=False, default=_utcnow)
+
+
 class ClientContext(Base):
     """Confirmed client context extracted from public website evidence."""
     __tablename__ = "client_contexts"
