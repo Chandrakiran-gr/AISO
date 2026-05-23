@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 import yaml
 
 from api.adapters.profile_draft import default_profile_draft_provider
+from api.adapters.question_scorer import default_question_scorer_provider
 from api.adapters.question_generation import default_question_generation_provider
 from api.adapters.realism_filter import default_realism_filter_provider
 from api.adapters.prompt_registry import ensure_prompt_version
@@ -39,7 +40,9 @@ from api.domain.profile_draft import (
     render_profile_draft_prompt,
 )
 from api.domain.question_generation import QUESTION_GENERATION_PROMPT_VERSION
+from api.domain.question_scorer import QUESTION_SCORER_PROMPT_VERSION
 from api.domain.realism_filter import REALISM_FILTER_PROMPT_VERSION
+from api.question_gen.scorer import apply_question_scorer
 from api.question_gen.realism import apply_realism_filter
 from api.question_gen.service import generate_and_persist_question_candidates
 
@@ -163,6 +166,30 @@ class RealismFilterResponse(BaseModel):
     realism_filter_version: str
     provider: str
     model: str
+
+
+class QuestionScorerRequest(BaseModel):
+    scan_run_id: Optional[str] = None
+    generator_version: Optional[str] = None
+    limit: Optional[int] = Field(default=None, ge=1)
+
+
+class QuestionScorerResponse(BaseModel):
+    ok: bool
+    onboarding_id: str
+    client_id: str
+    evaluated_count: int
+    scored_count: int
+    human_review_count: int
+    human_review_question_ids: list[str] = Field(default_factory=list)
+    prompt_version: str
+    prompt_hash: str
+    prompt_version_id: str
+    scorer_version: str
+    provider: str
+    model: str
+    min_gwet_ac2: float
+    agreement_threshold: float
 
 
 class IntakeFieldResponse(BaseModel):
@@ -301,6 +328,10 @@ def _profile_draft_response(
 
 def get_profile_draft_provider() -> LLMProvider:
     return default_profile_draft_provider()
+
+
+def get_question_scorer_provider() -> LLMProvider:
+    return default_question_scorer_provider()
 
 
 def get_question_generation_provider() -> LLMProvider:
@@ -579,6 +610,49 @@ async def generate_onboarding_questions(
         model=run.model,
         distribution=run.distribution,
         brand_frame_distribution=run.brand_frame_distribution,
+    )
+
+
+@router.post("/onboarding/{onboarding_id}/score-questions", response_model=QuestionScorerResponse)
+async def score_onboarding_questions(
+    onboarding_id: str,
+    payload: QuestionScorerRequest | None = None,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    provider: LLMProvider = Depends(get_question_scorer_provider),
+):
+    """Run the v1 five-dimension scorer over realism-passing candidates."""
+    payload = payload or QuestionScorerRequest()
+    profile = _profile_for_user(db, onboarding_id, user_id)
+    run = apply_question_scorer(
+        db,
+        client_id=profile.client_id,
+        snapshot=_profile_snapshot(profile),
+        provider=provider,
+        scan_run_id=payload.scan_run_id,
+        generator_version=payload.generator_version,
+        limit=payload.limit,
+    )
+    if run.evaluated_count == 0:
+        raise HTTPException(status_code=409, detail="No question candidates available for scoring")
+
+    db.commit()
+    return QuestionScorerResponse(
+        ok=True,
+        onboarding_id=profile.client_id,
+        client_id=profile.client_id,
+        evaluated_count=run.evaluated_count,
+        scored_count=run.scored_count,
+        human_review_count=run.human_review_count,
+        human_review_question_ids=run.human_review_question_ids,
+        prompt_version=QUESTION_SCORER_PROMPT_VERSION,
+        prompt_hash=run.prompt_hash,
+        prompt_version_id=run.prompt_version_id,
+        scorer_version=run.scorer_version,
+        provider=run.provider,
+        model=run.model,
+        min_gwet_ac2=run.min_gwet_ac2,
+        agreement_threshold=run.agreement_threshold,
     )
 
 
