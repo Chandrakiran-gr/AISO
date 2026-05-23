@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 import yaml
 
+from api.adapters.scan_executor import default_scan_executor
 from api.adapters.profile_draft import default_profile_draft_provider
 from api.adapters.question_scorer import default_question_scorer_provider
 from api.adapters.question_generation import default_question_generation_provider
@@ -31,7 +32,7 @@ from api.domain.onboarding import (
     normalize_vertical,
     profile_data_from_snapshot,
 )
-from api.domain.ports import BusinessProfileSnapshot, LLMProvider
+from api.domain.ports import BusinessProfileSnapshot, LLMProvider, ScanExecutor
 from api.domain.profile_draft import (
     PROFILE_DRAFT_PROMPT_KEY,
     PROFILE_DRAFT_PROMPT_VERSION,
@@ -48,6 +49,11 @@ from api.domain.question_selection import (
     DEFAULT_SELECTION_TARGET_N,
 )
 from api.domain.realism_filter import REALISM_FILTER_PROMPT_VERSION
+from api.question_gen.export import (
+    QUESTION_CSV_COLUMNS,
+    QuestionExportError,
+    export_questions_and_enqueue_scan,
+)
 from api.question_gen.scorer import apply_question_scorer
 from api.question_gen.selector import QuestionSelectionError, apply_question_selection
 from api.question_gen.realism import apply_realism_filter
@@ -233,6 +239,17 @@ class QuestionSelectionResponse(BaseModel):
     journey_min: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_JOURNEY_MIN))
     frame_min: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_FRAME_MIN))
     intent_band: dict[str, tuple[float, float]] = Field(default_factory=lambda: dict(DEFAULT_INTENT_BAND))
+    scan_id: str
+    scan_status: str
+    question_csv_artifact_id: str
+    question_csv_storage_backend: str
+    question_csv_storage_path: str
+    question_csv_filename: str
+    question_csv_columns: list[str] = Field(default_factory=lambda: list(QUESTION_CSV_COLUMNS))
+    enqueue_enqueued: bool
+    enqueue_provider: str
+    enqueue_job_id: Optional[str] = None
+    enqueue_error: Optional[str] = None
 
 
 class IntakeFieldResponse(BaseModel):
@@ -388,6 +405,10 @@ def _profile_draft_response(
 
 def get_profile_draft_provider() -> LLMProvider:
     return default_profile_draft_provider()
+
+
+def get_scan_executor() -> ScanExecutor:
+    return default_scan_executor()
 
 
 def get_question_scorer_provider() -> LLMProvider:
@@ -722,6 +743,7 @@ async def select_onboarding_questions(
     payload: QuestionSelectionRequest | None = None,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
+    executor: ScanExecutor = Depends(get_scan_executor),
 ):
     """Select the final question portfolio from scored candidates using the Phase 12 MIP."""
     payload = payload or QuestionSelectionRequest()
@@ -744,7 +766,16 @@ async def select_onboarding_questions(
             selection_mode=payload.selection_mode,
             lambda_mmr=payload.lambda_mmr,
         )
+        export = export_questions_and_enqueue_scan(
+            db,
+            client_id=profile.client_id,
+            executor=executor,
+            target_n=payload.target_n,
+            scan_run_id=payload.scan_run_id,
+        )
     except QuestionSelectionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except QuestionExportError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     db.commit()
@@ -769,6 +800,17 @@ async def select_onboarding_questions(
         journey_min=payload.journey_min or dict(DEFAULT_JOURNEY_MIN),
         frame_min=payload.frame_min or dict(DEFAULT_FRAME_MIN),
         intent_band=payload.intent_band or dict(DEFAULT_INTENT_BAND),
+        scan_id=export.scan_id,
+        scan_status=export.scan_status,
+        question_csv_artifact_id=export.artifact_id,
+        question_csv_storage_backend=export.artifact_storage_backend,
+        question_csv_storage_path=export.artifact_storage_path,
+        question_csv_filename=export.artifact_original_filename,
+        question_csv_columns=list(QUESTION_CSV_COLUMNS),
+        enqueue_enqueued=export.enqueue_result.enqueued,
+        enqueue_provider=export.enqueue_result.provider,
+        enqueue_job_id=export.enqueue_result.job_id,
+        enqueue_error=export.enqueue_result.error,
     )
 
 

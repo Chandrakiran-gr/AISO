@@ -44,3 +44,15 @@ class LLMProvider(Protocol):
         temperature: float,
         idempotency_key: str,
     ) -> ProviderResponse: ...
+
+
+@dataclass(frozen=True)
+class ScanEnqueueResult:
+    enqueued: bool
+    provider: str
+    job_id: str | None = None
+    error: str | None = None
+
+
+class ScanExecutor(Protocol):
+    def enqueue(self, *, scan_id: str, client_id: str) -> ScanEnqueueResult: ...

@@ -1,6 +1,8 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import tempfile
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -29,6 +31,9 @@ class Phase12SelectorTests(unittest.TestCase):
         )
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+        self.storage_dir = tempfile.TemporaryDirectory()
+        self.env_patch = patch.dict("os.environ", {"AISO_STORAGE_BACKEND": "local", "AISO_STORAGE_ROOT": self.storage_dir.name})
+        self.env_patch.start()
 
         seed = self.Session()
         try:
@@ -108,6 +113,8 @@ class Phase12SelectorTests(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_user_id, None)
+        self.env_patch.stop()
+        self.storage_dir.cleanup()
         self.engine.dispose()
 
     def test_phase_12_8_acceptance_selects_50_with_default_constraints(self):
