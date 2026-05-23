@@ -12,10 +12,14 @@ from api import database as database_module
 from api.database import (
     Action,
     Base,
+    BusinessProfile,
     Client,
     ClientContext,
     Conversation,
     Message,
+    MethodologyPromptVersion,
+    QuestionCandidate,
+    QuestionScore,
     Scan,
     ScanAnalysis,
     ScanArtifact,
@@ -59,6 +63,10 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertIn("messages", inspector.get_table_names())
             self.assertIn("content_drafts", inspector.get_table_names())
             self.assertIn("assistant_rate_limit_events", inspector.get_table_names())
+            self.assertIn("business_profile", inspector.get_table_names())
+            self.assertIn("methodology_prompt_version", inspector.get_table_names())
+            self.assertIn("question_candidate", inspector.get_table_names())
+            self.assertIn("question_score", inspector.get_table_names())
 
             artifact_columns = {
                 column["name"] for column in inspector.get_columns("scan_artifacts")
@@ -192,6 +200,75 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "event_type",
                     "created_at",
                 }.issubset(rate_limit_columns)
+            )
+
+            profile_columns = {
+                column["name"] for column in inspector.get_columns("business_profile")
+            }
+            self.assertTrue(
+                {
+                    "client_id",
+                    "vertical",
+                    "objective",
+                    "category",
+                    "icp",
+                    "geographic_scope",
+                    "competitors",
+                    "personas",
+                    "crawl_artifacts",
+                    "floor_met",
+                }.issubset(profile_columns)
+            )
+
+            candidate_columns = {
+                column["name"] for column in inspector.get_columns("question_candidate")
+            }
+            self.assertTrue(
+                {
+                    "client_id",
+                    "text",
+                    "text_hash",
+                    "journey_stage",
+                    "brand_frame",
+                    "intent_class",
+                    "realism_score",
+                    "selected",
+                    "generator_version",
+                    "realism_filter_version",
+                }.issubset(candidate_columns)
+            )
+
+            score_columns = {
+                column["name"] for column in inspector.get_columns("question_score")
+            }
+            self.assertTrue(
+                {
+                    "question_id",
+                    "scored_at",
+                    "d1_buyer_plausibility",
+                    "d2_commercial_proximity",
+                    "d3_cognitive_answerability",
+                    "d4_diagnostic_power",
+                    "d5_statistical_identifiability",
+                    "weighted_score",
+                    "scorer_version",
+                }.issubset(score_columns)
+            )
+
+            prompt_columns = {
+                column["name"] for column in inspector.get_columns("methodology_prompt_version")
+            }
+            self.assertTrue(
+                {
+                    "prompt_key",
+                    "version",
+                    "provider",
+                    "model",
+                    "prompt_text",
+                    "prompt_hash",
+                    "prev_chain_hash",
+                    "chain_hash",
+                }.issubset(prompt_columns)
             )
 
     def test_persists_scan_artifact_analysis_and_citation_rows(self):

@@ -1,0 +1,68 @@
+vertical: ecommerce
+label: E-commerce / DTC
+description: Online brands selling products directly or through marketplaces.
+required_fields:
+  - category
+  - price_tier_band
+  - target_demographic
+  - competitors
+  - marketplace_presence
+  - shipping_geographic_scope
+  - values_positioning
+fields:
+  - id: category
+    label: Product categories
+    type: list
+    required: true
+    placeholder: Clean skincare, mineral sunscreen, travel-size kits
+    patch_field: category
+    validators:
+      min_items: 1
+  - id: price_tier_band
+    label: Price tier band
+    type: select
+    required: true
+    patch_field: price_tier_band
+    options:
+      - Budget
+      - Mid-market
+      - Premium
+      - Luxury
+  - id: target_demographic
+    label: Target demographic
+    type: textarea
+    required: true
+    placeholder: Women 25-44 with sensitive skin, mostly US urban shoppers
+    patch_field: target_demographic
+  - id: competitors
+    label: Brand competitors
+    type: list
+    required: true
+    placeholder: Competitor A, Competitor B, Competitor C
+    patch_field: competitors
+    validators:
+      min_items: 3
+  - id: marketplace_presence
+    label: Marketplace presence
+    type: textarea
+    required: true
+    placeholder: Shopify DTC, Amazon, Target.com
+    patch_field: marketplace_presence
+  - id: shipping_geographic_scope
+    label: Shipping geographic scope
+    type: text
+    required: true
+    placeholder: Ships to the United States and Canada
+    patch_field: shipping_geographic_scope
+  - id: values_positioning
+    label: Values positioning
+    type: textarea
+    required: true
+    placeholder: Vegan, cruelty-free, refillable packaging
+    patch_field: values_positioning
+  - id: primary_persona
+    label: Primary buyer persona
+    type: text
+    required: false
+    placeholder: Ingredient-conscious skincare shopper
+    patch_field: primary_persona

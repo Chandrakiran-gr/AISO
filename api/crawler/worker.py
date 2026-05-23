@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from api.client_context_service import build_context_profile
+from api.crawler.artifacts import build_crawl_artifacts
 from api.crawler.models import (
     CrawlBusinessProfile,
     CrawlJob,
@@ -29,7 +30,7 @@ from api.crawler.models import (
 )
 from api.crawler.policy import classify_page_type
 from api.crawler.url_utils import extract_domain, normalize_url
-from api.database import Client, ClientContext, SessionLocal
+from api.database import BusinessProfile, Client, ClientContext, SessionLocal
 from api.website_ingestion import FetchPage, IngestionConfig, discover_website
 
 logger = logging.getLogger(__name__)
@@ -51,13 +52,25 @@ def _positive_int_env(name: str, default: int) -> int:
     return max(1, value)
 
 
+def _non_negative_float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, value)
+
+
 def _bounded_ingestion_config(job: CrawlJob) -> IngestionConfig:
     """Bound crawler scope even if a direct API caller requests a huge crawl."""
     max_pages_cap = _positive_int_env("AISO_CRAWLER_MAX_PAGES", 25)
     max_depth_cap = _positive_int_env("AISO_CRAWLER_MAX_DEPTH", 3)
+    max_playwright_pages = _positive_int_env("AISO_CRAWLER_MAX_PLAYWRIGHT_PAGES", 5)
     return IngestionConfig(
         max_pages=max(1, min(job.max_pages, max_pages_cap)),
         max_depth=max(0, min(job.max_depth, max_depth_cap)),
+        total_timeout_seconds=_non_negative_float_env("AISO_CRAWLER_TOTAL_TIMEOUT_SECONDS", 60.0),
+        allow_playwright_fallback=bool(job.allow_playwright_fallback),
+        max_playwright_pages=max(1, min(max_playwright_pages, 5)),
     )
 
 
@@ -294,7 +307,34 @@ def _upsert_client_context(
     context.updated_at = now
 
 
-def run_crawl_job(job_id: str, *, fetch_page: FetchPage | None = None) -> None:
+def _persist_phase12_crawl_artifacts(
+    db: Session,
+    *,
+    client_id: str,
+    evidence: dict[str, Any],
+    profile: dict[str, Any],
+    warnings: list[str],
+) -> dict[str, Any]:
+    artifact = build_crawl_artifacts(
+        evidence=evidence,
+        profile=profile,
+        warnings=warnings,
+    )
+    business_profile = db.query(BusinessProfile).filter(
+        BusinessProfile.client_id == client_id,
+    ).first()
+    if business_profile:
+        business_profile.crawl_artifacts = artifact
+        business_profile.updated_at = _utcnow()
+    return artifact
+
+
+def run_crawl_job(
+    job_id: str,
+    *,
+    fetch_page: FetchPage | None = None,
+    render_page: FetchPage | None = None,
+) -> None:
     """Execute a crawl job and persist pages, evidence, and draft profile."""
     db = SessionLocal()
     try:
@@ -339,6 +379,7 @@ def run_crawl_job(job_id: str, *, fetch_page: FetchPage | None = None) -> None:
             workspace.website_url,
             config=_bounded_ingestion_config(job),
             fetch_page=fetch_page,
+            render_page=render_page,
         )
         pages = evidence.get("pages") if isinstance(evidence, dict) else []
         pages = pages if isinstance(pages, list) else []
@@ -399,6 +440,13 @@ def run_crawl_job(job_id: str, *, fetch_page: FetchPage | None = None) -> None:
 
         profile, profile_warnings, context_status = build_context_profile(client, evidence)
         warnings = list(dict.fromkeys([*warnings, *profile_warnings]))
+        _persist_phase12_crawl_artifacts(
+            db,
+            client_id=client.id,
+            evidence=evidence,
+            profile=profile,
+            warnings=warnings,
+        )
         business = profile.get("business") if isinstance(profile, dict) else {}
         categories = profile.get("categories") if isinstance(profile, dict) else []
         offerings = profile.get("offerings") if isinstance(profile, dict) else []

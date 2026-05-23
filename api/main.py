@@ -12,7 +12,7 @@ import time
 import os
 
 from api.routes import auth as auth_routes
-from api.routes import actions, assistant, client_context, clients, crawler, exports, health, pipeline
+from api.routes import actions, assistant, client_context, clients, crawler, exports, health, onboarding, pipeline
 
 
 def _csv_env(name: str, default: list[str]) -> list[str]:
@@ -102,6 +102,7 @@ def on_startup():
 app.include_router(health.router,   prefix="/api/v1")
 app.include_router(auth_routes.router, prefix="/api/v1")
 app.include_router(clients.router,  prefix="/api/v1")
+app.include_router(onboarding.router, prefix="/api/v1")
 app.include_router(client_context.router, prefix="/api/v1")
 app.include_router(pipeline.router, prefix="/api/v1")
 app.include_router(actions.router, prefix="/api/v1")

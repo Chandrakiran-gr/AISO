@@ -1,0 +1,65 @@
+vertical: local_services
+label: Local Services
+description: Local businesses with service areas, locations, hours, and local competitors.
+required_fields:
+  - nap
+  - service_radius
+  - service_taxonomy
+  - competitors
+  - license_cert_numbers
+  - hours
+fields:
+  - id: category
+    label: Business category
+    type: text
+    required: false
+    placeholder: HVAC, dental, family law, plumbing
+    patch_field: category
+  - id: nap
+    label: NAP
+    type: textarea
+    required: true
+    placeholder: "Acme Dental | 123 Main St, Boston, MA 02118 | (617) 555-0100"
+    patch_field: nap
+  - id: service_radius
+    label: Service radius
+    type: text
+    required: true
+    placeholder: 20 miles around Boston
+    patch_field: service_radius
+  - id: service_taxonomy
+    label: Core services
+    type: list
+    required: true
+    placeholder: Emergency repair, installation, maintenance
+    patch_field: service_taxonomy
+    validators:
+      min_items: 1
+  - id: competitors
+    label: Local competitors
+    type: list
+    required: true
+    placeholder: Competitor A, Competitor B, Competitor C
+    patch_field: competitors
+    validators:
+      min_items: 3
+  - id: license_cert_numbers
+    label: License or certification numbers
+    type: list
+    required: true
+    placeholder: CSL-123456, EPA-987654
+    patch_field: license_cert_numbers
+    validators:
+      min_items: 1
+  - id: hours
+    label: Hours
+    type: textarea
+    required: true
+    placeholder: Mon-Fri 8am-6pm, Sat 9am-2pm
+    patch_field: hours
+  - id: primary_persona
+    label: Primary customer
+    type: text
+    required: false
+    placeholder: Homeowners with urgent repair needs
+    patch_field: primary_persona

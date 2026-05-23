@@ -7,16 +7,21 @@ Swap DATABASE_URL env var to switch backends.
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
+    JSON,
+    Numeric,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
 )
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timezone
@@ -33,6 +38,18 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+
+def _json_type():
+    return JSON().with_variant(postgresql.JSONB(astext_type=Text()), "postgresql")
+
+
+def _text_array_type():
+    return JSON().with_variant(postgresql.ARRAY(Text()), "postgresql")
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
@@ -65,6 +82,68 @@ class Client(Base):
     competitors  = Column(Text, nullable=True)                # JSON array of competitor names
     created_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class BusinessProfile(Base):
+    """Phase 12 upstream-pipeline profile confirmed before question generation."""
+    __tablename__ = "business_profile"
+    __table_args__ = (
+        CheckConstraint(
+            "vertical IN ("
+            "'b2b_saas','b2b_services','local_services','ecommerce',"
+            "'regulated_healthcare','regulated_legal','regulated_financial',"
+            "'consumer_brand','marketplace','agency','enterprise'"
+            ")",
+            name="ck_business_profile_vertical",
+        ),
+        CheckConstraint(
+            "objective IN ("
+            "'awareness','consideration','preference',"
+            "'reputation_defense','competitive_intelligence'"
+            ")",
+            name="ck_business_profile_objective",
+        ),
+    )
+
+    client_id       = Column(String, ForeignKey("clients.id"), primary_key=True)
+    vertical        = Column(String, nullable=False)
+    objective       = Column(String, nullable=False)
+    category        = Column(String, nullable=False, default="")
+    icp             = Column(_json_type(), nullable=False, default=dict)
+    geographic_scope = Column(_json_type(), nullable=False, default=dict)
+    competitors     = Column(_text_array_type(), nullable=False, default=list)
+    personas        = Column(_json_type(), nullable=False, default=dict)
+    crawl_artifacts = Column(_json_type(), nullable=False, default=dict)
+    onboarding_completed_at = Column(DateTime, nullable=True)
+    founder_reviewed_at = Column(DateTime, nullable=True)
+    floor_met       = Column(Boolean, nullable=False, default=False)
+    created_at      = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at      = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class MethodologyPromptVersion(Base):
+    """Insert-only prompt version record with a hash-chain link."""
+    __tablename__ = "methodology_prompt_version"
+    __table_args__ = (
+        UniqueConstraint(
+            "prompt_key",
+            "version",
+            "prompt_hash",
+            name="uq_methodology_prompt_version_hash",
+        ),
+        Index("ix_methodology_prompt_version_key", "prompt_key"),
+    )
+
+    id              = Column(String, primary_key=True)
+    prompt_key      = Column(String, nullable=False)
+    version         = Column(String, nullable=False)
+    provider        = Column(String, nullable=False)
+    model           = Column(String, nullable=False)
+    prompt_text     = Column(Text, nullable=False)
+    prompt_hash     = Column(String, nullable=False)
+    prev_chain_hash = Column(String, nullable=False)
+    chain_hash      = Column(String, nullable=False)
+    created_at      = Column(DateTime, nullable=False, default=_utcnow)
 
 
 class ClientContext(Base):
@@ -187,6 +266,54 @@ class ScanResult(Base):
     visibility_score  = Column(Float, nullable=True)           # 0.0 – 100.0
     competitor_data   = Column(Text, nullable=True)            # JSON: {competitor: mention_count}
     created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class QuestionCandidate(Base):
+    """Generated candidate question before realism/scoring/selection."""
+    __tablename__ = "question_candidate"
+    __table_args__ = (
+        UniqueConstraint(
+            "client_id",
+            "text_hash",
+            "generator_version",
+            name="uq_question_candidate_client_hash_generator",
+        ),
+        Index("ix_question_candidate_client", "client_id"),
+        Index("ix_question_candidate_scan_run", "scan_run_id"),
+    )
+
+    id                     = Column(String, primary_key=True)
+    client_id              = Column(String, ForeignKey("clients.id"), nullable=False)
+    scan_run_id            = Column(String, nullable=True)
+    text                   = Column(Text, nullable=False)
+    text_hash              = Column(String, nullable=False)
+    journey_stage          = Column(String, nullable=False)
+    brand_frame            = Column(String, nullable=False)
+    intent_class           = Column(String, nullable=False)
+    persona                = Column(String, nullable=True)
+    locality               = Column(String, nullable=True)
+    rationale              = Column(Text, nullable=True)
+    realism_score          = Column(Numeric(5, 3), nullable=True)
+    selected               = Column(Boolean, nullable=False, default=False)
+    generator_version      = Column(String, nullable=False)
+    realism_filter_version = Column(String, nullable=False)
+    created_at             = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class QuestionScore(Base):
+    """Immutable score row for one candidate under a scorer version."""
+    __tablename__ = "question_score"
+
+    question_id = Column(String, ForeignKey("question_candidate.id"), primary_key=True)
+    scored_at   = Column(DateTime, primary_key=True)
+    d1_buyer_plausibility = Column(Numeric(5, 3), nullable=True)
+    d2_commercial_proximity = Column(Numeric(5, 3), nullable=True)
+    d3_cognitive_answerability = Column(Numeric(5, 3), nullable=True)
+    d4_diagnostic_power = Column(Numeric(5, 3), nullable=True)
+    d5_statistical_identifiability = Column(Numeric(5, 3), nullable=True)
+    weighted_score = Column(Numeric(5, 3), nullable=False)
+    rationale      = Column(Text, nullable=True)
+    scorer_version = Column(String, nullable=False)
 
 
 class ScanArtifact(Base):

@@ -1,0 +1,98 @@
+vertical: b2b_saas
+label: B2B SaaS
+description: Software companies selling subscriptions to business buyers.
+required_fields:
+  - category
+  - industry
+  - employee_band
+  - revenue_band
+  - firmographic_geography
+  - acv_band
+  - competitors
+  - primary_persona
+  - geographic_scope_description
+fields:
+  - id: category
+    label: Product category
+    type: text
+    required: true
+    placeholder: Sales intelligence CRM
+    patch_field: category
+  - id: industry
+    label: ICP industry
+    type: text
+    required: true
+    placeholder: B2B SaaS, healthcare, financial services
+    patch_field: industry
+  - id: employee_band
+    label: ICP employee band
+    type: select
+    required: true
+    patch_field: employee_band
+    options:
+      - 1-10
+      - 11-50
+      - 51-200
+      - 201-500
+      - 501-1000
+      - 1001+
+  - id: revenue_band
+    label: ICP revenue band
+    type: select
+    required: true
+    patch_field: revenue_band
+    options:
+      - <$1M
+      - $1M-$10M
+      - $10M-$50M
+      - $50M-$250M
+      - $250M+
+  - id: firmographic_geography
+    label: ICP geography
+    type: text
+    required: true
+    placeholder: United States, North America, EU
+    patch_field: firmographic_geography
+  - id: geographic_scope_description
+    label: Sales geographic scope
+    type: text
+    required: true
+    placeholder: United States and Canada
+    patch_field: geographic_scope_description
+  - id: acv_band
+    label: ACV band
+    type: select
+    required: true
+    patch_field: acv_band
+    options:
+      - <$5k
+      - $5k-$25k
+      - $25k-$50k
+      - $50k-$100k
+      - $100k+
+  - id: competitors
+    label: Top competitors
+    type: list
+    required: true
+    placeholder: HubSpot, Salesforce, Pipedrive
+    patch_field: competitors
+    validators:
+      min_items: 3
+  - id: primary_persona
+    label: Primary buyer persona
+    type: text
+    required: true
+    placeholder: VP Sales
+    patch_field: primary_persona
+  - id: economic_buyer
+    label: Economic buyer
+    type: text
+    required: false
+    placeholder: Chief Revenue Officer
+    patch_field: economic_buyer
+  - id: end_user
+    label: Day-to-day user
+    type: text
+    required: false
+    placeholder: Sales development manager
+    patch_field: end_user

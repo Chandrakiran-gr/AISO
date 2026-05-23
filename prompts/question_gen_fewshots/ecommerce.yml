@@ -1,0 +1,50 @@
+vertical: ecommerce
+examples:
+  - question: "what are the best running shoes under $150?"
+    journey_stage: J1
+    brand_frame: unbranded_category
+    intent_class: informational
+  - question: "which skincare brands are best for sensitive skin?"
+    journey_stage: J2
+    brand_frame: unbranded_category
+    intent_class: informational
+  - question: "LumaFit vs Allbirds: which shoes are better for travel?"
+    journey_stage: J3
+    brand_frame: branded_comparison
+    intent_class: informational
+  - question: "is LumaFit worth it for everyday walking?"
+    journey_stage: J4
+    brand_frame: brand_only
+    intent_class: transactional
+  - question: "where can I buy LumaFit shoes online?"
+    journey_stage: J4
+    brand_frame: brand_only
+    intent_class: transactional
+  - question: "what are the best alternatives to Nike running shoes?"
+    journey_stage: J3
+    brand_frame: competitor_only
+    intent_class: informational
+  - question: "what do customers say about LumaFit returns?"
+    journey_stage: J5
+    brand_frame: brand_only
+    intent_class: navigational
+  - question: "does Allbirds hold up after daily commuting?"
+    journey_stage: J5
+    brand_frame: competitor_only
+    intent_class: navigational
+  - question: "what should I check before buying premium running shoes?"
+    journey_stage: J4
+    brand_frame: unbranded_category
+    intent_class: transactional
+  - question: "how do I care for merino wool shoes after purchase?"
+    journey_stage: J6
+    brand_frame: unbranded_category
+    intent_class: transactional
+  - question: "when should I reorder from LumaFit?"
+    journey_stage: J6
+    brand_frame: brand_only
+    intent_class: transactional
+  - question: "should I switch from Nike to LumaFit for walking shoes?"
+    journey_stage: J6
+    brand_frame: branded_comparison
+    intent_class: transactional

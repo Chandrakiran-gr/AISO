@@ -1,0 +1,50 @@
+vertical: b2b_saas
+examples:
+  - question: "what's the best sales CRM for a 50-person B2B SaaS team?"
+    journey_stage: J1
+    brand_frame: unbranded_category
+    intent_class: informational
+  - question: "which customer success tools work best with Salesforce?"
+    journey_stage: J2
+    brand_frame: unbranded_category
+    intent_class: informational
+  - question: "VectorCRM vs HubSpot: which is better for a VP Sales?"
+    journey_stage: J3
+    brand_frame: branded_comparison
+    intent_class: informational
+  - question: "does VectorCRM integrate with Slack and Gong?"
+    journey_stage: J2
+    brand_frame: brand_only
+    intent_class: informational
+  - question: "what is VectorCRM pricing for mid-market SaaS companies?"
+    journey_stage: J4
+    brand_frame: brand_only
+    intent_class: transactional
+  - question: "what are the best alternatives to Salesforce for pipeline reporting?"
+    journey_stage: J3
+    brand_frame: competitor_only
+    intent_class: informational
+  - question: "what should we ask on a sales CRM demo before signing?"
+    journey_stage: J4
+    brand_frame: unbranded_category
+    intent_class: transactional
+  - question: "what do customers say about VectorCRM support?"
+    journey_stage: J5
+    brand_frame: brand_only
+    intent_class: navigational
+  - question: "which CRM has the strongest reviews from B2B SaaS sales teams?"
+    journey_stage: J5
+    brand_frame: unbranded_category
+    intent_class: navigational
+  - question: "how hard is it to migrate from HubSpot to VectorCRM?"
+    journey_stage: J6
+    brand_frame: branded_comparison
+    intent_class: transactional
+  - question: "how can we get more value from VectorCRM after launch?"
+    journey_stage: J6
+    brand_frame: brand_only
+    intent_class: transactional
+  - question: "is Pipedrive reliable enough for a RevOps team?"
+    journey_stage: J5
+    brand_frame: competitor_only
+    intent_class: navigational
