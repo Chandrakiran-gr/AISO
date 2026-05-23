@@ -1,0 +1,50 @@
+vertical: local_services
+examples:
+  - question: "who is the best emergency plumber near me?"
+    journey_stage: J1
+    brand_frame: unbranded_category
+    intent_class: informational
+  - question: "best HVAC repair company in Austin?"
+    journey_stage: J2
+    brand_frame: unbranded_category
+    intent_class: informational
+  - question: "BrightHome Services vs ABC Plumbing for water heater repair?"
+    journey_stage: J3
+    brand_frame: branded_comparison
+    intent_class: informational
+  - question: "does BrightHome Services offer same-day appointments?"
+    journey_stage: J4
+    brand_frame: brand_only
+    intent_class: transactional
+  - question: "how much does drain cleaning cost in Austin?"
+    journey_stage: J4
+    brand_frame: unbranded_category
+    intent_class: transactional
+  - question: "what are customers saying about BrightHome Services reviews?"
+    journey_stage: J5
+    brand_frame: brand_only
+    intent_class: navigational
+  - question: "is ABC Plumbing good for emergency calls?"
+    journey_stage: J5
+    brand_frame: competitor_only
+    intent_class: navigational
+  - question: "what should I ask before hiring a licensed electrician?"
+    journey_stage: J2
+    brand_frame: unbranded_category
+    intent_class: informational
+  - question: "which roof repair companies serve North Dallas?"
+    journey_stage: J2
+    brand_frame: unbranded_category
+    intent_class: informational
+  - question: "when should I switch from ABC Plumbing to BrightHome Services?"
+    journey_stage: J6
+    brand_frame: branded_comparison
+    intent_class: transactional
+  - question: "how do I maintain an HVAC system after a repair visit?"
+    journey_stage: J6
+    brand_frame: unbranded_category
+    intent_class: transactional
+  - question: "is BrightHome Services worth calling for recurring maintenance?"
+    journey_stage: J6
+    brand_frame: brand_only
+    intent_class: transactional

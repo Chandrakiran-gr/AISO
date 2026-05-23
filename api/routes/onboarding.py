@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 import yaml
 
 from api.adapters.profile_draft import default_profile_draft_provider
+from api.adapters.question_generation import default_question_generation_provider
 from api.adapters.prompt_registry import ensure_prompt_version
 from api.auth import get_current_user_id
 from api.database import BusinessProfile, Client, get_db
@@ -36,6 +37,8 @@ from api.domain.profile_draft import (
     profile_draft_artifact,
     render_profile_draft_prompt,
 )
+from api.domain.question_generation import QUESTION_GENERATION_PROMPT_VERSION
+from api.question_gen.service import generate_and_persist_question_candidates
 
 router = APIRouter(tags=["onboarding"])
 SCHEMA_DIR = Path(__file__).resolve().parents[2] / "intake_schemas"
@@ -115,6 +118,27 @@ class ProfileDraftResponse(BusinessProfileResponse):
 
 class ConfirmProfileRequest(OnboardingPatchRequest):
     pass
+
+
+class QuestionGenerationRequest(BaseModel):
+    target_n: int = Field(default=50, ge=1)
+    scan_run_id: Optional[str] = None
+
+
+class QuestionGenerationResponse(BaseModel):
+    ok: bool
+    onboarding_id: str
+    client_id: str
+    target_n: int
+    candidate_count: int
+    prompt_version: str
+    prompt_hash: str
+    prompt_version_id: str
+    generator_version: str
+    provider: str
+    model: str
+    distribution: dict[str, int] = Field(default_factory=dict)
+    brand_frame_distribution: dict[str, int] = Field(default_factory=dict)
 
 
 class IntakeFieldResponse(BaseModel):
@@ -253,6 +277,10 @@ def _profile_draft_response(
 
 def get_profile_draft_provider() -> LLMProvider:
     return default_profile_draft_provider()
+
+
+def get_question_generation_provider() -> LLMProvider:
+    return default_question_generation_provider()
 
 
 def _load_intake_schema(vertical: str) -> IntakeSchemaResponse:
@@ -470,6 +498,59 @@ async def confirm_business_profile(
         floor_met=True,
         missing_fields=[],
         onboarding_completed_at=profile.onboarding_completed_at or completed_at,
+    )
+
+
+@router.post("/onboarding/{onboarding_id}/generate-questions", response_model=QuestionGenerationResponse)
+async def generate_onboarding_questions(
+    onboarding_id: str,
+    payload: QuestionGenerationRequest | None = None,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    provider: LLMProvider = Depends(get_question_generation_provider),
+):
+    """Generate and persist the 3x candidate pool after profile confirmation."""
+    payload = payload or QuestionGenerationRequest()
+    client = _client_for_user(db, onboarding_id, user_id)
+    profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Onboarding profile not found")
+
+    snapshot = _profile_snapshot(profile)
+    missing = missing_context_fields(snapshot)
+    if missing or not snapshot.floor_met or not snapshot.onboarding_completed_at:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "ProfileNotConfirmed", "missing_fields": missing},
+        )
+
+    try:
+        run = generate_and_persist_question_candidates(
+            db,
+            client=client,
+            snapshot=snapshot,
+            provider=provider,
+            target_n=payload.target_n,
+            scan_run_id=payload.scan_run_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    db.commit()
+    return QuestionGenerationResponse(
+        ok=True,
+        onboarding_id=profile.client_id,
+        client_id=profile.client_id,
+        target_n=payload.target_n,
+        candidate_count=len(run.candidates),
+        prompt_version=QUESTION_GENERATION_PROMPT_VERSION,
+        prompt_hash=run.prompt_hash,
+        prompt_version_id=run.prompt_version_id,
+        generator_version=run.generator_version,
+        provider=run.provider,
+        model=run.model,
+        distribution=run.distribution,
+        brand_frame_distribution=run.brand_frame_distribution,
     )
 
 
