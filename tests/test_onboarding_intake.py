@@ -64,7 +64,7 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         incomplete_detail = incomplete.json()["detail"]
         self.assertEqual(incomplete_detail["error"], "ContextFloorNotMet")
         self.assertIn("category", incomplete_detail["missing_fields"])
-        self.assertIn("competitors", incomplete_detail["missing_fields"])
+        self.assertNotIn("competitors", incomplete_detail["missing_fields"])
 
         patch_steps = [
             {"category": "sales intelligence CRM"},
@@ -75,21 +75,10 @@ class OnboardingIntakeAPITests(unittest.TestCase):
             {"acv_band": "$25k-$50k"},
             {"primary_persona": "VP Sales"},
             {"geographic_scope": {"countries": ["US"]}},
-            {"competitors": ["HubSpot", "Salesforce"]},
         ]
         for step in patch_steps:
             patched = self.client.patch(f"/api/v1/onboarding/{onboarding_id}", json=step)
             self.assertEqual(patched.status_code, 200)
-
-        two_competitors = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
-        self.assertEqual(two_competitors.status_code, 400)
-        self.assertIn("competitors", two_competitors.json()["detail"]["missing_fields"])
-
-        final_patch = self.client.patch(
-            f"/api/v1/onboarding/{onboarding_id}",
-            json={"competitors": ["HubSpot", "Salesforce", "Pipedrive"]},
-        )
-        self.assertEqual(final_patch.status_code, 200)
 
         submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
         self.assertEqual(submitted.status_code, 200)
@@ -104,7 +93,7 @@ class OnboardingIntakeAPITests(unittest.TestCase):
             profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == onboarding_id).one()
             self.assertTrue(profile.floor_met)
             self.assertIsNotNone(profile.onboarding_completed_at)
-            self.assertEqual(profile.competitors, ["HubSpot", "Salesforce", "Pipedrive"])
+            self.assertEqual(profile.competitors, [])
             self.assertEqual(profile.icp["firmographics"]["employee_band"], "51-200")
             self.assertEqual(profile.personas["primary"], "VP Sales")
         finally:
@@ -149,19 +138,48 @@ class OnboardingIntakeAPITests(unittest.TestCase):
                 "acv_band": "$25k-$50k",
                 "primary_persona": "VP Sales",
                 "geographic_scope_description": "United States",
-                "competitors": ["HubSpot", "Salesforce"],
+            },
+        )
+        self.assertEqual(partial.status_code, 200)
+
+        submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
+        self.assertEqual(submitted.status_code, 200)
+        self.assertTrue(submitted.json()["floor_met"])
+
+    def test_local_services_competitors_and_license_are_optional_but_working_hours_required(self):
+        start = self.client.post(
+            "/api/v1/onboarding/start",
+            json={
+                "display_name": "Glow Day Spa",
+                "url": "https://glow.example",
+                "vertical": "local_services",
+                "objective": "consideration",
+            },
+        )
+        self.assertEqual(start.status_code, 201)
+        onboarding_id = start.json()["onboarding_id"]
+
+        partial = self.client.patch(
+            f"/api/v1/onboarding/{onboarding_id}",
+            json={
+                "category": "day spa",
+                "nap": "Glow Day Spa | 123 Main St, Boston, MA 02118 | (617) 555-0100",
+                "service_radius": "10 miles around Boston",
+                "service_taxonomy": ["facials", "massage", "waxing"],
             },
         )
         self.assertEqual(partial.status_code, 200)
 
         blocked = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
         self.assertEqual(blocked.status_code, 400)
-        self.assertEqual(blocked.json()["detail"]["error"], "ContextFloorNotMet")
-        self.assertIn("competitors", blocked.json()["detail"]["missing_fields"])
+        missing = blocked.json()["detail"]["missing_fields"]
+        self.assertIn("geographic_scope.hours", missing)
+        self.assertNotIn("competitors", missing)
+        self.assertNotIn("icp.license_cert_numbers", missing)
 
         completed = self.client.patch(
             f"/api/v1/onboarding/{onboarding_id}",
-            json={"competitors": ["HubSpot", "Salesforce", "Pipedrive"]},
+            json={"hours": "Mon-Fri 9am-7pm, Sat 10am-5pm"},
         )
         self.assertEqual(completed.status_code, 200)
         submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")

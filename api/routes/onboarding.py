@@ -40,7 +40,7 @@ from api.domain.profile_draft import (
     profile_draft_artifact,
     render_profile_draft_prompt,
 )
-from api.domain.question_generation import QUESTION_GENERATION_PROMPT_VERSION
+from api.domain.question_generation import COMPETITOR_BRAND_FRAMES, QUESTION_GENERATION_PROMPT_VERSION
 from api.domain.question_scorer import QUESTION_SCORER_PROMPT_VERSION
 from api.domain.question_selection import (
     DEFAULT_FRAME_MIN,
@@ -257,6 +257,7 @@ class IntakeFieldResponse(BaseModel):
     label: str
     type: str
     required: bool = False
+    hint: Optional[str] = None
     placeholder: Optional[str] = None
     patch_field: str
     options: list[str] = Field(default_factory=list)
@@ -750,6 +751,14 @@ async def select_onboarding_questions(
     profile = _profile_for_user(db, onboarding_id, user_id)
     snapshot = _profile_snapshot(profile)
     personas = payload.personas if payload.personas is not None else _persona_constraints(snapshot)
+    has_competitors = bool(snapshot.competitors)
+    frame_min = payload.frame_min or dict(DEFAULT_FRAME_MIN)
+    if not has_competitors:
+        frame_min = {
+            frame: minimum
+            for frame, minimum in frame_min.items()
+            if frame not in COMPETITOR_BRAND_FRAMES
+        }
     try:
         run = apply_question_selection(
             db,
@@ -757,7 +766,7 @@ async def select_onboarding_questions(
             target_n=payload.target_n,
             critical_question_ids=payload.critical_question_ids,
             journey_min=payload.journey_min,
-            frame_min=payload.frame_min,
+            frame_min=frame_min,
             intent_band=payload.intent_band,
             personas=personas,
             scan_run_id=payload.scan_run_id,
@@ -765,6 +774,7 @@ async def select_onboarding_questions(
             objective=snapshot.objective,
             selection_mode=payload.selection_mode,
             lambda_mmr=payload.lambda_mmr,
+            has_competitors=has_competitors,
         )
         export = export_questions_and_enqueue_scan(
             db,
@@ -798,7 +808,7 @@ async def select_onboarding_questions(
         intent_distribution=run.intent_distribution,
         persona_distribution=run.persona_distribution,
         journey_min=payload.journey_min or dict(DEFAULT_JOURNEY_MIN),
-        frame_min=payload.frame_min or dict(DEFAULT_FRAME_MIN),
+        frame_min=frame_min,
         intent_band=payload.intent_band or dict(DEFAULT_INTENT_BAND),
         scan_id=export.scan_id,
         scan_status=export.scan_status,

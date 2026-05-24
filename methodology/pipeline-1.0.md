@@ -39,17 +39,17 @@ Below this floor AISO refuses to scan. Required fields by vertical:
 
 | Vertical | Required fields |
 |---|---|
-| `b2b_saas` | category, ICP firmographics (industry + employee band + revenue band + geography), ACV band, 3 competitors, primary persona, primary objective, geographic scope |
-| `b2b_services` | service offerings, ICP firmographics, engagement size band, 3 competitors, primary persona, geographic scope, specialization |
-| `local_services` | NAP (strict format), service radius, service taxonomy, 3 local competitors, license/cert numbers, primary objective, hours |
-| `ecommerce` | product categories, price tier band, target demographic, 3 brand competitors, marketplace presence, shipping geographic scope, values positioning |
-| `regulated_healthcare` | specialty, jurisdictions, license numbers, HIPAA constraints, prohibited claims, primary persona, 3 competitors |
-| `regulated_legal` | practice areas, jurisdictions, bar admissions, ABA Model Rule constraints, prohibited claims, primary persona, 3 competitors |
-| `regulated_financial` | service type, jurisdictions, FINRA/SEC registrations, prohibited claims, primary persona, 3 competitors |
-| `consumer_brand` | brand archetype, product line breadth, price tier, distribution channels, 3 competitors, demographic+psychographic target, geographic scope |
-| `marketplace` | both sides' value propositions, supply taxonomy, demand ICP, 3 competing marketplaces, geographic scope, primary measurement objective |
+| `b2b_saas` | category, ICP firmographics (industry + employee band + revenue band + geography), ACV band, primary persona, primary objective, geographic scope. Competitors optional. |
+| `b2b_services` | service offerings, ICP firmographics, engagement size band, primary persona, geographic scope, specialization. Competitors optional. |
+| `local_services` | business name, address, and phone number (strict format), service radius, service taxonomy, primary objective, working hours. Competitors and license/cert numbers optional. |
+| `ecommerce` | product categories, price tier band, target demographic, marketplace presence, shipping geographic scope, values positioning. Competitors optional. |
+| `regulated_healthcare` | specialty, jurisdictions, license numbers, HIPAA constraints, prohibited claims, primary persona. Competitors optional. |
+| `regulated_legal` | practice areas, jurisdictions, bar admissions, ABA Model Rule constraints, prohibited claims, primary persona. Competitors optional. |
+| `regulated_financial` | service type, jurisdictions, FINRA/SEC registrations, prohibited claims, primary persona. Competitors optional. |
+| `consumer_brand` | brand archetype, product line breadth, price tier, distribution channels, demographic+psychographic target, geographic scope. Competitors optional. |
+| `marketplace` | both sides' value propositions, supply taxonomy, demand ICP, geographic scope, primary measurement objective. Competing marketplaces optional. |
 | `agency` | client roster size, vertical distribution, AISO use case (own/client/both), if client-visibility then per-client intake using the appropriate vertical template |
-| `enterprise` | B2B SaaS intake + procurement signals (SOC2/ISO 27001/FedRAMP/HIPAA), analyst recognition, reference customer logos, deployment model, buying-committee size, sales-cycle length band |
+| `enterprise` | B2B SaaS intake + procurement signals (SOC2/ISO 27001/FedRAMP/HIPAA), analyst recognition, reference customer logos, deployment model, buying-committee size, sales-cycle length band. Competitors optional. |
 
 Below floor: AISO returns `400 ContextFloorNotMet` with the missing fields enumerated. Do not generate a scan.
 
@@ -59,7 +59,7 @@ Below floor: AISO returns `400 ContextFloorNotMet` with the missing fields enume
 |---|---|---|
 | Brand name, tagline, About copy | Industry / vertical (LLM inference) | ICP (firmographics, role) |
 | NAP from LocalBusiness schema | Geographic scope (sometimes in schema) | ACV / deal size band |
-| Product/service taxonomy from schema | Primary vs. peripheral offerings | Top 3 competitors |
+| Product/service taxonomy from schema | Primary vs. peripheral offerings | Competitors, if the customer knows them |
 | Customer logos / case study names | — | Buyer personas / decision-makers |
 | Pricing tiers (public only) | — | Strategic objective |
 | Blog topic distribution | — | Regulatory / compliance constraints |
@@ -171,6 +171,7 @@ Requirements for question realism:
 6. Don't generate near-duplicates.
 7. Vary across personas if multiple are present.
 8. For competitor-named questions, name actual competitors from the input list. Don't invent.
+9. If the competitor list is empty, exclude `branded_comparison` and `competitor_only` questions and redistribute coverage into `unbranded_category` and `brand_only`.
 
 <chain_of_thought>
 Before producing the final list, think step-by-step:
@@ -328,6 +329,12 @@ You are AISO's question quality scorer. For each question, score 5 dimensions on
 import pulp
 
 def select_questions(candidates, target_n, constraints, λ=0.7):
+    if not constraints.competitors:
+        candidates = [q for q in candidates
+                      if q.brand_frame not in {"branded_comparison", "competitor_only"}]
+        constraints.frame_min = {frame: count for frame, count in constraints.frame_min.items()
+                                 if frame not in {"branded_comparison", "competitor_only"}}
+
     prob = pulp.LpProblem("question_selection", pulp.LpMaximize)
     x = {q.id: pulp.LpVariable(f"x_{q.id}", cat="Binary") for q in candidates}
 

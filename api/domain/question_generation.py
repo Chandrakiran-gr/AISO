@@ -19,6 +19,7 @@ REALISM_FILTER_PENDING_VERSION = "realism_filter-pending-0.0.0"
 
 JOURNEY_STAGES = ("J1", "J2", "J3", "J4", "J5", "J6")
 BRAND_FRAMES = ("unbranded_category", "branded_comparison", "brand_only", "competitor_only")
+COMPETITOR_BRAND_FRAMES = {"branded_comparison", "competitor_only"}
 INTENT_CLASSES = ("informational", "navigational", "transactional")
 
 OBJECTIVE_STAGE_WEIGHTS: dict[str, dict[str, int]] = {
@@ -71,6 +72,7 @@ Requirements for question realism:
 6. Don't generate near-duplicates.
 7. Vary across personas if multiple are present.
 8. For competitor-named questions, name actual competitors from the input list. Don't invent.
+9. If the competitor list is empty, do not generate competitor comparison, "vs", "alternatives to", "instead of", or competitor-only questions.
 
 <chain_of_thought>
 Before producing the final list, think step-by-step:
@@ -209,6 +211,8 @@ def render_question_generation_prompt(context: QuestionGenerationContext) -> str
         "constraints": {
             "minimum_per_journey_stage": 2,
             "minimum_per_brand_frame": 1,
+            "allowed_brand_frames": list(_allowed_brand_frames(context)),
+            "competitor_frames_excluded": not _has_competitors(context),
             "token_length_target": "8-14",
             "forbidden_phrases": _forbidden_phrases(context.vertical, context.icp),
         },
@@ -261,17 +265,19 @@ def normalize_provider_candidates(text: str, context: QuestionGenerationContext)
         stage = str(item.get("journey_stage") or "").strip().upper()
         frame = str(item.get("brand_frame") or "").strip().lower()
         intent = str(item.get("intent_class") or "").strip().lower()
-        candidates.append(
-            GeneratedQuestionCandidate(
-                text=question,
-                journey_stage=stage if stage in JOURNEY_STAGES else _stage_for_index(index, context),
-                brand_frame=frame if frame in BRAND_FRAMES else _frame_for_stage(_stage_for_index(index, context), index),
-                intent_class=intent if intent in INTENT_CLASSES else _intent_for_stage(_stage_for_index(index, context)),
-                persona=_optional_str(item.get("persona")) or _persona_values(context)[index % len(_persona_values(context))],
-                locality=_optional_str(item.get("locality")) or _locality(context),
-                rationale=_optional_str(item.get("rationale")) or "A buyer would ask this while evaluating fit.",
-            )
+        fallback_stage = _stage_for_index(index, context)
+        candidate = GeneratedQuestionCandidate(
+            text=question,
+            journey_stage=stage if stage in JOURNEY_STAGES else fallback_stage,
+            brand_frame=frame if frame in _allowed_brand_frames(context) else _frame_for_stage(fallback_stage, index, context),
+            intent_class=intent if intent in INTENT_CLASSES else _intent_for_stage(fallback_stage),
+            persona=_optional_str(item.get("persona")) or _persona_values(context)[index % len(_persona_values(context))],
+            locality=_optional_str(item.get("locality")) or _locality(context),
+            rationale=_optional_str(item.get("rationale")) or "A buyer would ask this while evaluating fit.",
         )
+        if not _candidate_allowed_for_context(candidate, context):
+            continue
+        candidates.append(candidate)
         if len(candidates) >= candidate_pool_size(context.target_n):
             break
     return _fit_candidates_to_distribution(candidates, context)
@@ -282,7 +288,11 @@ def _fit_candidates_to_distribution(
     context: QuestionGenerationContext,
 ) -> list[GeneratedQuestionCandidate]:
     expected = stage_distribution(context.objective, candidate_pool_size(context.target_n))
-    fallback = heuristic_question_candidates(context)
+    fallback = [
+        candidate
+        for candidate in heuristic_question_candidates(context)
+        if _candidate_allowed_for_context(candidate, context)
+    ]
     output: list[GeneratedQuestionCandidate] = []
     seen: set[str] = set()
     for stage in JOURNEY_STAGES:
@@ -301,7 +311,7 @@ def _fit_candidates_to_distribution(
 
         index = 0
         while stage_count < expected[stage]:
-            frame = _frame_for_stage(stage, index)
+            frame = _frame_for_stage(stage, index, context)
             candidate = _fallback_unique_candidate(context, stage, frame, index + len(output))
             text_hash = question_text_hash(candidate.text)
             if text_hash not in seen:
@@ -324,7 +334,7 @@ def heuristic_question_candidates(context: QuestionGenerationContext) -> list[Ge
         max_attempts = max(stage_count * 50, 100)
         attempts = 0
         while stage_output_count < stage_count:
-            frame = _frame_for_stage(stage, stage_index)
+            frame = _frame_for_stage(stage, stage_index, context)
             candidate = _heuristic_candidate(context, stage, frame, stage_index)
             text_hash = question_text_hash(candidate.text)
             if text_hash in seen:
@@ -389,7 +399,9 @@ def _heuristic_candidate(
 ) -> GeneratedQuestionCandidate:
     brand = context.brand_name or "the brand"
     category = context.category or "solution"
-    competitors = context.competitors or ["a named competitor"]
+    if not _has_competitors(context) and frame in COMPETITOR_BRAND_FRAMES:
+        frame = "brand_only"
+    competitors = context.competitors or [brand]
     competitor = competitors[index % len(competitors)]
     personas = _persona_values(context)
     persona = personas[index % len(personas)]
@@ -595,7 +607,7 @@ def _competitor_text(
     return _cycle(templates[stage], index).format(**locals())
 
 
-def _frame_for_stage(stage: str, index: int) -> str:
+def _frame_for_stage(stage: str, index: int, context: QuestionGenerationContext | None = None) -> str:
     mixes = {
         "J1": ("unbranded_category", "unbranded_category", "unbranded_category", "competitor_only", "brand_only", "branded_comparison"),
         "J2": ("unbranded_category", "unbranded_category", "brand_only", "branded_comparison", "competitor_only"),
@@ -605,6 +617,9 @@ def _frame_for_stage(stage: str, index: int) -> str:
         "J6": ("brand_only", "unbranded_category", "branded_comparison", "competitor_only"),
     }
     sequence = mixes.get(stage, BRAND_FRAMES)
+    if context is not None:
+        allowed = set(_allowed_brand_frames(context))
+        sequence = tuple(frame for frame in sequence if frame in allowed) or _allowed_brand_frames(context)
     return sequence[index % len(sequence)]
 
 
@@ -624,6 +639,39 @@ def _intent_for_stage(stage: str) -> str:
     if stage == "J5":
         return "navigational"
     return "informational"
+
+
+def _has_competitors(context: QuestionGenerationContext) -> bool:
+    return bool([name for name in context.competitors if str(name).strip()])
+
+
+def _allowed_brand_frames(context: QuestionGenerationContext) -> tuple[str, ...]:
+    if _has_competitors(context):
+        return BRAND_FRAMES
+    return ("unbranded_category", "brand_only")
+
+
+def _candidate_allowed_for_context(
+    candidate: GeneratedQuestionCandidate,
+    context: QuestionGenerationContext,
+) -> bool:
+    if _has_competitors(context):
+        return True
+    if candidate.brand_frame in COMPETITOR_BRAND_FRAMES:
+        return False
+    return not question_uses_competitor_pattern(candidate.text)
+
+
+def question_uses_competitor_pattern(text: str) -> bool:
+    lower = str(text or "").lower()
+    return bool(
+        re.search(
+            r"\bvs\.?\b|\bversus\b|\bcompetitors?\b|\balternatives?\s+to\b|"
+            r"\binstead\s+of\b|\bbetter\s+than\b|\bswitch(?:ing)?\s+from\b|"
+            r"\bmigrat(?:e|ing|ion)\s+from\b",
+            lower,
+        )
+    )
 
 
 def _rationale(stage: str, frame: str) -> str:
@@ -659,6 +707,8 @@ def _fallback_unique_candidate(
 ) -> GeneratedQuestionCandidate:
     brand = context.brand_name or "the brand"
     category = context.category or "solution"
+    if not _has_competitors(context) and frame in COMPETITOR_BRAND_FRAMES:
+        frame = "brand_only"
     persona = _persona_values(context)[index % len(_persona_values(context))]
     detail = _cycle(_buying_contexts(), index)
     criterion = _cycle(_criteria(), index)
