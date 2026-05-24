@@ -12,7 +12,7 @@ import time
 import os
 
 from api.routes import auth as auth_routes
-from api.routes import actions, assistant, client_context, clients, crawler, exports, health, onboarding, pipeline
+from api.routes import actions, assistant, client_context, clients, crawler, exports, health, onboarding, pipeline, scan_runs
 
 
 def _csv_env(name: str, default: list[str]) -> list[str]:
@@ -51,6 +51,7 @@ app.add_middleware(
         "Authorization",
         "Content-Type",
         "X-AISO-Internal-Secret",
+        "Idempotency-Key",
         "X-Requested-With",
         "X-User-Id",
     ],
@@ -103,6 +104,7 @@ app.include_router(health.router,   prefix="/api/v1")
 app.include_router(auth_routes.router, prefix="/api/v1")
 app.include_router(clients.router,  prefix="/api/v1")
 app.include_router(onboarding.router, prefix="/api/v1")
+app.include_router(scan_runs.router, prefix="/api/v1")
 app.include_router(client_context.router, prefix="/api/v1")
 app.include_router(pipeline.router, prefix="/api/v1")
 app.include_router(actions.router, prefix="/api/v1")
