@@ -572,7 +572,7 @@ class QuestionCandidate(Base):
 
 class QuestionScore(Base):
     """Immutable score row for one candidate under a scorer version."""
-    __tablename__ = "question_score"
+    __tablename__ = "question_candidate_score"
 
     question_id = Column(String, ForeignKey("question_candidate.id"), primary_key=True)
     scored_at   = Column(DateTime, primary_key=True)
@@ -584,6 +584,134 @@ class QuestionScore(Base):
     weighted_score = Column(Numeric(5, 3), nullable=False)
     rationale      = Column(Text, nullable=True)
     scorer_version = Column(String, nullable=False)
+
+
+class QuestionBankVersion(Base):
+    """Versioned canonical measurement question bank for a client."""
+    __tablename__ = "question_bank_version"
+
+    bank_version_id   = Column(String, primary_key=True)
+    client_id         = Column(String, ForeignKey("clients.id"), nullable=False)
+    avs_version       = Column(Text, nullable=False)
+    effective_from    = Column(DateTime, nullable=False)
+    effective_to      = Column(DateTime, nullable=True)
+    n_core            = Column(Integer, nullable=False)
+    n_tail            = Column(Integer, nullable=False)
+    n_total           = Column(Integer, nullable=False)
+    rotation_reason   = Column(Text, nullable=True)
+    parent_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id"), nullable=True)
+    created_at        = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class QuestionBankQuestion(Base):
+    """Canonical immutable question used by scan manifests."""
+    __tablename__ = "question"
+    __table_args__ = (
+        CheckConstraint(
+            "journey_stage IN ('J1','J2','J3','J4','J5','J6')",
+            name="ck_question_journey_stage",
+        ),
+        CheckConstraint(
+            "brand_frame IN ('U','B','C')",
+            name="ck_question_brand_frame",
+        ),
+        CheckConstraint(
+            "source IN ('generated','manual','imported')",
+            name="ck_question_source",
+        ),
+        UniqueConstraint("client_id", "text_hash", name="uq_question_client_text_hash"),
+    )
+
+    question_id   = Column(String, primary_key=True)
+    client_id     = Column(String, ForeignKey("clients.id"), nullable=False)
+    text          = Column(Text, nullable=False)
+    text_hash     = Column(Text, nullable=False)
+    journey_stage = Column(Text, nullable=False)
+    brand_frame   = Column(Text, nullable=False)
+    locality      = Column(Text, nullable=False, default="L0")
+    persona_id    = Column(String, nullable=True)
+    source        = Column(Text, nullable=False)
+    created_at    = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class QuestionBankScore(Base):
+    """Canonical question-bank score row from question-bank-1.0.md."""
+    __tablename__ = "question_score"
+
+    question_id          = Column(String, ForeignKey("question.question_id"), primary_key=True)
+    scored_at            = Column(DateTime, primary_key=True)
+    journey_match        = Column(Numeric(5, 3), nullable=True)
+    brand_frame_match    = Column(Numeric(5, 3), nullable=True)
+    demand_signal        = Column(Numeric(5, 3), nullable=True)
+    commercial_prox      = Column(Numeric(5, 3), nullable=True)
+    buyer_plausibility   = Column(Numeric(5, 3), nullable=True)
+    scope_calibration    = Column(Numeric(5, 3), nullable=True)
+    objective_alignment  = Column(Numeric(5, 3), nullable=True)
+    construct_coverage   = Column(Numeric(5, 3), nullable=True)
+    provider_diff        = Column(Numeric(5, 3), nullable=True)
+    goodhart_resistance  = Column(Numeric(5, 3), nullable=True)
+    answer_stability     = Column(Numeric(5, 3), nullable=True)
+    composite            = Column(Numeric(5, 3), nullable=False)
+    scorer_version       = Column(Text, nullable=False)
+
+
+class QuestionBankMembership(Base):
+    """Membership and HT weight for a question in a bank version."""
+    __tablename__ = "question_bank_membership"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('FROZEN','TAIL','BRIDGE_IN','BRIDGE_OUT')",
+            name="ck_question_bank_membership_state",
+        ),
+    )
+
+    bank_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id"), primary_key=True)
+    question_id     = Column(String, ForeignKey("question.question_id"), primary_key=True)
+    state           = Column(Text, nullable=False)
+    weight          = Column(Numeric(6, 4), nullable=False, default=1)
+    entered_at      = Column(DateTime, nullable=False)
+
+
+class ScanManifest(Base):
+    """Question manifest fixed at scan start."""
+    __tablename__ = "scan_manifest"
+
+    scan_id        = Column(String, primary_key=True)
+    question_id    = Column(String, ForeignKey("question.question_id"), primary_key=True)
+    bank_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id"), nullable=False)
+    weight_at_scan = Column(Numeric(6, 4), nullable=False)
+    state_at_scan  = Column(Text, nullable=False)
+
+
+class QuestionBridge(Base):
+    """Bridge record for rotated questions."""
+    __tablename__ = "question_bridge"
+    __table_args__ = (
+        CheckConstraint(
+            "bridge_method IN ('parallel_measurement','rasch_latent','none')",
+            name="ck_question_bridge_method",
+        ),
+    )
+
+    bridge_id         = Column(String, primary_key=True)
+    old_question_id   = Column(String, ForeignKey("question.question_id"), nullable=False)
+    new_question_id   = Column(String, ForeignKey("question.question_id"), nullable=True)
+    bridge_scan_id    = Column(String, nullable=True)
+    equivalence_score = Column(Numeric(5, 3), nullable=True)
+    bridge_method     = Column(Text, nullable=False)
+    avs_version_pre   = Column(Text, nullable=True)
+    avs_version_post  = Column(Text, nullable=True)
+    created_at        = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class QuestionDeprecation(Base):
+    """Deprecation record for a canonical question."""
+    __tablename__ = "question_deprecation"
+
+    question_id    = Column(String, ForeignKey("question.question_id"), primary_key=True)
+    deprecated_at  = Column(DateTime, nullable=False)
+    reason         = Column(Text, nullable=False)
+    replaced_by    = Column(String, ForeignKey("question.question_id"), nullable=True)
 
 
 class ScanArtifact(Base):

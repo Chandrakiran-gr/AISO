@@ -25,6 +25,16 @@ PHASE13_TABLES = (
     "avs_computation",
     "audit_event",
 )
+QUESTION_BANK_TABLES = (
+    "question_candidate_score",
+    "question_bank_version",
+    "question",
+    "question_score",
+    "question_bank_membership",
+    "scan_manifest",
+    "question_bridge",
+    "question_deprecation",
+)
 PHASE13_CLIENT_COLUMNS = {
     "tier",
     "cost_budget_default_usd",
@@ -65,7 +75,16 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("business_profile", inspector.get_table_names())
                     self.assertIn("methodology_prompt_version", inspector.get_table_names())
                     self.assertIn("question_candidate", inspector.get_table_names())
-                    self.assertIn("question_score", inspector.get_table_names())
+                    for table_name in QUESTION_BANK_TABLES:
+                        self.assertIn(table_name, inspector.get_table_names())
+                    candidate_score_columns = {
+                        column["name"] for column in inspector.get_columns("question_candidate_score")
+                    }
+                    self.assertIn("d1_buyer_plausibility", candidate_score_columns)
+                    bank_score_columns = {
+                        column["name"] for column in inspector.get_columns("question_score")
+                    }
+                    self.assertIn("commercial_prox", bank_score_columns)
                     for table_name in PHASE13_TABLES:
                         self.assertIn(table_name, inspector.get_table_names())
                     self.assertIn("alembic_version", inspector.get_table_names())
@@ -113,7 +132,16 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("business_profile", inspector.get_table_names())
                     self.assertIn("methodology_prompt_version", inspector.get_table_names())
                     self.assertIn("question_candidate", inspector.get_table_names())
-                    self.assertIn("question_score", inspector.get_table_names())
+                    for table_name in QUESTION_BANK_TABLES:
+                        self.assertIn(table_name, inspector.get_table_names())
+                    candidate_score_columns = {
+                        column["name"] for column in inspector.get_columns("question_candidate_score")
+                    }
+                    self.assertIn("d1_buyer_plausibility", candidate_score_columns)
+                    bank_score_columns = {
+                        column["name"] for column in inspector.get_columns("question_score")
+                    }
+                    self.assertIn("commercial_prox", bank_score_columns)
                     for table_name in PHASE13_TABLES:
                         self.assertIn(table_name, inspector.get_table_names())
                     client_columns = {
