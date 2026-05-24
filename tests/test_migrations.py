@@ -11,6 +11,28 @@ from sqlalchemy import create_engine, inspect
 from api.database import Base
 
 MIGRATIONS_DIR = Path("migrations/versions")
+PHASE13_TABLES = (
+    "methodology_version_set",
+    "scan_runs",
+    "scan_progress",
+    "samples",
+    "scan_steps",
+    "idempotency_keys",
+    "cost_ledger",
+    "scan_provenance",
+    "sample",
+    "classification",
+    "avs_computation",
+    "audit_event",
+)
+PHASE13_CLIENT_COLUMNS = {
+    "tier",
+    "cost_budget_default_usd",
+    "byok",
+    "byok_keys",
+    "owned_domains",
+    "competitor_domains",
+}
 
 
 def _alembic_config(db_path: Path) -> Config:
@@ -44,7 +66,13 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("methodology_prompt_version", inspector.get_table_names())
                     self.assertIn("question_candidate", inspector.get_table_names())
                     self.assertIn("question_score", inspector.get_table_names())
+                    for table_name in PHASE13_TABLES:
+                        self.assertIn(table_name, inspector.get_table_names())
                     self.assertIn("alembic_version", inspector.get_table_names())
+                    client_columns = {
+                        column["name"] for column in inspector.get_columns("clients")
+                    }
+                    self.assertTrue(PHASE13_CLIENT_COLUMNS.issubset(client_columns))
                     action_columns = {
                         column["name"] for column in inspector.get_columns("actions")
                     }
@@ -86,6 +114,12 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("methodology_prompt_version", inspector.get_table_names())
                     self.assertIn("question_candidate", inspector.get_table_names())
                     self.assertIn("question_score", inspector.get_table_names())
+                    for table_name in PHASE13_TABLES:
+                        self.assertIn(table_name, inspector.get_table_names())
+                    client_columns = {
+                        column["name"] for column in inspector.get_columns("clients")
+                    }
+                    self.assertTrue(PHASE13_CLIENT_COLUMNS.issubset(client_columns))
                     conversation_columns = {
                         column["name"] for column in inspector.get_columns("conversations")
                     }

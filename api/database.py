@@ -15,6 +15,7 @@ from sqlalchemy import (
     Index,
     Integer,
     JSON,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -80,6 +81,12 @@ class Client(Base):
     industry     = Column(String, nullable=True)
     location     = Column(String, nullable=True)
     competitors  = Column(Text, nullable=True)                # JSON array of competitor names
+    tier          = Column(String, default="free", nullable=False)  # free | pro | growth | scale | enterprise
+    cost_budget_default_usd = Column(Numeric(10, 2), default=5, nullable=False)
+    byok          = Column(Boolean, default=False, nullable=False)
+    byok_keys     = Column(_json_type(), nullable=True)        # Secret references/metadata only; never raw keys.
+    owned_domains = Column(_text_array_type(), nullable=True)
+    competitor_domains = Column(_text_array_type(), nullable=True)
     created_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -144,6 +151,269 @@ class MethodologyPromptVersion(Base):
     prev_chain_hash = Column(String, nullable=False)
     chain_hash      = Column(String, nullable=False)
     created_at      = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class MethodologyVersionSet(Base):
+    """Composable methodology versions stamped onto downstream scans."""
+    __tablename__ = "methodology_version_set"
+    __table_args__ = (
+        Index("ix_methodology_version_set_validity", "valid_from", "valid_to"),
+    )
+
+    id                              = Column(String, primary_key=True)
+    label                           = Column(Text, nullable=False, unique=True)
+    avs_formula_version             = Column(Text, nullable=False)
+    bank_version                    = Column(Text, nullable=False)
+    stance_classifier_version       = Column(Text, nullable=False)
+    source_classifier_version       = Column(Text, nullable=False)
+    sampling_config_version         = Column(Text, nullable=False)
+    provider_model_snapshot_version = Column(Text, nullable=False)
+    valid_from                      = Column(DateTime, nullable=False)
+    valid_to                        = Column(DateTime, nullable=True)
+    sys_period                      = Column(Text, nullable=False)
+    spec_document_url               = Column(Text, nullable=False)
+    spec_document_hash              = Column(LargeBinary, nullable=False)
+    change_memo_url                 = Column(Text, nullable=True)
+    approved_by                     = Column(Text, nullable=False)
+    approved_at                     = Column(DateTime, nullable=False)
+    shadow_run_started_at           = Column(DateTime, nullable=True)
+    shadow_run_ended_at             = Column(DateTime, nullable=True)
+    superseded_by                   = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
+
+
+class ScanRun(Base):
+    """Spec-compliant downstream scan run, separate from the legacy scans table."""
+    __tablename__ = "scan_runs"
+    __table_args__ = (
+        UniqueConstraint("client_id", "idempotency_key", name="uq_scan_runs_client_idempotency"),
+        Index("idx_scan_runs_client_status", "client_id", "status"),
+    )
+
+    id                         = Column(String, primary_key=True)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    idempotency_key            = Column(Text, nullable=False)
+    methodology_version        = Column(Text, nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
+    status                     = Column(Text, nullable=False)
+    completeness               = Column(Text, nullable=True)
+    cost_budget_usd            = Column(Numeric(10, 4), nullable=False)
+    cost_spent_usd             = Column(Numeric(10, 4), nullable=False, default=0)
+    latency_class              = Column(Text, nullable=False)
+    enqueued_at                = Column(DateTime, nullable=False, default=_utcnow)
+    started_at                 = Column(DateTime, nullable=True)
+    finished_at                = Column(DateTime, nullable=True)
+    error_summary              = Column(_json_type(), nullable=True)
+
+
+class ScanProgress(Base):
+    """Polling progress projection for a downstream scan run."""
+    __tablename__ = "scan_progress"
+
+    scan_run_id     = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), primary_key=True)
+    status          = Column(Text, nullable=False)
+    stage           = Column(Text, nullable=False, default="queued")
+    total_calls     = Column(Integer, nullable=False)
+    completed_calls = Column(Integer, nullable=False, default=0)
+    failed_calls    = Column(Integer, nullable=False, default=0)
+    per_provider    = Column(_json_type(), nullable=False, default=dict)
+    eta_seconds     = Column(Integer, nullable=True)
+    updated_at      = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class ExecutionSample(Base):
+    """Idempotent provider-call result row used by the execution saga."""
+    __tablename__ = "samples"
+
+    scan_run_id        = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), primary_key=True)
+    question_id        = Column(Text, primary_key=True)
+    provider           = Column(Text, primary_key=True)
+    sample_index       = Column(Integer, primary_key=True)
+    seed               = Column(BigInteger, nullable=False)
+    raw_response       = Column(_json_type(), nullable=True)
+    system_fingerprint = Column(Text, nullable=True)
+    cost_usd           = Column(Numeric(10, 6), nullable=False, default=0)
+    provider_idem_key  = Column(Text, nullable=False)
+    classified_stance  = Column(Text, nullable=True)
+    classified_source  = Column(Text, nullable=True)
+    failure_reason     = Column(Text, nullable=True)
+    created_at         = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ScanStep(Base):
+    """Idempotency ledger for every saga step transition."""
+    __tablename__ = "scan_steps"
+    __table_args__ = (
+        CheckConstraint(
+            "event IN ('started','succeeded','failed','compensated')",
+            name="ck_scan_steps_event",
+        ),
+        Index("idx_scan_steps_at", "scan_run_id", "occurred_at"),
+    )
+
+    scan_run_id = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), primary_key=True)
+    step_id     = Column(Text, primary_key=True)
+    event       = Column(Text, primary_key=True)
+    attempt     = Column(Integer, primary_key=True, default=1)
+    payload     = Column(_json_type(), nullable=True)
+    occurred_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class IdempotencyKey(Base):
+    """HTTP idempotency store for scan-run creation and replay."""
+    __tablename__ = "idempotency_keys"
+    __table_args__ = (
+        Index("idx_idempotency_gc", "created_at"),
+    )
+
+    key             = Column(Text, primary_key=True)
+    scope           = Column(Text, nullable=False)
+    request_hash    = Column(Text, nullable=False)
+    response_status = Column(Integer, nullable=True)
+    response_body   = Column(_json_type(), nullable=True)
+    created_at      = Column(DateTime, nullable=False, default=_utcnow)
+    locked_at       = Column(DateTime, nullable=True)
+    completed_at    = Column(DateTime, nullable=True)
+
+
+class CostLedger(Base):
+    """Per-provider spend ledger for one scan run."""
+    __tablename__ = "cost_ledger"
+
+    scan_run_id = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), primary_key=True)
+    provider    = Column(Text, primary_key=True)
+    spent_usd   = Column(Numeric(10, 6), nullable=False, default=0)
+    updated_at  = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class ScanProvenance(Base):
+    """Immutable provenance record for completed downstream scan inputs/outputs."""
+    __tablename__ = "scan_provenance"
+    __table_args__ = (
+        Index("ix_scan_provenance_client", "client_id"),
+    )
+
+    scan_id                    = Column(String, ForeignKey("scan_runs.id"), primary_key=True)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=False)
+    scan_started_at            = Column(DateTime, nullable=False)
+    scan_completed_at          = Column(DateTime, nullable=False)
+    question_count             = Column(Integer, nullable=False)
+    sample_count               = Column(Integer, nullable=False)
+    raw_response_archive_url   = Column(Text, nullable=False)
+    raw_response_archive_hash  = Column(LargeBinary, nullable=False)
+    scan_manifest_hash         = Column(LargeBinary, nullable=False)
+    git_sha                    = Column(Text, nullable=False)
+    computed_by_host           = Column(Text, nullable=False)
+    prev_provenance_hash       = Column(LargeBinary, nullable=True)
+    this_provenance_hash       = Column(LargeBinary, nullable=False)
+    signed_at                  = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class Sample(Base):
+    """Canonical raw LLM response sample used for classification and AVS."""
+    __tablename__ = "sample"
+    __table_args__ = (
+        UniqueConstraint(
+            "scan_id",
+            "question_id",
+            "provider",
+            "sample_index",
+            name="uq_sample_scan_question_provider_index",
+        ),
+        Index("ix_sample_scan_provider", "scan_id", "provider"),
+    )
+
+    id                   = Column(String, primary_key=True)
+    scan_id              = Column(String, ForeignKey("scan_provenance.scan_id"), nullable=False)
+    question_id          = Column(String, nullable=False)
+    provider             = Column(Text, nullable=False)
+    provider_model       = Column(Text, nullable=False)
+    system_fingerprint   = Column(Text, nullable=True)
+    temperature          = Column(Numeric(4, 3), nullable=False)
+    seed                 = Column(BigInteger, nullable=False)
+    sample_index         = Column(Integer, nullable=False)
+    request_payload_hash = Column(LargeBinary, nullable=False)
+    raw_response_text    = Column(Text, nullable=False)
+    raw_response_hash    = Column(LargeBinary, nullable=False)
+    response_received_at = Column(DateTime, nullable=False)
+    latency_ms           = Column(Integer, nullable=True)
+
+
+class Classification(Base):
+    """Classifier judgment row for stance/source outputs consumed by AVS."""
+    __tablename__ = "classification"
+    __table_args__ = (
+        Index("ix_classification_sample_type", "sample_id", "classifier_type"),
+    )
+
+    id                     = Column(String, primary_key=True)
+    sample_id              = Column(String, ForeignKey("sample.id"), nullable=False)
+    classifier_type        = Column(Text, nullable=False)
+    classifier_version     = Column(Text, nullable=False)
+    classifier_model       = Column(Text, nullable=False)
+    prompt_hash            = Column(LargeBinary, nullable=False)
+    self_consistency_n     = Column(Integer, nullable=True)
+    individual_judgments   = Column(_json_type(), nullable=True)
+    consensus_value        = Column(Text, nullable=False)
+    consensus_confidence   = Column(Numeric(5, 4), nullable=True)
+    judged_at              = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class AVSComputation(Base):
+    """Computed AVS projection for one scan under one methodology version set."""
+    __tablename__ = "avs_computation"
+    __table_args__ = (
+        UniqueConstraint(
+            "scan_id",
+            "methodology_version_set_id",
+            name="uq_avs_computation_scan_methodology",
+        ),
+        Index("ix_avs_computation_scan_primary", "scan_id", "is_primary"),
+    )
+
+    id                         = Column(String, primary_key=True)
+    scan_id                    = Column(String, ForeignKey("scan_provenance.scan_id"), nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=False)
+    avs_value                  = Column(Numeric(6, 3), nullable=False)
+    presence                   = Column(Numeric(6, 5), nullable=False)
+    prominence                 = Column(Numeric(6, 5), nullable=False)
+    positivity                 = Column(Numeric(6, 5), nullable=False)
+    ci_lower_95                = Column(Numeric(6, 3), nullable=False)
+    ci_upper_95                = Column(Numeric(6, 3), nullable=False)
+    ci_method                  = Column(Text, nullable=False)
+    bootstrap_iterations       = Column(Integer, nullable=True)
+    computed_at                = Column(DateTime, nullable=False, default=_utcnow)
+    computed_by_git_sha        = Column(Text, nullable=False)
+    is_primary                 = Column(Boolean, nullable=False, default=True)
+
+
+class AuditEvent(Base):
+    """Insert-only hash-chained audit event."""
+    __tablename__ = "audit_event"
+    __table_args__ = (
+        Index("idx_audit_event_resource", "resource_type", "resource_id"),
+        Index("idx_audit_event_actor", "actor_type", "actor_id"),
+        Index("idx_audit_event_correlation", "correlation_id"),
+    )
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    event_time       = Column(DateTime, nullable=False, default=_utcnow)
+    actor_type       = Column(Text, nullable=False)
+    actor_id         = Column(Text, nullable=False)
+    actor_session_id = Column(Text, nullable=True)
+    source_ip        = Column(String, nullable=True)
+    user_agent       = Column(Text, nullable=True)
+    action           = Column(Text, nullable=False)
+    resource_type    = Column(Text, nullable=False)
+    resource_id      = Column(Text, nullable=False)
+    before_state     = Column(_json_type(), nullable=True)
+    after_state      = Column(_json_type(), nullable=True)
+    reason           = Column(Text, nullable=True)
+    correlation_id   = Column(String, nullable=True)
+    txid             = Column(BigInteger, nullable=False, default=0)
+    prev_event_hash  = Column(LargeBinary, nullable=True)
+    event_hash       = Column(LargeBinary, nullable=False)
+    hmac_key_version = Column(Integer, nullable=False)
 
 
 class ClientContext(Base):
