@@ -10,7 +10,7 @@ import re
 
 import requests
 
-from api.domain.ports import ProviderResponse
+from api.domain.ports import UpstreamProviderResponse
 from api.domain.realism_filter import length_penalty, token_count
 
 
@@ -43,7 +43,7 @@ class AnthropicRealismFilterAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         if not self.api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is required for Claude realism filtering")
 
@@ -65,7 +65,7 @@ class AnthropicRealismFilterAdapter:
         )
         response.raise_for_status()
         payload = response.json()
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=_anthropic_text(payload),
             provider="anthropic",
             model=str(payload.get("model") or self.model),
@@ -91,12 +91,12 @@ class HeuristicRealismFilterAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         payload = _extract_runtime_inputs(prompt)
         question = str(payload.get("question") or "")
         vertical = str(payload.get("vertical") or "")
         score, rationale = heuristic_realism_score(question, vertical)
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=json.dumps({"score": score, "rationale": rationale}, sort_keys=True),
             provider=self.provider,
             model=self.model,

@@ -275,7 +275,7 @@ class IdempotencyKey(Base):
     completed_at    = Column(DateTime, nullable=True)
 
 
-class CostLedger(Base):
+class CostLedgerEntry(Base):
     """Per-provider spend ledger for one scan run."""
     __tablename__ = "cost_ledger"
 

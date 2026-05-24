@@ -9,7 +9,7 @@ import os
 
 import requests
 
-from api.domain.ports import ProviderResponse
+from api.domain.ports import UpstreamProviderResponse
 
 
 DEFAULT_PROFILE_DRAFT_MODEL = "claude-sonnet-4-20250514"
@@ -45,7 +45,7 @@ class AnthropicProfileDraftAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         if not self.api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is required for Claude profile drafting")
 
@@ -68,7 +68,7 @@ class AnthropicProfileDraftAdapter:
         response.raise_for_status()
         payload = response.json()
         text = _anthropic_text(payload)
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=text,
             provider="anthropic",
             model=str(payload.get("model") or self.model),
@@ -94,7 +94,7 @@ class HeuristicProfileDraftAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         inputs = _extract_inputs(prompt)
         existing = inputs.get("existing_profile") if isinstance(inputs.get("existing_profile"), dict) else {}
         artifacts = inputs.get("crawl_artifacts") if isinstance(inputs.get("crawl_artifacts"), dict) else {}
@@ -132,7 +132,7 @@ class HeuristicProfileDraftAdapter:
                 "objective": "Strategic objective must be selected by the customer.",
             },
         }
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=json.dumps(payload, sort_keys=True),
             provider=self.provider,
             model=self.model,

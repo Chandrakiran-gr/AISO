@@ -11,7 +11,7 @@ from api.adapters.question_scorer import HeuristicQuestionScorerAdapter
 from api.auth import get_current_user_id
 from api.database import Base, BusinessProfile, Client, MethodologyPromptVersion, QuestionCandidate, QuestionScore, User, get_db
 from api.domain.question_generation import question_text_hash
-from api.domain.ports import ProviderResponse
+from api.domain.ports import UpstreamProviderResponse
 from api.domain.question_scorer import (
     QUESTION_SCORER_PROMPT_KEY,
     QUESTION_SCORER_PROMPT_VERSION,
@@ -57,7 +57,7 @@ class LowAgreementQuestionScorerAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         run_index = int(idempotency_key.rsplit(":", 1)[-1])
         score = [1.0, 5.0, 10.0][run_index]
         response = {
@@ -70,7 +70,7 @@ class LowAgreementQuestionScorerAdapter:
             },
             "rationale": "Intentionally divergent scorer fixture.",
         }
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=json.dumps(response, sort_keys=True),
             provider=self.provider,
             model=self.model,

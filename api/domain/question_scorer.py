@@ -8,7 +8,7 @@ import json
 import math
 import re
 
-from api.domain.ports import BusinessProfileSnapshot, LLMProvider, ProviderResponse
+from api.domain.ports import BusinessProfileSnapshot, UpstreamLLMProvider, UpstreamProviderResponse
 
 
 QUESTION_SCORER_PROMPT_KEY = "question_scorer"
@@ -107,7 +107,7 @@ class ScorerJudgeRun:
     scores: DimensionScores
     weighted_score: float
     rationale: str
-    provider_response: ProviderResponse
+    provider_response: UpstreamProviderResponse
 
 
 @dataclass(frozen=True)
@@ -182,7 +182,7 @@ def score_question(
     *,
     snapshot: BusinessProfileSnapshot,
     candidate: QuestionScoreInput,
-    provider: LLMProvider,
+    provider: UpstreamLLMProvider,
     idempotency_key: str,
     runs: int = SCORER_SELF_CONSISTENCY_RUNS,
 ) -> QuestionScoringEvaluation:

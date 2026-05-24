@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from api import storage
 from api.database import BusinessProfile, Client, QuestionCandidate, QuestionScore, Scan, ScanArtifact
-from api.domain.ports import ScanEnqueueResult, ScanExecutor
+from api.domain.ports import ScanEnqueueResult, UpstreamScanExecutor
 from api.domain.question_selection import DEFAULT_SELECTION_TARGET_N
 
 
@@ -57,7 +57,7 @@ def export_questions_and_enqueue_scan(
     db: Session,
     *,
     client_id: str,
-    executor: ScanExecutor,
+    executor: UpstreamScanExecutor,
     target_n: int = DEFAULT_SELECTION_TARGET_N,
     scan_run_id: str | None = None,
 ) -> QuestionPortfolioExport:

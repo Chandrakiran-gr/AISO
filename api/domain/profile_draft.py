@@ -8,7 +8,7 @@ from typing import Any
 import json
 import re
 
-from api.domain.ports import BusinessProfileSnapshot, LLMProvider, ProviderResponse
+from api.domain.ports import BusinessProfileSnapshot, UpstreamLLMProvider, UpstreamProviderResponse
 
 
 PROFILE_DRAFT_PROMPT_KEY = "profile_draft"
@@ -58,7 +58,7 @@ class ProfileDraftResult:
     profile_data: dict[str, Any]
     field_sources: dict[str, str]
     rationale: dict[str, str]
-    provider_response: ProviderResponse
+    provider_response: UpstreamProviderResponse
     prompt_text: str
 
 
@@ -86,7 +86,7 @@ def render_profile_draft_prompt(snapshot: BusinessProfileSnapshot) -> str:
 
 def generate_profile_draft(
     snapshot: BusinessProfileSnapshot,
-    provider: LLMProvider,
+    provider: UpstreamLLMProvider,
     *,
     idempotency_key: str,
 ) -> ProfileDraftResult:
