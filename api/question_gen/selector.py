@@ -23,6 +23,7 @@ from api.domain.question_selection import (
     objective_stage_targets,
     token_cosine_similarity,
 )
+from api.domain.question_generation import COMPETITOR_BRAND_FRAMES, question_uses_competitor_pattern
 
 
 class QuestionSelectionError(ValueError):
@@ -44,6 +45,7 @@ def apply_question_selection(
     objective: str | None = None,
     selection_mode: str | None = None,
     lambda_mmr: float | None = None,
+    has_competitors: bool | None = None,
 ) -> SelectionResult:
     constraints = SelectionConstraints(
         target_n=target_n,
@@ -65,6 +67,15 @@ def apply_question_selection(
                 for key, value in intent_band.items()
             },
         )
+    if has_competitors is False:
+        constraints = replace(
+            constraints,
+            frame_min={
+                frame: minimum
+                for frame, minimum in constraints.frame_min.items()
+                if frame not in COMPETITOR_BRAND_FRAMES
+            },
+        )
 
     candidates = scored_selection_candidates(
         db,
@@ -72,6 +83,13 @@ def apply_question_selection(
         scan_run_id=scan_run_id,
         generator_version=generator_version,
     )
+    if has_competitors is False:
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.brand_frame not in COMPETITOR_BRAND_FRAMES
+            and not question_uses_competitor_pattern(candidate.text)
+        ]
     if not candidates:
         raise QuestionSelectionError("No scored question candidates available for selection")
     result = select_questions_mip(candidates, constraints)

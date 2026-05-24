@@ -49,9 +49,9 @@ const PIPELINE_OBJECTIVES = [
 ] as const;
 
 const VERTICAL_OPTIONS = [
-  { id: "b2b_saas", label: "B2B SaaS" },
+  { id: "b2b_saas", label: "Business software" },
   { id: "local_services", label: "Local Services" },
-  { id: "ecommerce", label: "E-commerce / DTC" },
+  { id: "ecommerce", label: "Online store / product brand" },
 ] as const;
 
 interface FormState {
@@ -71,7 +71,7 @@ interface FormState {
 const DEFAULT: FormState = {
   businessName: "",
   websiteUrl: "",
-  vertical: "b2b_saas",
+  vertical: "",
   pipelineObjective: "preference",
   industry: "",
   location: "",
@@ -87,6 +87,7 @@ type IntakeField = {
   label: string;
   type: "text" | "textarea" | "select" | "list" | string;
   required: boolean;
+  hint?: string | null;
   placeholder?: string | null;
   patch_field: string;
   options: string[];
@@ -293,6 +294,7 @@ function legacyFormFromIntake(form: FormState, schema: IntakeSchema | null): For
 }
 
 function validateIntake(form: FormState, schema: IntakeSchema | null): string[] {
+  if (!form.vertical.trim()) return ["Choose your business type."];
   if (!schema) return ["Intake schema is still loading."];
 
   const missing: string[] = [];
@@ -928,7 +930,7 @@ function Step1({
   error: string | null;
 }) {
   const intakeIssues = schemaStatus === "loading" ? ["Intake schema is still loading."] : validateIntake(form, schema);
-  const valid = form.businessName.trim().length > 0 && form.websiteUrl.startsWith("http") && intakeIssues.length === 0;
+  const valid = form.businessName.trim().length > 0 && form.websiteUrl.startsWith("http") && form.vertical.trim().length > 0 && intakeIssues.length === 0;
   function updateIntake(field: IntakeField, value: string) {
     const intake = { ...form.intake, [field.id]: value };
     let nextForm = { ...form, intake };
@@ -975,13 +977,15 @@ function Step1({
         </div>
         <div className={styles.optionalGrid}>
           <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="ob-vertical">Vertical *</label>
+            <label className={styles.label} htmlFor="ob-vertical">Business type *</label>
             <select
               id="ob-vertical"
               className="input"
               value={form.vertical}
               onChange={(e) => set({ ...form, vertical: e.target.value, intake: {}, industry: "", location: "", competitors: "" })}
+              required
             >
+              <option value="">Choose your business type</option>
               {VERTICAL_OPTIONS.map((vertical) => (
                 <option key={vertical.id} value={vertical.id}>{vertical.label}</option>
               ))}
@@ -1020,6 +1024,7 @@ function Step1({
                       <label className={styles.label} htmlFor={controlId}>{field.label}{field.required ? " *" : ""}</label>
                       {!field.required && <span className={styles.labelHint}>Optional</span>}
                     </div>
+                    {field.hint && <p className={styles.fieldHelp}>{field.hint}</p>}
                     {field.type === "textarea" || field.type === "list" ? (
                       <textarea
                         id={controlId}
@@ -1888,6 +1893,12 @@ export default function OnboardingPage() {
   useEffect(() => {
     let active = true;
     async function loadSchema() {
+      if (!form.vertical.trim()) {
+        setIntakeSchema(null);
+        setSchemaStatus("idle");
+        setSchemaError(null);
+        return;
+      }
       setSchemaStatus("loading");
       setSchemaError(null);
       try {

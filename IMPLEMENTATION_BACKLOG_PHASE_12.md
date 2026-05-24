@@ -110,7 +110,7 @@ After all 11 phases pass:
 
 1. Sign up new customer as `b2b_saas` with `preference` objective.
 2. Crawl + draft profile (verify auto-extracted fields populated).
-3. Customer confirms profile (verify floor enforcement on missing competitors).
+3. Customer confirms profile (verify floor enforcement on required context; competitors are optional).
 4. Generate 150 candidates (verify distribution, persistence).
 5. Realism filter (verify failures < 30%).
 6. Score remaining candidates (verify all 5 dimensions, AC2 ≥0.75).

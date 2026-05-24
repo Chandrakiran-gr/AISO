@@ -1,11 +1,10 @@
 vertical: ecommerce
-label: E-commerce / DTC
-description: Online brands selling products directly or through marketplaces.
+label: Online store / product brand
+description: Product brands selling through their own website, online marketplaces, or retail partners.
 required_fields:
   - category
   - price_tier_band
   - target_demographic
-  - competitors
   - marketplace_presence
   - shipping_geographic_scope
   - values_positioning
@@ -19,7 +18,7 @@ fields:
     validators:
       min_items: 1
   - id: price_tier_band
-    label: Price tier band
+    label: Price range
     type: select
     required: true
     patch_field: price_tier_band
@@ -29,39 +28,39 @@ fields:
       - Premium
       - Luxury
   - id: target_demographic
-    label: Target demographic
+    label: Target customer group
     type: textarea
     required: true
     placeholder: Women 25-44 with sensitive skin, mostly US urban shoppers
     patch_field: target_demographic
   - id: competitors
-    label: Brand competitors
+    label: Competitors
     type: list
-    required: true
+    required: false
+    hint: Leave blank to skip competitor comparison questions.
     placeholder: Competitor A, Competitor B, Competitor C
     patch_field: competitors
-    validators:
-      min_items: 3
   - id: marketplace_presence
-    label: Marketplace presence
+    label: Where you sell
     type: textarea
     required: true
-    placeholder: Shopify DTC, Amazon, Target.com
+    hint: "Examples: your website, Amazon, retail partners, or other shopping sites."
+    placeholder: Your Shopify site, Amazon, Target.com
     patch_field: marketplace_presence
   - id: shipping_geographic_scope
-    label: Shipping geographic scope
+    label: Shipping locations
     type: text
     required: true
     placeholder: Ships to the United States and Canada
     patch_field: shipping_geographic_scope
   - id: values_positioning
-    label: Values positioning
+    label: Brand values or positioning
     type: textarea
     required: true
     placeholder: Vegan, cruelty-free, refillable packaging
     patch_field: values_positioning
   - id: primary_persona
-    label: Primary buyer persona
+    label: Main customer
     type: text
     required: false
     placeholder: Ingredient-conscious skincare shopper
