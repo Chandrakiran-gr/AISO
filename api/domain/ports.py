@@ -104,6 +104,7 @@ class ProviderResponse:
     text: str
     provider: str
     model: str
+    cost_usd: float = 0.0
     raw_metadata: dict[str, Any] = field(default_factory=dict)
     system_fingerprint: str | None = None
     input_tokens: int | None = None
@@ -143,8 +144,9 @@ class LLMProvider(Protocol):
         self,
         *,
         prompt: str,
-        seed: int,
+        seed: int | None,
         temperature: float,
+        top_p: float,
         idempotency_key: str,
     ) -> ProviderResponse: ...
 

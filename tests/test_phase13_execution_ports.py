@@ -36,6 +36,7 @@ def test_execution_ports_match_spec_async_contract():
         "text",
         "provider",
         "model",
+        "cost_usd",
         "raw_metadata",
         "system_fingerprint",
         "input_tokens",
@@ -56,6 +57,15 @@ def test_execution_ports_match_spec_async_contract():
         "methodology_version",
         "cost_budget_usd",
         "priority",
+    ]
+    provider_complete_params = inspect.signature(ports.LLMProvider.complete).parameters
+    assert list(provider_complete_params) == [
+        "self",
+        "prompt",
+        "seed",
+        "temperature",
+        "top_p",
+        "idempotency_key",
     ]
 
 

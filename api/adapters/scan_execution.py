@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from api.adapters.audit_log import write_audit_event
 from api.adapters.execution_state import record_step_once, safe_error, scan_step
+from api.adapters.provider_calls import execute_provider_samples
+from api.adapters.provider_registry import default_provider_clients
 from api.adapters.sampling import prepare_sample_plan
 from api.database import ScanProgress, ScanRun, SessionLocal
 from api.domain.ports import ScanExecutor, ScanHandle
@@ -283,6 +285,13 @@ async def scan_orchestrator_task(
         )
         db.commit()
         prepare_sample_plan(db, scan_run_id=scan_run_id, actor_id="system")
+        db.commit()
+        await execute_provider_samples(
+            db,
+            scan_run_id=scan_run_id,
+            provider_clients=default_provider_clients(),
+            actor_id="system",
+        )
         db.commit()
     except Exception:
         try:
