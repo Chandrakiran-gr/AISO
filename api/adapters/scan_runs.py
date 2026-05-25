@@ -156,6 +156,7 @@ def create_or_replay_scan_run(
         cost_budget_usd=plan.cost_budget_usd,
         cost_spent_usd=Decimal("0"),
         latency_class=plan.latency_class,
+        providers=list(plan.providers),
         enqueued_at=_utcnow(),
     )
     db.add(run)

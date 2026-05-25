@@ -77,12 +77,52 @@ def test_phase13_foundation_schema_tables_and_constraints_exist():
                 for constraint in inspector.get_unique_constraints("scan_runs")
             }
             assert "uq_scan_runs_client_idempotency" in scan_run_constraints
+            scan_run_columns = {
+                column["name"] for column in inspector.get_columns("scan_runs")
+            }
+            assert "providers" in scan_run_columns
 
             sample_constraints = {
                 constraint["name"]
                 for constraint in inspector.get_unique_constraints("sample")
             }
             assert "uq_sample_scan_question_provider_index" in sample_constraints
+            execution_sample_columns = {
+                column["name"]: column for column in inspector.get_columns("samples")
+            }
+            assert {
+                "planned_provider_model",
+                "provider_model",
+                "temperature",
+                "top_p",
+                "sample_plan_hash",
+                "request_payload_hash",
+                "raw_response_text",
+                "raw_response_pointer",
+                "raw_response_hash",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "response_received_at",
+                "latency_ms",
+                "methodology_version",
+                "cache_bust",
+            }.issubset(execution_sample_columns)
+            assert execution_sample_columns["provider_model"]["nullable"] is True
+            assert execution_sample_columns["seed"]["nullable"] is True
+
+            canonical_sample_columns = {
+                column["name"]: column for column in inspector.get_columns("sample")
+            }
+            assert {
+                "top_p",
+                "raw_response_pointer",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "methodology_version",
+            }.issubset(canonical_sample_columns)
+            assert canonical_sample_columns["seed"]["nullable"] is True
 
             avs_constraints = {
                 constraint["name"]

@@ -14,12 +14,12 @@ import os
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy.dialects.postgresql import insert as postgres_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from api.adapters.audit_log import write_audit_event
-from api.database import ScanProgress, ScanRun, ScanStep, SessionLocal
+from api.adapters.execution_state import record_step_once, safe_error, scan_step
+from api.adapters.sampling import prepare_sample_plan
+from api.database import ScanProgress, ScanRun, SessionLocal
 from api.domain.ports import ScanExecutor, ScanHandle
 
 
@@ -129,7 +129,7 @@ async def ensure_scan_run_enqueued(
     if not run:
         raise ScanExecutionError("Scan run not found", status_code=404)
 
-    existing_step = _scan_step(
+    existing_step = scan_step(
         db,
         scan_run_id=scan_run_id,
         step_id="enqueue_scan",
@@ -158,7 +158,7 @@ async def ensure_scan_run_enqueued(
         status_code = exc.status_code if isinstance(exc, ScanExecutionError) else 503
         raise ScanExecutionError(f"Scan enqueue failed: {exc}", status_code=status_code) from exc
 
-    recorded = _record_step_once(
+    recorded = record_step_once(
         db,
         scan_run_id=run.id,
         step_id="enqueue_scan",
@@ -216,7 +216,7 @@ def start_scan_orchestrator(
     if _money4(Decimal(str(run.cost_budget_usd))) != _money4(Decimal(str(cost_budget_usd))):
         raise ScanExecutionError("Scan cost budget mismatch", status_code=409)
 
-    existing_step = _scan_step(
+    existing_step = scan_step(
         db,
         scan_run_id=scan_run_id,
         step_id="scan_orchestrator",
@@ -225,7 +225,7 @@ def start_scan_orchestrator(
     if existing_step:
         return False
 
-    recorded = _record_step_once(
+    recorded = record_step_once(
         db,
         scan_run_id=scan_run_id,
         step_id="scan_orchestrator",
@@ -282,8 +282,13 @@ async def scan_orchestrator_task(
             cost_budget_usd=cost_budget_usd,
         )
         db.commit()
+        prepare_sample_plan(db, scan_run_id=scan_run_id, actor_id="system")
+        db.commit()
     except Exception:
-        db.rollback()
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
         raise
     finally:
         db.close()
@@ -351,56 +356,6 @@ def _uuid(value: Any) -> UUID:
     return value if isinstance(value, UUID) else UUID(str(value))
 
 
-def _scan_step(db: Session, *, scan_run_id: str, step_id: str, event: str) -> ScanStep | None:
-    return (
-        db.query(ScanStep)
-        .filter(
-            ScanStep.scan_run_id == scan_run_id,
-            ScanStep.step_id == step_id,
-            ScanStep.event == event,
-            ScanStep.attempt == 1,
-        )
-        .first()
-    )
-
-
-def _record_step_once(
-    db: Session,
-    *,
-    scan_run_id: str,
-    step_id: str,
-    event: str,
-    payload: dict[str, Any],
-) -> bool:
-    if _scan_step(db, scan_run_id=scan_run_id, step_id=step_id, event=event):
-        return False
-
-    values = {
-        "scan_run_id": scan_run_id,
-        "step_id": step_id,
-        "event": event,
-        "attempt": 1,
-        "payload": payload,
-    }
-    dialect_name = db.bind.dialect.name if db.bind is not None else ""
-    if dialect_name == "postgresql":
-        statement = postgres_insert(ScanStep).values(**values).on_conflict_do_nothing(
-            index_elements=["scan_run_id", "step_id", "event", "attempt"]
-        )
-        result = db.execute(statement)
-        return bool(result.rowcount)
-    if dialect_name == "sqlite":
-        statement = sqlite_insert(ScanStep).values(**values).on_conflict_do_nothing(
-            index_elements=["scan_run_id", "step_id", "event", "attempt"]
-        )
-        result = db.execute(statement)
-        return bool(result.rowcount)
-
-    db.add(ScanStep(**values))
-    db.flush()
-    return True
-
-
 def _record_enqueue_failure(
     db: Session,
     *,
@@ -409,8 +364,8 @@ def _record_enqueue_failure(
     priority: int,
     exc: Exception,
 ) -> None:
-    reason = _safe_error(exc)
-    recorded = _record_step_once(
+    reason = safe_error(exc)
+    recorded = record_step_once(
         db,
         scan_run_id=run.id,
         step_id="enqueue_scan",
@@ -441,11 +396,6 @@ def _record_enqueue_failure(
         correlation_id=run.idempotency_key,
     )
     db.flush()
-
-
-def _safe_error(exc: Exception) -> str:
-    message = str(exc).strip() or exc.__class__.__name__
-    return message[:500]
 
 
 def _write_scan_execution_audit(

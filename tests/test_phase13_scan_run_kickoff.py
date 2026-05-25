@@ -188,6 +188,7 @@ class Phase13ScanRunKickoffTests(unittest.TestCase):
             )
             run = db.query(ScanRun).one()
             self.assertEqual(run.methodology_version_set_id, "mvs-1")
+            self.assertEqual(run.providers, ["openai", "claude"])
             idempotency = db.query(IdempotencyKey).one()
             self.assertEqual(idempotency.response_status, 201)
             self.assertIsNotNone(idempotency.completed_at)

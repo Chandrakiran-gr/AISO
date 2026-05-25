@@ -87,6 +87,15 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("commercial_prox", bank_score_columns)
                     for table_name in PHASE13_TABLES:
                         self.assertIn(table_name, inspector.get_table_names())
+                    scan_run_columns = {
+                        column["name"] for column in inspector.get_columns("scan_runs")
+                    }
+                    self.assertIn("providers", scan_run_columns)
+                    sample_columns = {
+                        column["name"]: column for column in inspector.get_columns("samples")
+                    }
+                    self.assertIn("planned_provider_model", sample_columns)
+                    self.assertTrue(sample_columns["seed"]["nullable"])
                     self.assertIn("alembic_version", inspector.get_table_names())
                     client_columns = {
                         column["name"] for column in inspector.get_columns("clients")
@@ -144,6 +153,15 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("commercial_prox", bank_score_columns)
                     for table_name in PHASE13_TABLES:
                         self.assertIn(table_name, inspector.get_table_names())
+                    scan_run_columns = {
+                        column["name"] for column in inspector.get_columns("scan_runs")
+                    }
+                    self.assertIn("providers", scan_run_columns)
+                    sample_columns = {
+                        column["name"]: column for column in inspector.get_columns("samples")
+                    }
+                    self.assertIn("planned_provider_model", sample_columns)
+                    self.assertTrue(sample_columns["seed"]["nullable"])
                     client_columns = {
                         column["name"] for column in inspector.get_columns("clients")
                     }
