@@ -23,8 +23,58 @@ from api.database import (
     User,
     get_db,
 )
+from api.domain.ports import ScanHandle
 from api.domain.scan_runs import request_hash
 from api.main import app
+from api.routes import scan_runs as scan_run_routes
+
+
+class RecordingScanExecutor:
+    def __init__(self):
+        self.calls = []
+
+    async def enqueue(
+        self,
+        *,
+        scan_run_id,
+        idempotency_key: str,
+        client_id,
+        methodology_version: str,
+        cost_budget_usd: float,
+        priority: int = 0,
+    ) -> ScanHandle:
+        self.calls.append(
+            {
+                "scan_run_id": str(scan_run_id),
+                "idempotency_key": idempotency_key,
+                "client_id": str(client_id),
+                "methodology_version": methodology_version,
+                "cost_budget_usd": cost_budget_usd,
+                "priority": priority,
+            }
+        )
+        return ScanHandle(
+            scan_run_id=scan_run_id,
+            idempotency_key=idempotency_key,
+            enqueued_at=datetime.now(timezone.utc),
+            methodology_version=methodology_version,
+        )
+
+
+class ConflictingScanExecutor:
+    async def enqueue(
+        self,
+        *,
+        scan_run_id,
+        idempotency_key: str,
+        client_id,
+        methodology_version: str,
+        cost_budget_usd: float,
+        priority: int = 0,
+    ) -> ScanHandle:
+        from api.adapters.scan_execution import ScanQueueConflict
+
+        raise ScanQueueConflict()
 
 
 class Phase13ScanRunKickoffTests(unittest.TestCase):
@@ -55,11 +105,14 @@ class Phase13ScanRunKickoffTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_get_db
         app.dependency_overrides[get_current_user_id] = lambda: "user-1"
+        self.executor = RecordingScanExecutor()
+        app.dependency_overrides[scan_run_routes.get_scan_executor] = lambda: self.executor
         self.client = TestClient(app, base_url="http://localhost")
 
     def tearDown(self):
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_user_id, None)
+        app.dependency_overrides.pop(scan_run_routes.get_scan_executor, None)
         self.engine.dispose()
 
     def test_phase_13_4_acceptance_idempotently_creates_queued_scan_run(self):
@@ -120,14 +173,18 @@ class Phase13ScanRunKickoffTests(unittest.TestCase):
 
         db = self.Session()
         try:
+            self.assertEqual(len(self.executor.calls), 1)
+            self.assertEqual(self.executor.calls[0]["scan_run_id"], self.source_scan_id)
+            self.assertEqual(self.executor.calls[0]["client_id"], "client-1")
             self.assertEqual(db.query(ScanRun).count(), 1)
             self.assertEqual(db.query(ScanProgress).count(), 1)
             self.assertEqual(db.query(IdempotencyKey).count(), 1)
             self.assertEqual(db.query(ScanStep).filter_by(step_id="create_scan_run").count(), 1)
-            self.assertEqual(db.query(AuditEvent).count(), 2)
+            self.assertEqual(db.query(ScanStep).filter_by(step_id="enqueue_scan").count(), 1)
+            self.assertEqual(db.query(AuditEvent).count(), 3)
             self.assertEqual(
                 [event.action for event in db.query(AuditEvent).order_by(AuditEvent.id.asc()).all()],
-                ["scan_run.created", "scan_run.idempotency_replayed"],
+                ["scan_run.created", "scan_run.enqueued", "scan_run.idempotency_replayed"],
             )
             run = db.query(ScanRun).one()
             self.assertEqual(run.methodology_version_set_id, "mvs-1")
@@ -175,6 +232,36 @@ class Phase13ScanRunKickoffTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 409)
+
+    def test_scan_run_kickoff_persists_failed_enqueue_event(self):
+        app.dependency_overrides[scan_run_routes.get_scan_executor] = lambda: ConflictingScanExecutor()
+
+        response = self.client.post(
+            "/api/v1/clients/client-1/scan-runs",
+            headers={"Idempotency-Key": self.idempotency_key},
+            json={
+                "source_scan_id": self.source_scan_id,
+                "providers": ["openai", "claude"],
+                "cost_budget_usd": "12.34",
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        db = self.Session()
+        try:
+            self.assertEqual(db.query(ScanRun).count(), 1)
+            self.assertEqual(db.query(ScanStep).filter_by(step_id="enqueue_scan", event="succeeded").count(), 0)
+            failed_step = db.query(ScanStep).filter_by(step_id="enqueue_scan", event="failed").one()
+            self.assertEqual(failed_step.payload["reason"], "Client already has an active queued scan")
+            idempotency = db.query(IdempotencyKey).one()
+            self.assertIsNone(idempotency.completed_at)
+            self.assertIsNone(idempotency.response_status)
+            self.assertEqual(
+                [event.action for event in db.query(AuditEvent).order_by(AuditEvent.id.asc()).all()],
+                ["scan_run.created", "scan_run.enqueue_failed"],
+            )
+        finally:
+            db.close()
 
     def test_scan_run_kickoff_rejects_in_progress_idempotency_key(self):
         db = self.Session()

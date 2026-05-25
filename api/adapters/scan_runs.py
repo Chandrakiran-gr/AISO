@@ -56,6 +56,7 @@ def create_or_replay_scan_run(
     providers: list[str] | None = None,
     cost_budget_usd: Decimal | None = None,
     latency_class: str | None = None,
+    complete_idempotency_response: bool = True,
 ) -> ScanRunKickoffResult:
     idempotency_key = _validated_idempotency_key(idempotency_key)
     source_scan_id = _validated_scan_run_id(source_scan_id)
@@ -119,7 +120,8 @@ def create_or_replay_scan_run(
             total_calls=_progress_total_calls(db, source_scan_id),
             manifest_hash=None,
         )
-        _complete_idempotency(idempotency, status_code=200, body=body)
+        if complete_idempotency_response:
+            _complete_idempotency(idempotency, status_code=200, body=body)
         _write_scan_run_audit(
             db,
             actor_id=user_id,
@@ -195,7 +197,8 @@ def create_or_replay_scan_run(
         total_calls=plan.total_calls,
         manifest_hash=plan.manifest_hash,
     )
-    _complete_idempotency(idempotency, status_code=201, body=body)
+    if complete_idempotency_response:
+        _complete_idempotency(idempotency, status_code=201, body=body)
     _write_scan_run_audit(
         db,
         actor_id=user_id,
@@ -210,6 +213,20 @@ def create_or_replay_scan_run(
     )
     db.flush()
     return ScanRunKickoffResult(status_code=201, body=body)
+
+
+def complete_scan_run_idempotency_response(
+    db: Session,
+    *,
+    idempotency_key: str,
+    status_code: int,
+    body: dict[str, Any],
+) -> None:
+    idempotency = db.query(IdempotencyKey).filter(IdempotencyKey.key == idempotency_key).first()
+    if not idempotency:
+        raise ScanRunKickoffError("Idempotency key not found", status_code=409)
+    _complete_idempotency(idempotency, status_code=status_code, body=body)
+    db.flush()
 
 
 def progress_for_scan_run(db: Session, *, scan_run_id: str, user_id: str) -> dict[str, Any] | None:

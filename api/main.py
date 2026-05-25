@@ -98,6 +98,24 @@ def on_startup():
     from api.database import init_db
     import api.crawler.models  # noqa: F401 — register crawler models with Base.metadata
     init_db()
+    _configure_scan_executor()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    executor = getattr(app.state, "scan_executor", None)
+    if executor and hasattr(executor, "close"):
+        executor.close()
+    from api.adapters.scan_execution import reset_default_scan_executor
+    reset_default_scan_executor()
+
+
+def _configure_scan_executor() -> None:
+    database_url = os.getenv("PROCRASTINATE_DATABASE_URL") or os.getenv("DATABASE_URL", "")
+    if not database_url or database_url.startswith("sqlite"):
+        return
+    from api.adapters.scan_execution import default_scan_executor
+    app.state.scan_executor = default_scan_executor()
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(health.router,   prefix="/api/v1")
