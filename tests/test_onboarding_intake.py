@@ -1,7 +1,7 @@
 import unittest
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -18,7 +18,7 @@ class OnboardingIntakeAPITests(unittest.TestCase):
             poolclass=StaticPool,
         )
         Base.metadata.create_all(self.engine)
-        self.Session = sessionmaker(bind=self.engine)
+        self.Session = sessionmaker(bind=self.engine, autoflush=False)
 
         seed = self.Session()
         try:
@@ -42,6 +42,33 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_user_id, None)
         self.engine.dispose()
+
+    def test_start_inserts_client_before_business_profile(self):
+        statements: list[str] = []
+
+        def record_insert_order(conn, cursor, statement, parameters, context, executemany):
+            normalized = statement.strip().lower()
+            if normalized.startswith("insert into clients"):
+                statements.append("clients")
+            if normalized.startswith("insert into business_profile"):
+                statements.append("business_profile")
+
+        event.listen(self.engine, "before_cursor_execute", record_insert_order)
+        try:
+            start = self.client.post(
+                "/api/v1/onboarding/start",
+                json={
+                    "client_id": "ordered_insert_client",
+                    "display_name": "Ordered Insert Co",
+                    "url": "https://ordered.example",
+                    "vertical": "b2b_saas",
+                    "objective": "preference",
+                },
+            )
+            self.assertEqual(start.status_code, 201)
+            self.assertEqual(statements[:2], ["clients", "business_profile"])
+        finally:
+            event.remove(self.engine, "before_cursor_execute", record_insert_order)
 
     def test_phase_12_1_acceptance_start_patch_submit_context_floor(self):
         start = self.client.post(

@@ -495,6 +495,7 @@ async def start_onboarding(
             updated_at=now,
         )
         db.add(client)
+        db.flush()
 
     profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client_id).first()
     if profile:
