@@ -1,0 +1,53 @@
+vertical: regulated_financial
+label: Financial advisory or services
+description: Financial advisory, wealth, insurance, lending, or regulated financial businesses with registration and claims constraints.
+example: "Examples: financial advisor, wealth manager, insurance advisory, lending service."
+required_fields:
+  - category
+  - jurisdictions
+  - finra_sec_registrations
+  - prohibited_claims
+  - primary_persona
+fields:
+  - id: category
+    label: Service type
+    type: text
+    required: true
+    placeholder: Wealth management, retirement planning, insurance advisory, lending
+    patch_field: category
+  - id: jurisdictions
+    label: Jurisdictions served
+    type: list
+    required: true
+    placeholder: United States, Massachusetts, registered states
+    patch_field: jurisdictions
+    validators:
+      min_items: 1
+  - id: finra_sec_registrations
+    label: Registrations or licenses
+    type: list
+    required: true
+    hint: Include public registration types, firm identifiers, or license categories that apply.
+    placeholder: SEC RIA, FINRA broker-dealer, state insurance license
+    patch_field: finra_sec_registrations
+    validators:
+      min_items: 1
+  - id: prohibited_claims
+    label: Claims AISO should avoid
+    type: textarea
+    required: true
+    placeholder: Guaranteed returns, personalized investment advice, risk-free claims
+    patch_field: prohibited_claims
+  - id: primary_persona
+    label: Main client type
+    type: text
+    required: true
+    placeholder: Retirees, business owners, high-income professionals, families
+    patch_field: primary_persona
+  - id: competitors
+    label: Competitors or alternatives
+    type: list
+    required: false
+    hint: Leave blank to skip competitor comparison questions.
+    placeholder: Advisory firm A, robo-advisor, bank wealth group
+    patch_field: competitors

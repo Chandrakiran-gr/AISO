@@ -1,0 +1,64 @@
+vertical: consumer_brand
+label: Retail or consumer brand
+description: Brands, retailers, or consumer businesses that want AI visibility across product categories, store choices, values, and customer preferences.
+example: Use this for Walmart or Target-style retail/customer visibility unless you are measuring enterprise procurement positioning.
+required_fields:
+  - brand_archetype
+  - product_line_breadth
+  - price_tier
+  - distribution_channels
+  - target
+  - geographic_scope_description
+fields:
+  - id: brand_archetype
+    label: Brand or retailer type
+    type: text
+    required: true
+    hint: Use this for Walmart or Target-style retail/customer visibility when the goal is consumer discovery rather than procurement positioning.
+    placeholder: General merchandise retailer, home goods brand, specialty grocery chain
+    patch_field: brand_archetype
+  - id: product_line_breadth
+    label: Product or category breadth
+    type: textarea
+    required: true
+    placeholder: Household essentials, apparel, electronics, groceries, seasonal products
+    patch_field: product_line_breadth
+  - id: price_tier
+    label: Price positioning
+    type: select
+    required: true
+    hint: Choose the position customers most often associate with your products or stores.
+    patch_field: price_tier
+    options:
+      - Value
+      - Mid-market
+      - Premium
+      - Luxury
+      - Mixed
+  - id: distribution_channels
+    label: Where customers can buy
+    type: list
+    required: true
+    placeholder: Stores, website, mobile app, marketplaces, wholesale partners
+    patch_field: distribution_channels
+    validators:
+      min_items: 1
+  - id: target
+    label: Target customers
+    type: textarea
+    required: true
+    placeholder: Families, small businesses, students, regional shoppers, category enthusiasts
+    patch_field: target
+  - id: geographic_scope_description
+    label: Markets to measure
+    type: text
+    required: true
+    placeholder: United States, North America, selected metro areas, online shoppers
+    patch_field: geographic_scope_description
+  - id: competitors
+    label: Competitors or alternatives
+    type: list
+    required: false
+    hint: Leave blank to skip competitor comparison questions.
+    placeholder: Competitor A, Competitor B, category marketplace
+    patch_field: competitors

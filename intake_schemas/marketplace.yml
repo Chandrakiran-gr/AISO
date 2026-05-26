@@ -1,0 +1,50 @@
+vertical: marketplace
+label: Marketplace or two-sided platform
+description: Platforms connecting supply and demand, such as vendors and buyers, professionals and clients, or inventory and customers.
+example: "Examples: service marketplace, vendor directory, booking platform, B2B marketplace."
+required_fields:
+  - supply_value_proposition
+  - demand_value_proposition
+  - supply_taxonomy
+  - demand_icp
+  - geographic_scope_description
+fields:
+  - id: supply_value_proposition
+    label: Supply-side value proposition
+    type: textarea
+    required: true
+    placeholder: Why sellers, providers, professionals, or partners join the platform
+    patch_field: supply_value_proposition
+  - id: demand_value_proposition
+    label: Demand-side value proposition
+    type: textarea
+    required: true
+    placeholder: Why buyers, customers, teams, or consumers use the platform
+    patch_field: demand_value_proposition
+  - id: supply_taxonomy
+    label: Supply categories
+    type: list
+    required: true
+    placeholder: Consultants, home services, retailers, products, venues
+    patch_field: supply_taxonomy
+    validators:
+      min_items: 1
+  - id: demand_icp
+    label: Demand-side customer profile
+    type: textarea
+    required: true
+    placeholder: Small businesses, homeowners, hiring managers, category shoppers
+    patch_field: demand_icp
+  - id: geographic_scope_description
+    label: Markets covered
+    type: text
+    required: true
+    placeholder: United States, major metro areas, English-speaking markets
+    patch_field: geographic_scope_description
+  - id: competitors
+    label: Competing marketplaces or alternatives
+    type: list
+    required: false
+    hint: Leave blank to skip competitor comparison questions.
+    placeholder: Competitor marketplace, directory, marketplace category page
+    patch_field: competitors
