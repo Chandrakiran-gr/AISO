@@ -15,6 +15,7 @@ from api.database import (
     Classification,
     Client,
     CostLedgerEntry,
+    AVSComputation,
     ExecutionSample,
     MethodologyVersionSet,
     MethodologyPromptVersion,
@@ -22,6 +23,7 @@ from api.database import (
     QuestionBankVersion,
     ScanManifest,
     ScanProgress,
+    ScanProvenance,
     ScanRun,
     ScanStep,
     Sample,
@@ -357,15 +359,18 @@ def test_scan_orchestrator_task_runs_provider_execution_through_registry(monkeyp
             assert len(claude.calls) == 10
             assert len(classifier_judge.calls) == 60
             progress = session.query(ScanProgress).one()
-            assert progress.stage == "classification_completed"
+            assert progress.stage == "avs_computed"
             assert progress.completed_calls == 20
             assert session.query(ExecutionSample).filter(ExecutionSample.raw_response_hash.is_not(None)).count() == 20
             assert session.query(Sample).count() == 20
             assert session.query(Classification).count() == 40
+            assert session.query(ScanProvenance).count() == 1
+            assert session.query(AVSComputation).count() == 1
             assert session.query(ScanStep).filter_by(step_id="scan_orchestrator", event="started").count() == 1
             assert session.query(ScanStep).filter_by(step_id="prepare_question_plan", event="succeeded").count() == 1
             assert session.query(ScanStep).filter_by(step_id="provider_calls", event="succeeded").count() == 1
             assert session.query(ScanStep).filter_by(step_id="classify_samples", event="succeeded").count() == 1
+            assert session.query(ScanStep).filter_by(step_id="compute_avs", event="succeeded").count() == 1
         finally:
             session.close()
     finally:

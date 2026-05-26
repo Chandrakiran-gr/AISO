@@ -17,6 +17,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from api.adapters.audit_log import write_audit_event
+from api.adapters.avs import compute_scan_avs
 from api.adapters.classifier import default_classifier_judge, execute_sample_classifications
 from api.adapters.execution_state import record_step_once, safe_error, scan_step
 from api.adapters.provider_calls import execute_provider_samples
@@ -204,8 +205,8 @@ def start_scan_orchestrator(
 ) -> bool:
     """Start the parent scan saga exactly once.
 
-    AVS computation is implemented in a later slice; this boundary establishes
-    the mandatory saga-step idempotency from execution-1.0.
+    Publishing and notification are implemented in a later slice; this boundary
+    establishes the mandatory saga-step idempotency from execution-1.0.
     """
 
     run = db.query(ScanRun).filter(ScanRun.id == scan_run_id).first()
@@ -297,6 +298,12 @@ async def scan_orchestrator_task(
             db,
             scan_run_id=scan_run_id,
             judge_provider=default_classifier_judge(),
+            actor_id="system",
+        )
+        db.commit()
+        compute_scan_avs(
+            db,
+            scan_run_id=scan_run_id,
             actor_id="system",
         )
         db.commit()
