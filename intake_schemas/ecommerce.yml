@@ -1,6 +1,7 @@
 vertical: ecommerce
-label: Online store / product brand
+label: Ecommerce or online product brand
 description: Product brands selling through their own website, online marketplaces, or retail partners.
+example: "Examples: DTC brand, Shopify store, Amazon-first product line."
 required_fields:
   - category
   - price_tier_band
@@ -13,7 +14,7 @@ fields:
     label: Product categories
     type: list
     required: true
-    placeholder: Clean skincare, mineral sunscreen, travel-size kits
+    placeholder: Home goods, pantry staples, apparel basics
     patch_field: category
     validators:
       min_items: 1
@@ -21,6 +22,7 @@ fields:
     label: Price range
     type: select
     required: true
+    hint: Choose how customers usually perceive your product pricing.
     patch_field: price_tier_band
     options:
       - Budget
@@ -31,7 +33,7 @@ fields:
     label: Target customer group
     type: textarea
     required: true
-    placeholder: Women 25-44 with sensitive skin, mostly US urban shoppers
+    placeholder: Value-conscious families, hobbyists, business buyers, or regional shoppers
     patch_field: target_demographic
   - id: competitors
     label: Competitors
@@ -45,7 +47,7 @@ fields:
     type: textarea
     required: true
     hint: "Examples: your website, Amazon, retail partners, or other shopping sites."
-    placeholder: Your Shopify site, Amazon, Target.com
+    placeholder: Your website, Amazon, wholesale partners, retail marketplaces
     patch_field: marketplace_presence
   - id: shipping_geographic_scope
     label: Shipping locations
@@ -57,11 +59,11 @@ fields:
     label: Brand values or positioning
     type: textarea
     required: true
-    placeholder: Vegan, cruelty-free, refillable packaging
+    placeholder: Durable, affordable, premium, sustainable, locally made, expert-tested
     patch_field: values_positioning
   - id: primary_persona
     label: Main customer
     type: text
     required: false
-    placeholder: Ingredient-conscious skincare shopper
+    placeholder: Budget shopper, operations buyer, enthusiast, gift buyer
     patch_field: primary_persona

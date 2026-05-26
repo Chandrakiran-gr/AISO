@@ -106,8 +106,8 @@ class Phase12ZeroCompetitorFlowTests(unittest.TestCase):
         start = self.client.post(
             "/api/v1/onboarding/start",
             json={
-                "display_name": "Glow Day Spa",
-                "url": "https://glow.example",
+                "display_name": "Anchor Repair",
+                "url": "https://anchor.example",
                 "vertical": "local_services",
                 "objective": "consideration",
             },
@@ -118,10 +118,10 @@ class Phase12ZeroCompetitorFlowTests(unittest.TestCase):
         confirmed = self.client.post(
             f"/api/v1/onboarding/{onboarding_id}/confirm-profile",
             json={
-                "category": "day spa",
-                "nap": "Glow Day Spa | 123 Main St, Boston, MA 02118 | (617) 555-0100",
+                "category": "home repair service",
+                "nap": "Anchor Repair | 123 Main St, Boston, MA 02118 | (617) 555-0100",
                 "service_radius": "10 miles around Boston",
-                "service_taxonomy": ["facials", "massage", "waxing"],
+                "service_taxonomy": ["repair", "maintenance", "installation"],
                 "hours": "Mon-Fri 9am-7pm, Sat 10am-5pm",
                 "geographic_scope": {"description": "Boston, MA"},
             },

@@ -8,19 +8,21 @@ from typing import Any
 from api.domain.ports import BusinessProfileSnapshot
 
 
-VERTICAL_CODES = {
+VERTICAL_DISPLAY_ORDER = (
     "b2b_saas",
     "b2b_services",
     "local_services",
     "ecommerce",
-    "regulated_healthcare",
-    "regulated_legal",
-    "regulated_financial",
     "consumer_brand",
     "marketplace",
     "agency",
     "enterprise",
-}
+    "regulated_healthcare",
+    "regulated_legal",
+    "regulated_financial",
+)
+
+VERTICAL_CODES = set(VERTICAL_DISPLAY_ORDER)
 
 OBJECTIVE_CODES = {
     "awareness",

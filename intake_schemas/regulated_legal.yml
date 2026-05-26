@@ -1,0 +1,61 @@
+vertical: regulated_legal
+label: Legal services
+description: Law firms or legal-service providers where jurisdiction, practice area, bar status, and claims constraints affect AI visibility.
+example: "Examples: law firm, legal marketplace, specialist legal service."
+required_fields:
+  - category
+  - jurisdictions
+  - bar_admissions
+  - aba_model_rule_constraints
+  - prohibited_claims
+  - primary_persona
+fields:
+  - id: category
+    label: Practice areas
+    type: list
+    required: true
+    placeholder: Employment law, estate planning, commercial litigation
+    patch_field: category
+    validators:
+      min_items: 1
+  - id: jurisdictions
+    label: Jurisdictions served
+    type: list
+    required: true
+    placeholder: Massachusetts, New York, federal matters
+    patch_field: jurisdictions
+    validators:
+      min_items: 1
+  - id: bar_admissions
+    label: Bar admissions or authorization
+    type: list
+    required: true
+    placeholder: Massachusetts Bar, New York Bar
+    patch_field: bar_admissions
+    validators:
+      min_items: 1
+  - id: aba_model_rule_constraints
+    label: Advertising or ethics constraints
+    type: textarea
+    required: true
+    placeholder: No guarantees, attorney advertising disclaimer, jurisdiction limitations
+    patch_field: aba_model_rule_constraints
+  - id: prohibited_claims
+    label: Claims AISO should avoid
+    type: textarea
+    required: true
+    placeholder: Guaranteed outcomes, specialist claims unless certified, legal advice without consultation
+    patch_field: prohibited_claims
+  - id: primary_persona
+    label: Main client type
+    type: text
+    required: true
+    placeholder: Business owners, families, employees, in-house counsel
+    patch_field: primary_persona
+  - id: competitors
+    label: Competitors or alternatives
+    type: list
+    required: false
+    hint: Leave blank to skip competitor comparison questions.
+    placeholder: Firm A, marketplace directory, legal software alternative
+    patch_field: competitors

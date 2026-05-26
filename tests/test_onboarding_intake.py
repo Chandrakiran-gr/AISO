@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.auth import get_current_user_id
 from api.database import Base, BusinessProfile, Client, MethodologyPromptVersion, User, get_db
+from api.domain.onboarding import VERTICAL_CODES, VERTICAL_DISPLAY_ORDER
 from api.main import app
 
 
@@ -126,20 +127,158 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_phase_12_2_serves_starting_vertical_intake_schemas(self):
-        for vertical in ("b2b_saas", "local_services", "ecommerce"):
+    def test_phase_12_2_serves_all_supported_vertical_intake_schemas(self):
+        for vertical in sorted(VERTICAL_CODES):
             response = self.client.get(f"/api/v1/onboarding/intake-schemas/{vertical}")
             self.assertEqual(response.status_code, 200)
             schema = response.json()
             self.assertEqual(schema["vertical"], vertical)
             self.assertGreaterEqual(len(schema["fields"]), 3)
             self.assertTrue(schema["required_fields"])
+            self.assertEqual(
+                set(schema["required_fields"]),
+                {field["id"] for field in schema["fields"] if field["required"]},
+            )
             self.assertTrue(
                 all(
                     {"id", "label", "type", "required", "patch_field"}.issubset(field)
                     for field in schema["fields"]
                 )
             )
+
+    def test_intake_vertical_metadata_is_schema_backed_and_ordered(self):
+        response = self.client.get("/api/v1/onboarding/intake-verticals")
+        self.assertEqual(response.status_code, 200)
+        verticals = response.json()
+        self.assertEqual([vertical["id"] for vertical in verticals], list(VERTICAL_DISPLAY_ORDER))
+
+        for vertical in verticals:
+            with self.subTest(vertical=vertical["id"]):
+                schema = self.client.get(f"/api/v1/onboarding/intake-schemas/{vertical['id']}").json()
+                self.assertEqual(vertical["label"], schema["label"])
+                self.assertEqual(vertical["description"], schema["description"])
+                self.assertTrue(vertical.get("example"))
+
+    def test_all_vertical_context_floors_are_enforced(self):
+        cases = {
+            "b2b_saas": {
+                "category": "workflow automation software",
+                "industry": "Operations teams",
+                "employee_band": "51-200",
+                "revenue_band": "$10M-$50M",
+                "firmographic_geography": "United States",
+                "acv_band": "$25k-$50k",
+                "primary_persona": "Operations leader",
+                "geographic_scope_description": "United States",
+            },
+            "b2b_services": {
+                "category": "executive coaching",
+                "service_offerings": ["Founder coaching", "Leadership workshop"],
+                "industry": "Technology startups",
+                "engagement_size_band": "$25k-$100k",
+                "primary_persona": "Founder",
+                "geographic_scope_description": "United States",
+                "specialization": "Leadership coaching for technical founders",
+            },
+            "consumer_brand": {
+                "brand_archetype": "General merchandise retailer",
+                "product_line_breadth": "Household essentials, apparel, groceries",
+                "price_tier": "Mixed",
+                "distribution_channels": ["Stores", "Website", "Mobile app"],
+                "target": "Value-conscious families and small businesses",
+                "geographic_scope_description": "United States",
+            },
+            "enterprise": {
+                "category": "workforce platform",
+                "industry": "Retail and logistics",
+                "employee_band": "1001+",
+                "revenue_band": "$250M+",
+                "firmographic_geography": "North America",
+                "acv_band": "$250k-$1M",
+                "primary_persona": "Chief Operations Officer",
+                "geographic_scope_description": "Global enterprise accounts",
+                "procurement_signals": ["SOC 2", "security review"],
+                "analyst_recognition": "Industry reports and customer case studies",
+                "reference_customer_logos": "Public enterprise customer references",
+                "deployment_model": "SaaS",
+                "buying_committee_size": "6-10",
+                "sales_cycle_length_band": "6-12 months",
+            },
+            "regulated_legal": {
+                "category": "employment law",
+                "jurisdictions": ["Massachusetts", "New York"],
+                "bar_admissions": ["Massachusetts Bar", "New York Bar"],
+                "aba_model_rule_constraints": "Attorney advertising disclaimer and jurisdiction limits",
+                "prohibited_claims": "No guaranteed outcomes or legal advice without consultation",
+                "primary_persona": "Business owners",
+            },
+            "local_services": {
+                "nap": "Anchor Repair | 123 Main St, Boston, MA 02118 | (617) 555-0100",
+                "service_radius": "10 miles around Boston",
+                "service_taxonomy": ["repair", "maintenance", "installation"],
+                "hours": "Mon-Fri 9am-7pm",
+            },
+            "ecommerce": {
+                "category": "home goods",
+                "price_tier_band": "Mid-market",
+                "target_demographic": "Value-conscious families",
+                "marketplace_presence": "Website and retail marketplaces",
+                "shipping_geographic_scope": "United States",
+                "values_positioning": "Durable, affordable, sustainable",
+            },
+            "regulated_healthcare": {
+                "category": "behavioral health",
+                "jurisdictions": ["Massachusetts", "New York"],
+                "license_numbers": ["NPI 1234567890"],
+                "hipaa_constraints": "HIPAA privacy and no diagnosis without consultation",
+                "prohibited_claims": "No guaranteed outcomes or emergency advice",
+                "primary_persona": "Patients and caregivers",
+            },
+            "regulated_financial": {
+                "category": "wealth management",
+                "jurisdictions": ["United States", "Massachusetts"],
+                "finra_sec_registrations": ["SEC RIA"],
+                "prohibited_claims": "No guaranteed returns or individualized advice without consultation",
+                "primary_persona": "Retirees and business owners",
+            },
+            "marketplace": {
+                "supply_value_proposition": "Professionals get qualified demand and profile visibility",
+                "demand_value_proposition": "Customers compare vetted providers by need and location",
+                "supply_taxonomy": ["Consultants", "Home services"],
+                "demand_icp": "Small businesses and homeowners",
+                "geographic_scope_description": "United States",
+            },
+            "agency": {
+                "client_roster_size": "6-20",
+                "vertical_distribution": "Local services, ecommerce, B2B services",
+                "aiso_use_case": "Client visibility programs",
+            },
+        }
+        self.assertEqual(set(cases), VERTICAL_CODES)
+
+        for vertical, patch in cases.items():
+            with self.subTest(vertical=vertical):
+                start = self.client.post(
+                    "/api/v1/onboarding/start",
+                    json={
+                        "display_name": f"{vertical} example",
+                        "url": f"https://{vertical.replace('_', '-')}.example",
+                        "vertical": vertical,
+                        "objective": "preference",
+                    },
+                )
+                self.assertEqual(start.status_code, 201)
+                onboarding_id = start.json()["onboarding_id"]
+
+                incomplete = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
+                self.assertEqual(incomplete.status_code, 400)
+                self.assertEqual(incomplete.json()["detail"]["error"], "ContextFloorNotMet")
+
+                patched = self.client.patch(f"/api/v1/onboarding/{onboarding_id}", json=patch)
+                self.assertEqual(patched.status_code, 200)
+                submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
+                self.assertEqual(submitted.status_code, 200)
+                self.assertTrue(submitted.json()["floor_met"])
 
     def test_phase_12_2_b2b_saas_required_fields_are_enforced(self):
         start = self.client.post(
@@ -177,8 +316,8 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         start = self.client.post(
             "/api/v1/onboarding/start",
             json={
-                "display_name": "Glow Day Spa",
-                "url": "https://glow.example",
+                "display_name": "Anchor Repair",
+                "url": "https://anchor.example",
                 "vertical": "local_services",
                 "objective": "consideration",
             },
@@ -189,10 +328,10 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         partial = self.client.patch(
             f"/api/v1/onboarding/{onboarding_id}",
             json={
-                "category": "day spa",
-                "nap": "Glow Day Spa | 123 Main St, Boston, MA 02118 | (617) 555-0100",
+                "category": "home repair service",
+                "nap": "Anchor Repair | 123 Main St, Boston, MA 02118 | (617) 555-0100",
                 "service_radius": "10 miles around Boston",
-                "service_taxonomy": ["facials", "massage", "waxing"],
+                "service_taxonomy": ["repair", "maintenance", "installation"],
             },
         )
         self.assertEqual(partial.status_code, 200)

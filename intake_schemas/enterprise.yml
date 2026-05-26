@@ -1,0 +1,149 @@
+vertical: enterprise
+label: Enterprise or procurement-led business
+description: Larger B2B businesses where AI visibility depends on procurement signals, compliance proof, deployment model, and buying committee context.
+example: Use this for enterprise positioning, not general consumer retail visibility.
+required_fields:
+  - category
+  - industry
+  - employee_band
+  - revenue_band
+  - firmographic_geography
+  - acv_band
+  - primary_persona
+  - geographic_scope_description
+  - procurement_signals
+  - analyst_recognition
+  - reference_customer_logos
+  - deployment_model
+  - buying_committee_size
+  - sales_cycle_length_band
+fields:
+  - id: category
+    label: Product, platform, or solution category
+    type: text
+    required: true
+    placeholder: Workforce platform, supply chain software, security solution
+    patch_field: category
+  - id: industry
+    label: Best-fit customer industry
+    type: text
+    required: true
+    placeholder: Retail, manufacturing, healthcare, financial services
+    patch_field: industry
+  - id: employee_band
+    label: Best-fit customer company size
+    type: select
+    required: true
+    hint: Choose the company-size band that best matches the accounts you want AISO to model.
+    patch_field: employee_band
+    options:
+      - 1-10
+      - 11-50
+      - 51-200
+      - 201-500
+      - 501-1000
+      - 1001+
+  - id: revenue_band
+    label: Best-fit customer revenue range
+    type: select
+    required: true
+    hint: Choose the revenue band for the accounts you most want to win.
+    patch_field: revenue_band
+    options:
+      - <$1M
+      - $1M-$10M
+      - $10M-$50M
+      - $50M-$250M
+      - $250M+
+  - id: firmographic_geography
+    label: Best-fit customer location
+    type: text
+    required: true
+    placeholder: North America, Europe, global enterprises
+    patch_field: firmographic_geography
+  - id: geographic_scope_description
+    label: Where you sell
+    type: text
+    required: true
+    placeholder: Global enterprise accounts, North America and Europe
+    patch_field: geographic_scope_description
+  - id: acv_band
+    label: Typical yearly customer value
+    type: select
+    required: true
+    hint: Approximate annual contract value for a typical customer.
+    patch_field: acv_band
+    options:
+      - <$50k
+      - $50k-$100k
+      - $100k-$250k
+      - $250k-$1M
+      - $1M+
+  - id: primary_persona
+    label: Main buyer
+    type: text
+    required: true
+    placeholder: CIO, procurement leader, operations executive
+    patch_field: primary_persona
+  - id: procurement_signals
+    label: Procurement or trust signals
+    type: list
+    required: true
+    placeholder: SOC 2, ISO 27001, security review, implementation services
+    patch_field: procurement_signals
+    validators:
+      min_items: 1
+  - id: analyst_recognition
+    label: Analyst or third-party recognition
+    type: textarea
+    required: true
+    placeholder: Analyst reports, partner awards, review platforms, certifications
+    patch_field: analyst_recognition
+  - id: reference_customer_logos
+    label: Reference customers or proof points
+    type: textarea
+    required: true
+    placeholder: Named customers, case studies, industries served, public testimonials
+    patch_field: reference_customer_logos
+  - id: deployment_model
+    label: Deployment model
+    type: select
+    required: true
+    hint: Choose the model customers evaluate when asking AI tools about fit and risk.
+    patch_field: deployment_model
+    options:
+      - SaaS
+      - Private cloud
+      - On-premise
+      - Hybrid
+      - Services-led
+  - id: buying_committee_size
+    label: Buying committee size
+    type: select
+    required: true
+    hint: Choose the number of people commonly involved in evaluation and approval.
+    patch_field: buying_committee_size
+    options:
+      - 1-2
+      - 3-5
+      - 6-10
+      - 11+
+  - id: sales_cycle_length_band
+    label: Sales cycle length
+    type: select
+    required: true
+    hint: Choose the typical time from serious evaluation to purchase or contract signature.
+    patch_field: sales_cycle_length_band
+    options:
+      - Under 30 days
+      - 1-3 months
+      - 3-6 months
+      - 6-12 months
+      - 12+ months
+  - id: competitors
+    label: Competitors or alternatives
+    type: list
+    required: false
+    hint: Leave blank to skip competitor comparison questions.
+    placeholder: Competitor A, legacy vendor, internal build
+    patch_field: competitors
