@@ -302,6 +302,23 @@ class CostLedgerEntry(Base):
     updated_at  = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
+class ScanRawResponseArchive(Base):
+    """Non-final raw response archive prepared before final scan provenance."""
+    __tablename__ = "scan_raw_response_archive"
+    __table_args__ = (
+        UniqueConstraint("scan_id", "archive_type", name="uq_scan_raw_response_archive_type"),
+        Index("ix_scan_raw_response_archive_scan", "scan_id"),
+    )
+
+    id            = Column(String, primary_key=True)
+    scan_id       = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False)
+    archive_type  = Column(Text, nullable=False)
+    sample_count  = Column(Integer, nullable=False)
+    archive_url   = Column(Text, nullable=False)
+    archive_hash  = Column(LargeBinary, nullable=False)
+    created_at    = Column(DateTime, nullable=False, default=_utcnow)
+
+
 class ScanProvenance(Base):
     """Immutable provenance record for completed downstream scan inputs/outputs."""
     __tablename__ = "scan_provenance"
@@ -341,7 +358,7 @@ class Sample(Base):
     )
 
     id                   = Column(String, primary_key=True)
-    scan_id              = Column(String, ForeignKey("scan_provenance.scan_id"), nullable=False)
+    scan_id              = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False)
     question_id          = Column(String, nullable=False)
     provider             = Column(Text, nullable=False)
     provider_model       = Column(Text, nullable=False)
@@ -366,6 +383,12 @@ class Classification(Base):
     """Classifier judgment row for stance/source outputs consumed by AVS."""
     __tablename__ = "classification"
     __table_args__ = (
+        UniqueConstraint(
+            "sample_id",
+            "classifier_type",
+            "classifier_version",
+            name="uq_classification_sample_type_version",
+        ),
         Index("ix_classification_sample_type", "sample_id", "classifier_type"),
     )
 
@@ -380,6 +403,26 @@ class Classification(Base):
     consensus_value        = Column(Text, nullable=False)
     consensus_confidence   = Column(Numeric(5, 4), nullable=True)
     judged_at              = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class DomainClassification(Base):
+    """Source-classifier cache keyed by eTLD+1 domain."""
+    __tablename__ = "domain_classification"
+    __table_args__ = (
+        Index("ix_domain_classification_expires_at", "expires_at"),
+    )
+
+    domain             = Column(Text, primary_key=True)
+    classifier_version = Column(Text, primary_key=True)
+    source_class       = Column(Text, nullable=False)
+    classifier_model   = Column(Text, nullable=False)
+    prompt_hash        = Column(LargeBinary, nullable=True)
+    confidence         = Column(Numeric(5, 4), nullable=False, default=0)
+    source             = Column(Text, nullable=False)
+    evidence           = Column(_json_type(), nullable=True)
+    expires_at         = Column(DateTime, nullable=True)
+    created_at         = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at         = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
 class AVSComputation(Base):

@@ -12,6 +12,7 @@ from api.adapters.sampling import prepare_sample_plan
 from api.database import (
     AuditEvent,
     Base,
+    Classification,
     Client,
     CostLedgerEntry,
     ExecutionSample,
@@ -23,6 +24,7 @@ from api.database import (
     ScanProgress,
     ScanRun,
     ScanStep,
+    Sample,
     User,
 )
 from api.domain.ports import ProviderResponse
@@ -71,6 +73,35 @@ class RecordingProvider:
             total_tokens=30,
             latency_ms=123,
             response_received_at=datetime(2026, 5, 24, 12, 5, tzinfo=timezone.utc),
+        )
+
+
+class RecordingClassifierJudge:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def complete(
+        self,
+        *,
+        prompt: str,
+        seed: int | None,
+        temperature: float,
+        top_p: float,
+        idempotency_key: str,
+    ) -> ProviderResponse:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "seed": seed,
+                "temperature": temperature,
+                "top_p": top_p,
+                "idempotency_key": idempotency_key,
+            }
+        )
+        return ProviderResponse(
+            text='{"label":"C+","rationale":"brand is listed"}',
+            provider="claude",
+            model="claude-sonnet-4-test",
         )
 
 
@@ -295,6 +326,7 @@ def test_scan_orchestrator_task_runs_provider_execution_through_registry(monkeyp
     engine, Session = _sessionmaker()
     openai = RecordingProvider("openai")
     claude = RecordingProvider("claude")
+    classifier_judge = RecordingClassifierJudge()
     seed = Session()
     try:
         _seed_scan_with_manifest(seed)
@@ -308,6 +340,7 @@ def test_scan_orchestrator_task_runs_provider_execution_through_registry(monkeyp
         "default_provider_clients",
         lambda: {"openai": openai, "claude": claude},
     )
+    monkeypatch.setattr(scan_execution, "default_classifier_judge", lambda: classifier_judge)
 
     try:
         _run(
@@ -322,13 +355,17 @@ def test_scan_orchestrator_task_runs_provider_execution_through_registry(monkeyp
         try:
             assert len(openai.calls) == 10
             assert len(claude.calls) == 10
+            assert len(classifier_judge.calls) == 60
             progress = session.query(ScanProgress).one()
-            assert progress.stage == "provider_calls_completed"
+            assert progress.stage == "classification_completed"
             assert progress.completed_calls == 20
             assert session.query(ExecutionSample).filter(ExecutionSample.raw_response_hash.is_not(None)).count() == 20
+            assert session.query(Sample).count() == 20
+            assert session.query(Classification).count() == 40
             assert session.query(ScanStep).filter_by(step_id="scan_orchestrator", event="started").count() == 1
             assert session.query(ScanStep).filter_by(step_id="prepare_question_plan", event="succeeded").count() == 1
             assert session.query(ScanStep).filter_by(step_id="provider_calls", event="succeeded").count() == 1
+            assert session.query(ScanStep).filter_by(step_id="classify_samples", event="succeeded").count() == 1
         finally:
             session.close()
     finally:

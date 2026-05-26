@@ -14,9 +14,11 @@ PHASE13_TABLES = {
     "scan_steps",
     "idempotency_keys",
     "cost_ledger",
+    "scan_raw_response_archive",
     "scan_provenance",
     "sample",
     "classification",
+    "domain_classification",
     "avs_computation",
     "audit_event",
 }
@@ -129,6 +131,38 @@ def test_phase13_foundation_schema_tables_and_constraints_exist():
                 for constraint in inspector.get_unique_constraints("avs_computation")
             }
             assert "uq_avs_computation_scan_methodology" in avs_constraints
+
+            classification_constraints = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints("classification")
+            }
+            assert "uq_classification_sample_type_version" in classification_constraints
+
+            domain_cache_columns = {
+                column["name"] for column in inspector.get_columns("domain_classification")
+            }
+            assert {
+                "domain",
+                "source_class",
+                "classifier_version",
+                "classifier_model",
+                "prompt_hash",
+                "confidence",
+                "source",
+                "evidence",
+                "expires_at",
+            }.issubset(domain_cache_columns)
+
+            raw_archive_columns = {
+                column["name"] for column in inspector.get_columns("scan_raw_response_archive")
+            }
+            assert {
+                "scan_id",
+                "archive_type",
+                "sample_count",
+                "archive_url",
+                "archive_hash",
+            }.issubset(raw_archive_columns)
     finally:
         engine.dispose()
 

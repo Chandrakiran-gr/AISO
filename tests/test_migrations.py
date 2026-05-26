@@ -19,9 +19,11 @@ PHASE13_TABLES = (
     "scan_steps",
     "idempotency_keys",
     "cost_ledger",
+    "scan_raw_response_archive",
     "scan_provenance",
     "sample",
     "classification",
+    "domain_classification",
     "avs_computation",
     "audit_event",
 )
@@ -87,6 +89,34 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("commercial_prox", bank_score_columns)
                     for table_name in PHASE13_TABLES:
                         self.assertIn(table_name, inspector.get_table_names())
+                    domain_cache_columns = {
+                        column["name"] for column in inspector.get_columns("domain_classification")
+                    }
+                    self.assertTrue(
+                        {
+                            "domain",
+                            "source_class",
+                            "classifier_version",
+                            "classifier_model",
+                            "prompt_hash",
+                            "confidence",
+                            "source",
+                            "evidence",
+                            "expires_at",
+                        }.issubset(domain_cache_columns)
+                    )
+                    raw_archive_columns = {
+                        column["name"] for column in inspector.get_columns("scan_raw_response_archive")
+                    }
+                    self.assertTrue(
+                        {
+                            "scan_id",
+                            "archive_type",
+                            "sample_count",
+                            "archive_url",
+                            "archive_hash",
+                        }.issubset(raw_archive_columns)
+                    )
                     scan_run_columns = {
                         column["name"] for column in inspector.get_columns("scan_runs")
                     }
@@ -153,6 +183,14 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("commercial_prox", bank_score_columns)
                     for table_name in PHASE13_TABLES:
                         self.assertIn(table_name, inspector.get_table_names())
+                    domain_cache_columns = {
+                        column["name"] for column in inspector.get_columns("domain_classification")
+                    }
+                    self.assertIn("source_class", domain_cache_columns)
+                    raw_archive_columns = {
+                        column["name"] for column in inspector.get_columns("scan_raw_response_archive")
+                    }
+                    self.assertIn("archive_hash", raw_archive_columns)
                     scan_run_columns = {
                         column["name"] for column in inspector.get_columns("scan_runs")
                     }

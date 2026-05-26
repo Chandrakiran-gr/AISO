@@ -277,7 +277,7 @@ def upgrade() -> None:
             sa.Column("raw_response_hash", sa.LargeBinary(), nullable=False),
             sa.Column("response_received_at", sa.DateTime(), nullable=False),
             sa.Column("latency_ms", sa.Integer(), nullable=True),
-            sa.ForeignKeyConstraint(["scan_id"], ["scan_provenance.scan_id"]),
+            sa.ForeignKeyConstraint(["scan_id"], ["scan_runs.id"], ondelete="CASCADE"),
             sa.UniqueConstraint(
                 "scan_id",
                 "question_id",
