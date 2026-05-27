@@ -528,32 +528,26 @@ function selectFieldHint(field: IntakeField, value: string): string | null {
   return base ? `${base} Selected: ${value}.` : `Selected: ${value}.`;
 }
 
+function compactHelp(...parts: Array<string | null | undefined>): string {
+  return parts.map((part) => part?.trim()).filter(Boolean).join(" ");
+}
+
+function optionHelp(title: string | undefined, body: string | null | undefined, example?: string | null): string {
+  return compactHelp(title ? `${title}:` : null, body, example);
+}
+
+function fieldCueText(field: IntakeField, value: string): string | null {
+  const base = field.hint ?? selectFieldHint(field, value);
+  const listHelp = field.type === "list" ? "Separate items with commas or line breaks." : null;
+  return compactHelp(base, listHelp) || null;
+}
+
 function InfoCue({ id, text }: { id: string; text: string }) {
   return (
     <span className={styles.infoCue} tabIndex={0} aria-describedby={id} aria-label={text}>
       ?
       <span id={id} role="tooltip" className={styles.infoBubble}>{text}</span>
     </span>
-  );
-}
-
-function InlineHelp({
-  id,
-  title,
-  body,
-  example,
-}: {
-  id: string;
-  title: string;
-  body: string;
-  example?: string | null;
-}) {
-  return (
-    <div id={id} className={styles.inlineHelp}>
-      <strong>{title}</strong>
-      <span>{body}</span>
-      {example && <em>{example}</em>}
-    </div>
   );
 }
 
@@ -1140,6 +1134,12 @@ function Step1({
   const selectedBusinessType = businessTypeOption(form.vertical, verticalOptions);
   const selectedObjective = pipelineObjectiveOption(form.pipelineObjective);
   const verticalOptionsLoading = verticalOptionsStatus === "loading";
+  const businessTypeHelp = selectedBusinessType
+    ? optionHelp(selectedBusinessType.label, selectedBusinessType.description, selectedBusinessType.example)
+    : "This routes the intake questions and question-generation logic. Choose the closest business model, then use the specific category fields for detail.";
+  const objectiveHelp = selectedObjective
+    ? optionHelp(selectedObjective.label, selectedObjective.help)
+    : "This changes the mix of awareness, comparison, preference, reputation, and competitor questions AISO prioritizes.";
   function updateIntake(field: IntakeField, value: string) {
     const intake = { ...form.intake, [field.id]: value };
     let nextForm = { ...form, intake };
@@ -1191,7 +1191,7 @@ function Step1({
               <label className={styles.label} htmlFor="ob-vertical">Business type *</label>
               <InfoCue
                 id="ob-vertical-tip"
-                text="This routes the intake questions and question-generation logic. Choose the closest business model, then use the specific category fields for detail."
+                text={businessTypeHelp}
               />
             </div>
             <select
@@ -1200,7 +1200,6 @@ function Step1({
               value={form.vertical}
               onChange={(e) => set({ ...form, vertical: e.target.value, intake: {}, industry: "", location: "", competitors: "" })}
               required
-              aria-describedby="ob-vertical-help"
               disabled={verticalOptionsLoading || verticalOptions.length === 0}
             >
               <option value="">{verticalOptionsLoading ? "Loading business types..." : "Choose your business type"}</option>
@@ -1208,19 +1207,13 @@ function Step1({
                 <option key={vertical.id} value={vertical.id}>{vertical.label}</option>
               ))}
             </select>
-            <InlineHelp
-              id="ob-vertical-help"
-              title={selectedBusinessType?.label ?? "Choose the closest business model"}
-              body={selectedBusinessType?.description ?? "AISO uses this selection to decide which context is required before it builds a question bank."}
-              example={selectedBusinessType?.example}
-            />
           </div>
           <div className={styles.fieldGroup}>
             <div className={styles.labelRow}>
               <label className={styles.label} htmlFor="ob-objective">Measurement objective *</label>
               <InfoCue
                 id="ob-objective-tip"
-                text="This changes the mix of awareness, comparison, preference, reputation, and competitor questions AISO prioritizes."
+                text={objectiveHelp}
               />
             </div>
             <select
@@ -1228,17 +1221,11 @@ function Step1({
               className="input"
               value={form.pipelineObjective}
               onChange={(e) => set({ ...form, pipelineObjective: e.target.value })}
-              aria-describedby="ob-objective-help"
             >
               {PIPELINE_OBJECTIVES.map((objective) => (
                 <option key={objective.id} value={objective.id}>{objective.label}</option>
               ))}
             </select>
-            <InlineHelp
-              id="ob-objective-help"
-              title={selectedObjective?.label ?? "Measurement objective"}
-              body={selectedObjective?.help ?? "Choose what kind of visibility signal matters most for this scan."}
-            />
           </div>
         </div>
         <section className={styles.intakePanel} aria-labelledby="ob-intake-heading">
@@ -1254,8 +1241,7 @@ function Step1({
               {schema.fields.map((field) => {
                 const value = fieldValue(form, field.id);
                 const controlId = `ob-intake-${field.id}`;
-                const selectHint = selectFieldHint(field, value);
-                const cueText = field.hint ?? selectHint;
+                const cueText = fieldCueText(field, value);
                 return (
                   <div key={field.id} className={styles.fieldGroup}>
                     <div className={styles.labelRow}>
@@ -1265,7 +1251,6 @@ function Step1({
                         {!field.required && <span className={styles.labelHint}>Optional</span>}
                       </span>
                     </div>
-                    {field.hint && <p className={styles.fieldHelp}>{field.hint}</p>}
                     {field.type === "textarea" || field.type === "list" ? (
                       <textarea
                         id={controlId}
@@ -1281,7 +1266,6 @@ function Step1({
                         className="input"
                         value={value}
                         onChange={(e) => updateIntake(field, e.target.value)}
-                        aria-describedby={selectHint ? `${controlId}-select-help` : undefined}
                       >
                         <option value="">Select...</option>
                         {field.options.map((option) => (
@@ -1296,18 +1280,6 @@ function Step1({
                         placeholder={field.placeholder ?? ""}
                         value={value}
                         onChange={(e) => updateIntake(field, e.target.value)}
-                      />
-                    )}
-                    {field.type === "list" && (
-                      <p className={styles.fieldHelp}>
-                        Separate items with commas or line breaks.
-                      </p>
-                    )}
-                    {selectHint && (
-                      <InlineHelp
-                        id={`${controlId}-select-help`}
-                        title={value || "Choose the closest option"}
-                        body={selectHint}
                       />
                     )}
                   </div>
