@@ -513,6 +513,11 @@ function objectiveSummary(scanObjective?: ScanObjective): string {
   return "No template selected";
 }
 
+function hasScanObjective(scanObjective?: ScanObjective): boolean {
+  return selectedObjectiveIds(scanObjective).length > 0
+    || (scanObjective?.custom_objective ?? scanObjective?.custom ?? "").trim().length > 0;
+}
+
 function businessTypeOption(id: string, options: VerticalOption[]) {
   return options.find((option) => option.id === id);
 }
@@ -760,15 +765,21 @@ function evidenceLabels(items: ContextItem[]): string[] {
 function flagLabel(flag?: string): string {
   if (flag === "crawled") return "Crawled";
   if (flag === "guessed") return "Guessed";
-  if (flag === "needs_you") return "Needs you";
+  if (flag === "required") return "Required";
   return "";
 }
 
 function flagClass(flag?: string): string {
   if (flag === "crawled") return styles.flagCrawled;
   if (flag === "guessed") return styles.flagGuessed;
-  if (flag === "needs_you") return styles.flagNeedsYou;
+  if (flag === "required") return styles.flagRequired;
   return "";
+}
+
+function visibleFlag(flag: string | undefined, options: { required?: boolean; hasValue?: boolean } = {}): string | undefined {
+  if (options.required && !options.hasValue) return "required";
+  if (flag === "crawled" || flag === "guessed") return flag;
+  return undefined;
 }
 
 function contextMatchesForm(context: ClientContextData | null, form: FormState, clientId: string): boolean {
@@ -1383,6 +1394,7 @@ function ContextSection({
   onChange,
   extra,
   flag,
+  required = false,
 }: {
   title: string;
   hint: string;
@@ -1391,10 +1403,12 @@ function ContextSection({
   onChange: (items: ContextItem[]) => void;
   extra?: Partial<ContextItem>;
   flag?: string;
+  required?: boolean;
 }) {
   const renderedItems = itemLines(items);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isEditingRef = useRef(false);
+  const sectionFlag = visibleFlag(flag, { required, hasValue: items.length > 0 });
 
   useEffect(() => {
     if (!isEditingRef.current && textareaRef.current && textareaRef.current.value !== renderedItems) {
@@ -1423,7 +1437,7 @@ function ContextSection({
           <p>{hint}</p>
         </div>
         <div className={styles.sectionMeta}>
-          {flagLabel(flag) && <span className={`${styles.sourceFlag} ${flagClass(flag)}`}>{flagLabel(flag)}</span>}
+          {flagLabel(sectionFlag) && <span className={`${styles.sourceFlag} ${flagClass(sectionFlag)}`}>{flagLabel(sectionFlag)}</span>}
           <span>{items.length}</span>
         </div>
       </div>
@@ -1459,6 +1473,7 @@ function BuyerContextSection({
   flag?: string;
 }) {
   const safeContexts = contexts;
+  const sectionFlag = visibleFlag(flag, { hasValue: safeContexts.length > 0 });
   function update(index: number, patch: Partial<BuyerContext>) {
     onChange(safeContexts.map((context, i) => (i === index ? { ...context, ...patch } : context)));
   }
@@ -1473,7 +1488,7 @@ function BuyerContextSection({
           <p>Add this only when you want AISO to test specific buyer needs, occasions, or constraints.</p>
         </div>
         <div className={styles.sectionMeta}>
-          {flagLabel(flag) && <span className={`${styles.sourceFlag} ${flagClass(flag)}`}>{flagLabel(flag)}</span>}
+          {flagLabel(sectionFlag) && <span className={`${styles.sourceFlag} ${flagClass(sectionFlag)}`}>{flagLabel(sectionFlag)}</span>}
           <span>{safeContexts.length}</span>
         </div>
       </div>
@@ -1597,6 +1612,9 @@ function Step3({
   }
   const scanObjective = normalizedScanObjective(profile.scan_objective ?? defaultScanObjective());
   const selectedObjectives = selectedObjectiveIds(scanObjective);
+  const customObjective = scanObjective.custom_objective ?? scanObjective.custom ?? "";
+  const objectiveCount = selectedObjectives.length + (customObjective.trim() ? 1 : 0);
+  const objectiveFlag = visibleFlag(draftFlags.objective, { required: true, hasValue: objectiveCount > 0 });
   function toggleScanObjective(objectiveId: string) {
     const next = selectedObjectives.includes(objectiveId)
       ? selectedObjectives.filter((selected) => selected !== objectiveId)
@@ -1633,14 +1651,14 @@ function Step3({
             <p>This changes which buyer questions are prioritized in the final bank.</p>
           </div>
           <div className={styles.sectionMeta}>
-            {flagLabel(draftFlags.objective) && <span className={`${styles.sourceFlag} ${flagClass(draftFlags.objective)}`}>{flagLabel(draftFlags.objective)}</span>}
-            <span>1</span>
+            {flagLabel(objectiveFlag) && <span className={`${styles.sourceFlag} ${flagClass(objectiveFlag)}`}>{flagLabel(objectiveFlag)}</span>}
+            <span>{objectiveCount}</span>
           </div>
         </div>
         <OptimizationObjectiveSelector
           options={SCAN_OBJECTIVES}
           selectedObjectiveIds={selectedObjectives}
-          customObjective={scanObjective.custom_objective ?? scanObjective.custom ?? ""}
+          customObjective={customObjective}
           onToggleObjective={toggleScanObjective}
           onCustomObjectiveChange={(customObjective) => updateScanObjective(selectedObjectives, customObjective)}
         />
@@ -1673,6 +1691,7 @@ function Step3({
           items={profile.offerings}
           type="offering"
           extra={{ bookable: true }}
+          required
           onChange={(items) => update("offerings", items)}
         />
         <ContextSection
@@ -1740,7 +1759,7 @@ function Step3({
       </div>
       <div className={styles.navRow}>
         <button type="button" className={styles.backBtn} onClick={onBack}>Back</button>
-        <button type="button" className={styles.nextBtn} onClick={onConfirm} disabled={saving || profile.offerings.length === 0}>
+        <button type="button" className={styles.nextBtn} onClick={onConfirm} disabled={saving || profile.offerings.length === 0 || !hasScanObjective(scanObjective)}>
           {saving ? "Saving profile..." : "Looks good, configure scan"}
         </button>
       </div>
@@ -2328,6 +2347,10 @@ export default function OnboardingPage() {
     if (!clientId) return;
     if (profile.offerings.length === 0) {
       setError("Add at least one customer-facing offering before launching a scan.");
+      return;
+    }
+    if (!hasScanObjective(profile.scan_objective)) {
+      setError("Choose at least one scan objective before configuring the scan.");
       return;
     }
     const readyBuyerContexts = (profile.buyer_contexts ?? []).filter(buyerContextIsUsable);
