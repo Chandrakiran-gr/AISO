@@ -146,6 +146,23 @@ type ExistingClient = {
   competitors: string[] | null;
 };
 
+type BusinessProfileData = {
+  onboarding_id: string;
+  client_id: string;
+  vertical: string;
+  objective: string;
+  category: string;
+  icp: Record<string, unknown>;
+  geographic_scope: Record<string, unknown>;
+  competitors: string[];
+  personas: Record<string, unknown>;
+  crawl_artifacts: Record<string, unknown>;
+  floor_met: boolean;
+  missing_fields: string[];
+  onboarding_completed_at?: string | null;
+  founder_reviewed_at?: string | null;
+};
+
 type ContextItem = {
   name: string;
   type?: string;
@@ -303,6 +320,98 @@ function splitListValue(raw: string): string[] {
 
 function fieldValue(form: FormState, fieldId: string): string {
   return form.intake[fieldId] ?? "";
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function storedValueToInput(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean).join("\n");
+  }
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value).trim();
+}
+
+function businessProfileValueForPatchField(profile: BusinessProfileData, patchField: string): unknown {
+  const firmographics = recordValue(profile.icp.firmographics);
+  switch (patchField) {
+    case "category":
+      return profile.category;
+    case "competitors":
+      return profile.competitors;
+    case "industry":
+      return firmographics.industry;
+    case "employee_band":
+      return firmographics.employee_band;
+    case "revenue_band":
+      return firmographics.revenue_band;
+    case "firmographic_geography":
+    case "icp_geography":
+      return firmographics.geography;
+    case "primary_persona":
+      return profile.personas.primary;
+    case "economic_buyer":
+      return profile.personas.economic_buyer;
+    case "end_user":
+      return profile.personas.end_user;
+    case "nap":
+      return profile.geographic_scope.nap;
+    case "service_radius":
+      return profile.geographic_scope.service_radius;
+    case "hours":
+      return profile.geographic_scope.hours;
+    case "geographic_scope_description":
+      return profile.geographic_scope.description;
+    case "jurisdictions":
+      return profile.geographic_scope.jurisdictions;
+    case "shipping_geographic_scope":
+    case "shipping_scope":
+      return profile.geographic_scope.shipping;
+    default:
+      return profile.icp[patchField];
+  }
+}
+
+function intakeFromBusinessProfile(profile: BusinessProfileData, schema: IntakeSchema): Record<string, string> {
+  const intake: Record<string, string> = {};
+  for (const field of schema.fields) {
+    const value = storedValueToInput(businessProfileValueForPatchField(profile, field.patch_field));
+    if (value) intake[field.id] = value;
+  }
+  return intake;
+}
+
+function firstPresentProfileValue(profile: BusinessProfileData, patchFields: string[]): string {
+  for (const patchField of patchFields) {
+    const value = storedValueToInput(businessProfileValueForPatchField(profile, patchField));
+    if (value) return value;
+  }
+  return "";
+}
+
+function formFromExistingProfile(client: ExistingClient, profile: BusinessProfileData, schema: IntakeSchema): FormState {
+  const intake = intakeFromBusinessProfile(profile, schema);
+  const withStoredFields: FormState = {
+    ...DEFAULT,
+    businessName: client.name,
+    websiteUrl: client.url,
+    vertical: profile.vertical,
+    pipelineObjective: profile.objective || DEFAULT.pipelineObjective,
+    intake,
+    industry: profile.category || client.industry || firstPresentProfileValue(profile, ["industry", "brand_archetype", "target"]),
+    location: client.location || firstPresentProfileValue(profile, [
+      "geographic_scope_description",
+      "shipping_geographic_scope",
+      "service_radius",
+      "firmographic_geography",
+      "jurisdictions",
+    ]),
+    competitors: profile.competitors?.length ? profile.competitors.join(", ") : client.competitors?.join(", ") ?? "",
+  };
+  return legacyFormFromIntake(withStoredFields, schema);
 }
 
 function primaryLocationFromIntake(form: FormState): string {
@@ -742,6 +851,12 @@ async function startPipelineOnboarding(slug: string, form: FormState, schema: In
 
 async function getClientContext(clientId: string): Promise<ClientContextData | null> {
   const res = await fetch(`${API}/v1/clients/${clientId}/context`, { cache: "no-store" });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function getOnboardingProfile(clientId: string): Promise<BusinessProfileData | null> {
+  const res = await fetch(`${API}/v1/onboarding/${clientId}`, { cache: "no-store" });
   if (!res.ok) return null;
   return res.json();
 }
@@ -2091,7 +2206,7 @@ export default function OnboardingPage() {
         const client = clients[0] ?? null;
         if (!client || !active) return;
         setClientId(client.id);
-        const nextForm = {
+        let nextForm: FormState = {
           ...DEFAULT,
           businessName: client.name,
           websiteUrl: client.url,
@@ -2100,7 +2215,25 @@ export default function OnboardingPage() {
           competitors: client.competitors?.join(", ") ?? "",
         };
         setForm(nextForm);
-        const loadedContext = await getClientContext(client.id);
+        const [loadedContext, savedProfile] = await Promise.all([
+          getClientContext(client.id),
+          getOnboardingProfile(client.id),
+        ]);
+        if (!active) return;
+        if (savedProfile?.vertical) {
+          try {
+            const savedSchema = await getIntakeSchema(savedProfile.vertical);
+            if (!active) return;
+            nextForm = formFromExistingProfile(client, savedProfile, savedSchema);
+            setIntakeSchema(savedSchema);
+            setSchemaStatus("idle");
+            setSchemaError(null);
+          } catch (err) {
+            if (!active) return;
+            setSchemaError(err instanceof Error ? err.message : "Unable to load saved intake fields.");
+          }
+        }
+        setForm(nextForm);
         if (!active || !loadedContext) return;
         setContext(loadedContext);
         if (loadedContext.profile_json) {
