@@ -804,6 +804,12 @@ async function readApiError(res: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
+function isApprovedCrawlerProfileConflict(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("profile is 'approved'") || message.includes("profile is already 'approved'");
+}
+
 async function getIntakeVerticals(): Promise<VerticalOption[]> {
   const res = await fetch(`${API}/v1/onboarding/intake-verticals`, { cache: "no-store" });
   if (!res.ok) throw new Error(await readApiError(res, `Failed to load business types (${res.status})`));
@@ -2364,13 +2370,19 @@ export default function OnboardingPage() {
     setError(null);
     try {
       const normalized = normalizedProfile({ ...profile, buyer_contexts: readyBuyerContexts });
-      if (workspaceId) {
-        await editCrawlerBusinessProfile(workspaceId, normalized);
-        await approveCrawlerBusinessProfile(workspaceId);
+      if (workspaceId && context?.status !== "confirmed") {
+        try {
+          await editCrawlerBusinessProfile(workspaceId, normalized);
+          await approveCrawlerBusinessProfile(workspaceId);
+        } catch (err) {
+          if (!isApprovedCrawlerProfileConflict(err)) throw err;
+        }
+        setWorkspaceId(null);
       }
       await confirmPipelineBusinessProfile(clientId, normalized);
       const saved = await saveClientContext(clientId, normalized, warnings);
       setContext(saved);
+      if (saved.status === "confirmed") setWorkspaceId(null);
       setProfile(normalizedProfile(saved.profile_json ?? normalized));
       setWarnings(saved.warnings_json ?? warnings);
       setForm({ ...form, competitors: competitorNamesFromProfile(normalized).join(", ") });
