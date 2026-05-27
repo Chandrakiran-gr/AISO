@@ -825,7 +825,7 @@
   color: #fbbf24 !important;
 }
 
-.flagNeedsYou {
+.flagRequired {
   border-color: rgba(248,113,113,0.24) !important;
   background: rgba(248,113,113,0.08);
   color: #fca5a5 !important;
