@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
@@ -1852,7 +1852,7 @@ function Step4({
   const selectedProviderKeysSet = form.providers.filter((id) => keySet[id as Provider]).length;
   const missingKeys = form.providers.filter((id) => !keySet[id as Provider]);
   const visibleValidationError = validationError ?? externalError;
-  const byokPanelOpen = keysOpen || Boolean(visibleValidationError);
+  const byokPanelOpen = keysOpen || missingKeys.length > 0 || Boolean(visibleValidationError);
   const providerNames = form.providers.map(providerName).join(", ");
   const customQuestionCount = validateCustomQuestions(form.customQuestions).questions.length;
 
@@ -2126,6 +2126,12 @@ export default function OnboardingPage() {
   const [keyError, setKeyError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [step]);
 
   useEffect(() => {
     if (!scanning) return;
