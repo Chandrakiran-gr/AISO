@@ -485,6 +485,17 @@ async def get_intake_schema(vertical: str):
     return _load_intake_schema(vertical)
 
 
+@router.get("/onboarding/{onboarding_id}", response_model=BusinessProfileResponse)
+async def get_onboarding_profile(
+    onboarding_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return the saved onboarding profile for repeat scans and review flows."""
+    profile = _profile_for_user(db, onboarding_id, user_id)
+    return _profile_response(profile)
+
+
 @router.post(
     "/onboarding/start",
     response_model=OnboardingStartResponse,

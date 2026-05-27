@@ -312,6 +312,47 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         self.assertEqual(submitted.status_code, 200)
         self.assertTrue(submitted.json()["floor_met"])
 
+    def test_repeat_scan_can_load_saved_onboarding_profile(self):
+        start = self.client.post(
+            "/api/v1/onboarding/start",
+            json={
+                "display_name": "Repeat Scan Co",
+                "url": "https://repeat.example",
+                "vertical": "consumer_brand",
+                "objective": "consideration",
+            },
+        )
+        self.assertEqual(start.status_code, 201)
+        onboarding_id = start.json()["onboarding_id"]
+
+        patched = self.client.patch(
+            f"/api/v1/onboarding/{onboarding_id}",
+            json={
+                "brand_archetype": "General merchandise retailer",
+                "product_line_breadth": "Household essentials, apparel, groceries",
+                "price_tier": "Mixed",
+                "distribution_channels": ["Stores", "Website", "Mobile app"],
+                "target": "Value-conscious families",
+                "geographic_scope_description": "United States",
+                "competitors": ["Competitor A", "Competitor B"],
+            },
+        )
+        self.assertEqual(patched.status_code, 200)
+        submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
+        self.assertEqual(submitted.status_code, 200)
+
+        loaded = self.client.get(f"/api/v1/onboarding/{onboarding_id}")
+        self.assertEqual(loaded.status_code, 200)
+        profile = loaded.json()
+        self.assertEqual(profile["client_id"], onboarding_id)
+        self.assertEqual(profile["vertical"], "consumer_brand")
+        self.assertEqual(profile["objective"], "consideration")
+        self.assertTrue(profile["floor_met"])
+        self.assertEqual(profile["icp"]["brand_archetype"], "General merchandise retailer")
+        self.assertEqual(profile["icp"]["distribution_channels"], ["Stores", "Website", "Mobile app"])
+        self.assertEqual(profile["geographic_scope"]["description"], "United States")
+        self.assertEqual(profile["competitors"], ["Competitor A", "Competitor B"])
+
     def test_local_services_competitors_and_license_are_optional_but_working_hours_required(self):
         start = self.client.post(
             "/api/v1/onboarding/start",
