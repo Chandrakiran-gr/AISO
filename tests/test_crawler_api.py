@@ -656,6 +656,81 @@ class CrawlerAPITests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_worker_collapses_duplicate_page_urls_before_persistence(self):
+        import json
+        from unittest.mock import patch
+
+        from api.crawler.models import CrawlJob, CrawlPage
+        from api.crawler.worker import run_crawl_job
+        from api.database import ClientContext, SessionLocal
+
+        seed_url = "https://www.testcompany.com"
+        ws_response = self.client.post("/api/v1/onboarding-workspaces", json={
+            "client_id": "test-client-1",
+            "website_url": seed_url,
+            "consent_confirmed": True,
+        })
+        workspace_id = ws_response.json()["workspace_id"]
+        job_response = self.client.post(
+            f"/api/v1/onboarding-workspaces/{workspace_id}/crawl-jobs",
+            json={"max_pages": 10, "max_depth": 2},
+        )
+        job_id = job_response.json()["job_id"]
+        evidence = {
+            "page_count": 3,
+            "warnings": [],
+            "pages": [
+                {
+                    "url": f"{seed_url}/pricing/",
+                    "title": "Pricing",
+                    "status_code": 200,
+                    "content_type": "text/html",
+                    "headings": ["Pricing"],
+                    "text_blocks": ["Simple AISO pricing for growing teams."],
+                    "links": [],
+                },
+                {
+                    "url": f"{seed_url}/pricing?utm_source=nav",
+                    "title": "Pricing duplicate",
+                    "status_code": 200,
+                    "content_type": "text/html",
+                    "headings": ["Pricing"],
+                    "text_blocks": ["Duplicate pricing navigation link."],
+                    "links": [],
+                },
+                {
+                    "url": f"{seed_url}/about",
+                    "title": "About",
+                    "status_code": 200,
+                    "content_type": "text/html",
+                    "headings": ["About Test Company"],
+                    "text_blocks": ["Test Company helps teams measure AI visibility."],
+                    "links": [],
+                },
+            ],
+        }
+
+        with patch("api.crawler.worker.discover_website", return_value=evidence):
+            run_crawl_job(job_id)
+
+        db = SessionLocal()
+        try:
+            job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+            pages = db.query(CrawlPage).filter(CrawlPage.job_id == job_id).all()
+            context = db.query(ClientContext).filter(ClientContext.client_id == "test-client-1").first()
+            normalized_urls = [page.normalized_url for page in pages]
+
+            self.assertIsNotNone(job)
+            self.assertIn(job.status, {"completed", "completed_with_warnings"})
+            self.assertEqual(len(pages), 2)
+            self.assertEqual(normalized_urls.count(f"{seed_url}/pricing"), 1)
+            self.assertEqual(job.pages_queued, 2)
+            self.assertEqual(job.pages_crawled, 2)
+            self.assertIsNotNone(context)
+            self.assertEqual(json.loads(context.evidence_json)["page_count"], 2)
+        finally:
+            db.close()
+
     @classmethod
     def tearDownClass(cls):
         # ReviewApprovalTests reuses this DB/engine because FastAPI route

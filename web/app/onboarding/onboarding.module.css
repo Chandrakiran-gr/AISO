@@ -203,8 +203,8 @@
 .fields {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
-  margin-bottom: var(--space-xl);
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
 }
 
 .optionalGrid {
@@ -216,7 +216,7 @@
 .fieldGroup {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .label {
@@ -272,7 +272,7 @@
   z-index: 20;
   right: 0;
   bottom: calc(100% + 8px);
-  width: min(280px, 70vw);
+  width: min(320px, 72vw);
   padding: 10px 12px;
   border: 1px solid rgba(143,149,255,0.22);
   border-radius: var(--radius-md);
@@ -286,6 +286,8 @@
   pointer-events: none;
   transform: translateY(4px);
   transition: opacity var(--transition-fast), transform var(--transition-fast);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .infoCue:hover .infoBubble,
@@ -295,38 +297,9 @@
   transform: translateY(0);
 }
 
-.fieldHelp {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  line-height: 1.45;
-}
-
-.inlineHelp {
-  display: grid;
-  gap: 3px;
-  padding: 10px 12px;
-  border: 1px solid rgba(143,149,255,0.14);
-  border-radius: var(--radius-md);
-  background: rgba(143,149,255,0.055);
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  line-height: 1.45;
-}
-
-.inlineHelp strong {
-  color: var(--text-primary);
-  font-size: 0.75rem;
-  font-weight: 800;
-}
-
-.inlineHelp em {
-  color: var(--text-secondary);
-  font-style: normal;
-}
-
 .intakePanel {
   display: grid;
-  gap: var(--space-md);
+  gap: var(--space-sm);
   padding: var(--space-md);
   border: 1px solid rgba(143,149,255,0.16);
   border-radius: var(--radius-lg);
@@ -369,7 +342,7 @@
 .intakeGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-md);
+  gap: var(--space-sm) var(--space-md);
 }
 
 /* Provider checkboxes */

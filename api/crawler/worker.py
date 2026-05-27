@@ -286,6 +286,47 @@ def _replace_job_rows(db: Session, job_id: str) -> None:
     db.query(CrawlPage).filter(CrawlPage.job_id == job_id).delete()
 
 
+def _page_persistence_score(page: dict[str, Any]) -> tuple[int, int, int]:
+    text_blocks = page.get("text_blocks")
+    headings = page.get("headings")
+    status_code = page.get("status_code")
+    readable = 0 if page.get("stop_reason") else 1
+    successful_response = 1 if isinstance(status_code, int) and 200 <= status_code < 400 else 0
+    content_size = (
+        len(text_blocks) if isinstance(text_blocks, list) else 0
+    ) + (
+        len(headings) if isinstance(headings, list) else 0
+    )
+    return readable, successful_response, content_size
+
+
+def _dedupe_pages_for_persistence(
+    pages: list[Any],
+    *,
+    fallback_url: str,
+) -> tuple[list[dict[str, Any]], int]:
+    """Collapse duplicate normalized URLs before hitting the DB unique index."""
+    order: list[str] = []
+    pages_by_url: dict[str, dict[str, Any]] = {}
+    duplicate_count = 0
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        page_url = str(page.get("url") or fallback_url)
+        normalized_url = normalize_url(page_url)
+        if not normalized_url:
+            continue
+        existing = pages_by_url.get(normalized_url)
+        if existing is None:
+            order.append(normalized_url)
+            pages_by_url[normalized_url] = page
+            continue
+        duplicate_count += 1
+        if _page_persistence_score(page) > _page_persistence_score(existing):
+            pages_by_url[normalized_url] = page
+    return [pages_by_url[url] for url in order], duplicate_count
+
+
 def _upsert_client_context(
     db: Session,
     *,
@@ -383,6 +424,18 @@ def run_crawl_job(
         )
         pages = evidence.get("pages") if isinstance(evidence, dict) else []
         pages = pages if isinstance(pages, list) else []
+        pages, duplicate_page_count = _dedupe_pages_for_persistence(
+            pages,
+            fallback_url=workspace.website_url,
+        )
+        if isinstance(evidence, dict):
+            evidence = {**evidence, "pages": pages, "page_count": len(pages)}
+        if duplicate_page_count:
+            logger.info(
+                "Crawl job %s collapsed %s duplicate page URL(s) before persistence",
+                job_id,
+                duplicate_page_count,
+            )
         warnings = [str(item) for item in evidence.get("warnings", [])] if isinstance(evidence, dict) else []
 
         page_id_by_url: dict[str, str] = {}
