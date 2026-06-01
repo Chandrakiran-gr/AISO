@@ -5,25 +5,37 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+import json
 import os
 from typing import Any
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.adapters.audit_log import write_audit_event
 from api.database import (
+    Action,
     AVSComputation,
+    Classification,
     Client,
     IdempotencyKey,
     MethodologyVersionSet,
+    QuestionBankQuestion,
     QuestionBankVersion,
+    Sample,
     ScanManifest,
     ScanProgress,
     ScanProvenance,
     ScanRun,
     ScanStep,
+)
+from api.domain.avs import (
+    AVSSample,
+    avs_from_subindices,
+    compute_subindices,
+    first_mention_position,
+    normalized_aliases,
 )
 from api.domain.scan_runs import (
     ManifestEntry,
@@ -46,6 +58,16 @@ class ScanRunKickoffError(ValueError):
 class ScanRunKickoffResult:
     status_code: int
     body: dict[str, Any]
+
+
+JOURNEY_LABELS = {
+    "J1": "Problem awareness",
+    "J2": "Category exploration",
+    "J3": "Option comparison",
+    "J4": "Transactional intent",
+    "J5": "Trust and proof",
+    "J6": "Fit and constraints",
+}
 
 
 def create_or_replay_scan_run(
@@ -293,6 +315,7 @@ def dashboard_projection_for_scan_run(db: Session, *, scan_run_id: str, user_id:
         "methodology_version_set_id": run.methodology_version_set_id,
         "published_at": run.finished_at.isoformat() if run.finished_at else None,
         "avs": float(avs.avs_value) if avs else None,
+        "visibility_score": round(float(avs.avs_value), 2) if avs else None,
         "presence": float(avs.presence) if avs else None,
         "prominence": float(avs.prominence) if avs else None,
         "positivity": float(avs.positivity) if avs else None,
@@ -301,6 +324,297 @@ def dashboard_projection_for_scan_run(db: Session, *, scan_run_id: str, user_id:
         "avs_ci_method": avs.ci_method if avs else None,
         "provenance_hash": provenance.this_provenance_hash.hex() if provenance else None,
     }
+
+
+def scan_run_list_projections_for_client(db: Session, *, client_id: str) -> list[dict[str, Any]]:
+    runs = (
+        db.query(ScanRun)
+        .filter(ScanRun.client_id == client_id)
+        .order_by(ScanRun.enqueued_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": run.id,
+            "client_id": run.client_id,
+            "status": _legacy_scan_status(run.status),
+            "providers": list(run.providers or []),
+            "groups": None,
+            "skipped_providers": None,
+            "started_at": run.started_at,
+            "completed_at": run.finished_at,
+            "created_at": run.enqueued_at,
+            "error": json.dumps(run.error_summary) if run.error_summary else None,
+        }
+        for run in runs
+    ]
+
+
+def phase13_metrics_for_client(
+    db: Session,
+    *,
+    client_id: str,
+    user_id: str,
+    scan_id: str | None = None,
+) -> dict[str, Any] | None:
+    client = db.query(Client).filter(Client.id == client_id, Client.user_id == user_id).first()
+    if not client:
+        return None
+    run = _phase13_run_for_metrics(db, client_id=client_id, scan_id=scan_id)
+    if not run:
+        return None
+    return _phase13_metrics_for_run(db, client=client, run=run)
+
+
+def phase13_timeline_points_for_clients(
+    db: Session,
+    *,
+    clients: dict[str, Client],
+) -> list[dict[str, Any]]:
+    if not clients:
+        return []
+    runs = (
+        db.query(ScanRun)
+        .join(
+            AVSComputation,
+            and_(
+                AVSComputation.scan_id == ScanRun.id,
+                AVSComputation.methodology_version_set_id == ScanRun.methodology_version_set_id,
+                AVSComputation.is_primary.is_(True),
+            ),
+        )
+        .filter(ScanRun.client_id.in_(list(clients.keys())))
+        .filter(ScanRun.status.in_(("succeeded", "partial")))
+        .order_by(ScanRun.finished_at.asc(), ScanRun.enqueued_at.asc())
+        .all()
+    )
+    points: list[dict[str, Any]] = []
+    for run in runs:
+        client = clients.get(run.client_id)
+        if not client:
+            continue
+        metrics = _phase13_metrics_for_run(db, client=client, run=run)
+        if not metrics:
+            continue
+        mention_count = sum(item["mention_count"] for item in metrics["provider_metrics"])
+        action_count = db.query(Action.id).filter(Action.client_id == client.id, Action.scan_id == run.id).count()
+        completed_action_count = (
+            db.query(Action.id)
+            .filter(Action.client_id == client.id, Action.scan_id == run.id, Action.status == "done")
+            .count()
+        )
+        points.append(
+            {
+                "client_id": client.id,
+                "client_name": client.name,
+                "scan_id": run.id,
+                "status": _legacy_scan_status(run.status),
+                "created_at": run.enqueued_at,
+                "completed_at": run.finished_at,
+                "metrics": {
+                    "overall_score": metrics["overall_score"],
+                    "total_questions": metrics["total_questions"],
+                    "mention_count": mention_count,
+                    "gap_count": max(metrics["total_questions"] - mention_count, 0),
+                    "action_count": action_count,
+                    "completed_action_count": completed_action_count,
+                    "action_completion_rate": _percentage(completed_action_count, action_count),
+                },
+            }
+        )
+    return points
+
+
+def _phase13_run_for_metrics(db: Session, *, client_id: str, scan_id: str | None) -> ScanRun | None:
+    query = (
+        db.query(ScanRun)
+        .join(
+            AVSComputation,
+            and_(
+                AVSComputation.scan_id == ScanRun.id,
+                AVSComputation.methodology_version_set_id == ScanRun.methodology_version_set_id,
+                AVSComputation.is_primary.is_(True),
+            ),
+        )
+        .filter(ScanRun.client_id == client_id)
+        .filter(ScanRun.status.in_(("succeeded", "partial")))
+    )
+    if scan_id:
+        return query.filter(ScanRun.id == scan_id).one_or_none()
+    return query.order_by(ScanRun.finished_at.desc(), ScanRun.enqueued_at.desc()).first()
+
+
+def _phase13_metrics_for_run(db: Session, *, client: Client, run: ScanRun) -> dict[str, Any] | None:
+    avs = (
+        db.query(AVSComputation)
+        .filter(
+            AVSComputation.scan_id == run.id,
+            AVSComputation.methodology_version_set_id == run.methodology_version_set_id,
+            AVSComputation.is_primary.is_(True),
+        )
+        .one_or_none()
+    )
+    rows = _classified_sample_rows(db, scan_id=run.id, client_id=client.id)
+    if not avs or not rows:
+        return None
+
+    aliases = normalized_aliases([client.name])
+    provider_metrics = []
+    for provider in sorted({sample.provider for sample, _classification, _manifest, _question in rows}):
+        bucket = [row for row in rows if row[0].provider == provider]
+        mentions, avg_position = _mention_stats(bucket, aliases=aliases)
+        provider_metrics.append(
+            {
+                "id": provider,
+                "score": _score_for_bucket(bucket, aliases=aliases),
+                "mention_count": mentions,
+                "total_questions": len(bucket),
+                "avg_position": avg_position,
+            }
+        )
+
+    group_metrics = []
+    for journey_stage in sorted({question.journey_stage for _sample, _classification, _manifest, question in rows}):
+        bucket = [row for row in rows if row[3].journey_stage == journey_stage]
+        mentions, _avg_position = _mention_stats(bucket, aliases=aliases)
+        group_metrics.append(
+            {
+                "id": journey_stage,
+                "label": JOURNEY_LABELS.get(journey_stage, journey_stage),
+                "score": _score_for_bucket(bucket, aliases=aliases),
+                "mention_count": mentions,
+                "total_questions": len(bucket),
+            }
+        )
+
+    total_mentions, _avg_position = _mention_stats(rows, aliases=aliases)
+    total_samples = len(rows)
+    provider_totals = {item["id"]: item["total_questions"] for item in provider_metrics}
+    own_provider_mentions = {item["id"]: item["mention_count"] for item in provider_metrics}
+    own_provider_scores = {item["id"]: item["score"] for item in provider_metrics}
+    competitors = [
+        {
+            "name": client.name,
+            "score": round(float(avs.avs_value), 2),
+            "mention_count": total_mentions,
+            "provider_scores": own_provider_scores,
+            "provider_mentions": own_provider_mentions,
+            "is_you": True,
+        }
+    ]
+    for name in _competitor_names(client):
+        competitors.append(
+            {
+                "name": name,
+                "score": 0.0,
+                "mention_count": 0,
+                "provider_scores": {provider: 0.0 for provider in provider_totals},
+                "provider_mentions": {provider: 0 for provider in provider_totals},
+                "is_you": False,
+            }
+        )
+
+    return {
+        "client_id": client.id,
+        "client_name": client.name,
+        "scan_id": run.id,
+        "status": _legacy_scan_status(run.status),
+        "overall_score": round(float(avs.avs_value), 2),
+        "visibility_score": round(float(avs.avs_value), 2),
+        "total_questions": total_samples,
+        "provider_metrics": provider_metrics,
+        "group_metrics": group_metrics,
+        "competitors": competitors,
+    }
+
+
+def _classified_sample_rows(
+    db: Session,
+    *,
+    scan_id: str,
+    client_id: str,
+) -> list[tuple[Sample, Classification, ScanManifest, QuestionBankQuestion]]:
+    return (
+        db.query(Sample, Classification, ScanManifest, QuestionBankQuestion)
+        .join(
+            Classification,
+            and_(
+                Classification.sample_id == Sample.id,
+                Classification.classifier_type == "stance",
+            ),
+        )
+        .join(
+            ScanManifest,
+            and_(
+                ScanManifest.scan_id == Sample.scan_id,
+                ScanManifest.question_id == Sample.question_id,
+            ),
+        )
+        .join(QuestionBankQuestion, QuestionBankQuestion.question_id == Sample.question_id)
+        .filter(Sample.scan_id == scan_id, QuestionBankQuestion.client_id == client_id)
+        .order_by(Sample.provider.asc(), Sample.question_id.asc(), Sample.sample_index.asc())
+        .all()
+    )
+
+
+def _score_for_bucket(
+    rows: list[tuple[Sample, Classification, ScanManifest, QuestionBankQuestion]],
+    *,
+    aliases: list[str],
+) -> float:
+    samples_by_pair: dict[tuple[str, str], list[AVSSample]] = {}
+    for sample, classification, manifest, _question in rows:
+        pair = (sample.question_id, sample.provider)
+        samples_by_pair.setdefault(pair, []).append(
+            AVSSample(
+                question_id=sample.question_id,
+                provider=sample.provider,
+                sample_index=sample.sample_index,
+                text=sample.raw_response_text,
+                stance_label=classification.consensus_value,
+                stance_confidence=float(classification.consensus_confidence or 1.0),
+                question_weight=float(manifest.weight_at_scan),
+            )
+        )
+    return round(avs_from_subindices(compute_subindices(samples_by_pair, target_aliases=aliases)), 2)
+
+
+def _mention_stats(
+    rows: list[tuple[Sample, Classification, ScanManifest, QuestionBankQuestion]],
+    *,
+    aliases: list[str],
+) -> tuple[int, float | None]:
+    positions: list[float] = []
+    for sample, _classification, _manifest, _question in rows:
+        position = first_mention_position(sample.raw_response_text, aliases)
+        if position is not None:
+            positions.append(float(position[0]))
+    avg_position = round(sum(positions) / len(positions), 2) if positions else None
+    return (len(positions), avg_position)
+
+
+def _competitor_names(client: Client) -> list[str]:
+    if not client.competitors:
+        return []
+    try:
+        data = json.loads(client.competitors)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(item).strip() for item in data if str(item).strip()]
+
+
+def _legacy_scan_status(status: str) -> str:
+    if status in {"succeeded", "partial"}:
+        return "complete"
+    if status in {"queued", "enqueued"}:
+        return "pending"
+    return status
+
+
+def _percentage(numerator: int, denominator: int) -> float:
+    return round((numerator / denominator) * 100, 2) if denominator else 0.0
 
 
 def _validated_idempotency_key(value: str) -> str:

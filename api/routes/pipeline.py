@@ -18,6 +18,11 @@ import csv
 
 from api.database import get_db, Action, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, SourceProfile, User
 from api.auth import get_current_user_id
+from api.adapters.scan_runs import (
+    phase13_metrics_for_client,
+    phase13_timeline_points_for_clients,
+    scan_run_list_projections_for_client,
+)
 from api.entitlements import entitlements_for_user
 from api.scan_workspace import MANUAL_GROUP, prepare_scan_workspace
 from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
@@ -272,6 +277,7 @@ class MetricsResponse(BaseModel):
     scan_id: str
     status: str
     overall_score: float
+    visibility_score: Optional[float] = None
     total_questions: int
     provider_metrics: List[ProviderMetric]
     group_metrics: List[GroupMetric]
@@ -670,7 +676,18 @@ async def list_scans(
         raise HTTPException(status_code=404, detail="Client not found")
 
     scans = db.query(Scan).filter(Scan.client_id == client_id).order_by(Scan.created_at.desc()).all()
-    return [_scan_response(scan) for scan in scans]
+    legacy_responses = [_scan_response(scan) for scan in scans]
+    seen_scan_ids = {item["id"] for item in legacy_responses}
+    phase13_responses = [
+        item
+        for item in scan_run_list_projections_for_client(db, client_id=client_id)
+        if item["id"] not in seen_scan_ids
+    ]
+    return sorted(
+        [*legacy_responses, *phase13_responses],
+        key=lambda item: item["created_at"],
+        reverse=True,
+    )
 
 
 def _safe_json_dict(value: Optional[str]) -> Dict[str, int]:
@@ -1237,6 +1254,15 @@ async def get_client_metrics(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    phase13_metrics = phase13_metrics_for_client(
+        db,
+        client_id=client_id,
+        user_id=user_id,
+        scan_id=scan_id,
+    )
+    if phase13_metrics:
+        return MetricsResponse(**phase13_metrics)
+
     if scan_id:
         scan = db.query(Scan).filter(
             Scan.id == scan_id,
@@ -1284,12 +1310,18 @@ async def get_scan_metrics_timeline(
         return []
 
     client_by_id = {client.id: client for client in clients}
+    phase13_points = phase13_timeline_points_for_clients(db, clients=client_by_id)
+    phase13_scan_ids = {point["scan_id"] for point in phase13_points}
+
     scans = db.query(Scan).filter(
         Scan.client_id.in_(list(client_by_id.keys())),
     ).order_by(Scan.created_at.asc()).all()
 
     points: List[ScanMetricsTimelinePoint] = []
+    points.extend(ScanMetricsTimelinePoint(**point) for point in phase13_points)
     for scan in scans:
+        if scan.id in phase13_scan_ids:
+            continue
         client = client_by_id.get(scan.client_id)
         if not client:
             continue
@@ -1298,7 +1330,7 @@ async def get_scan_metrics_timeline(
             continue
         points.append(_timeline_point_for_scan(db, client, scan, result_rows))
 
-    return points
+    return sorted(points, key=lambda point: point.completed_at or point.created_at)
 
 
 @router.get("/clients/{client_id}/gap-report")
@@ -1473,7 +1505,17 @@ async def get_scan(
         Scan.client_id == client_id,
     ).first()
     if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
+        phase13_scan = next(
+            (
+                item
+                for item in scan_run_list_projections_for_client(db, client_id=client_id)
+                if item["id"] == scan_id
+            ),
+            None,
+        )
+        if not phase13_scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        return {**phase13_scan, "artifacts": []}
     artifacts = db.query(ScanArtifact).filter(
         ScanArtifact.scan_id == scan_id,
         ScanArtifact.client_id == client_id,
