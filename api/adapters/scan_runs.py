@@ -14,12 +14,14 @@ from sqlalchemy.orm import Session
 
 from api.adapters.audit_log import write_audit_event
 from api.database import (
+    AVSComputation,
     Client,
     IdempotencyKey,
     MethodologyVersionSet,
     QuestionBankVersion,
     ScanManifest,
     ScanProgress,
+    ScanProvenance,
     ScanRun,
     ScanStep,
 )
@@ -256,6 +258,48 @@ def progress_for_scan_run(db: Session, *, scan_run_id: str, user_id: str) -> dic
         "cost_budget_usd": str(_money4(Decimal(run.cost_budget_usd))),
         "methodology_version": run.methodology_version,
         "methodology_version_set_id": run.methodology_version_set_id,
+    }
+
+
+def dashboard_projection_for_scan_run(db: Session, *, scan_run_id: str, user_id: str) -> dict[str, Any] | None:
+    run = (
+        db.query(ScanRun)
+        .join(Client, Client.id == ScanRun.client_id)
+        .filter(ScanRun.id == scan_run_id, Client.user_id == user_id)
+        .first()
+    )
+    if not run:
+        return None
+    progress = db.query(ScanProgress).filter(ScanProgress.scan_run_id == scan_run_id).first()
+    if not progress:
+        return None
+    avs = (
+        db.query(AVSComputation)
+        .filter(
+            AVSComputation.scan_id == run.id,
+            AVSComputation.methodology_version_set_id == run.methodology_version_set_id,
+            AVSComputation.is_primary.is_(True),
+        )
+        .one_or_none()
+    )
+    provenance = db.query(ScanProvenance).filter(ScanProvenance.scan_id == run.id).one_or_none()
+    return {
+        "scan_run_id": run.id,
+        "client_id": run.client_id,
+        "status": run.status,
+        "completeness": run.completeness,
+        "stage": progress.stage,
+        "methodology_version": run.methodology_version,
+        "methodology_version_set_id": run.methodology_version_set_id,
+        "published_at": run.finished_at.isoformat() if run.finished_at else None,
+        "avs": float(avs.avs_value) if avs else None,
+        "presence": float(avs.presence) if avs else None,
+        "prominence": float(avs.prominence) if avs else None,
+        "positivity": float(avs.positivity) if avs else None,
+        "avs_ci_lower_95": float(avs.ci_lower_95) if avs else None,
+        "avs_ci_upper_95": float(avs.ci_upper_95) if avs else None,
+        "avs_ci_method": avs.ci_method if avs else None,
+        "provenance_hash": provenance.this_provenance_hash.hex() if provenance else None,
     }
 
 

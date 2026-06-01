@@ -23,7 +23,7 @@ from api.adapters.execution_state import record_step_once, safe_error, scan_step
 from api.adapters.provider_calls import execute_provider_samples
 from api.adapters.provider_registry import default_provider_clients
 from api.adapters.sampling import prepare_sample_plan
-from api.database import ScanProgress, ScanRun, SessionLocal
+from api.database import AVSComputation, Scan, ScanProgress, ScanProvenance, ScanRun, SessionLocal
 from api.domain.ports import ScanExecutor, ScanHandle
 
 
@@ -41,6 +41,14 @@ class ScanQueueConflict(ScanExecutionError):
 @dataclass(frozen=True)
 class EnqueueOutcome:
     handle: ScanHandle
+    already_recorded: bool
+
+
+@dataclass(frozen=True)
+class PublishScanOutcome:
+    scan_run_id: str
+    status: str
+    completeness: str
     already_recorded: bool
 
 
@@ -307,6 +315,11 @@ async def scan_orchestrator_task(
             actor_id="system",
         )
         db.commit()
+        # CAI is intentionally deferred: AVS-1.0 names CAI but does not define
+        # Coverage, Authority, or Recency sub-index formulas. The future
+        # compute_cai saga step belongs here, between compute_avs and publish_scan.
+        publish_scan(db, scan_run_id=scan_run_id, actor_id="system")
+        db.commit()
     except Exception:
         try:
             db.commit()
@@ -354,6 +367,111 @@ def reset_default_scan_executor() -> None:
     if _DEFAULT_SCAN_EXECUTOR is not None:
         _DEFAULT_SCAN_EXECUTOR.close()
     _DEFAULT_SCAN_EXECUTOR = None
+
+
+def publish_scan(
+    db: Session,
+    *,
+    scan_run_id: str,
+    actor_id: str,
+) -> PublishScanOutcome:
+    run = db.query(ScanRun).filter(ScanRun.id == scan_run_id).first()
+    if not run:
+        raise ScanExecutionError("Scan run not found", status_code=404)
+    progress = db.query(ScanProgress).filter(ScanProgress.scan_run_id == scan_run_id).first()
+    if not progress:
+        raise ScanExecutionError("Scan progress not found", status_code=409)
+
+    existing_step = scan_step(
+        db,
+        scan_run_id=run.id,
+        step_id="publish_scan",
+        event="succeeded",
+    )
+    if existing_step:
+        return PublishScanOutcome(
+            scan_run_id=run.id,
+            status=run.status,
+            completeness=run.completeness or "complete",
+            already_recorded=True,
+        )
+
+    try:
+        avs = (
+            db.query(AVSComputation)
+            .filter(
+                AVSComputation.scan_id == run.id,
+                AVSComputation.methodology_version_set_id == run.methodology_version_set_id,
+                AVSComputation.is_primary.is_(True),
+            )
+            .one_or_none()
+        )
+        if avs is None:
+            raise ScanExecutionError("Primary AVS computation must exist before publishing", status_code=409)
+        provenance = db.query(ScanProvenance).filter(ScanProvenance.scan_id == run.id).one_or_none()
+        if provenance is None:
+            raise ScanExecutionError("Signed scan provenance must exist before publishing", status_code=409)
+
+        completeness = run.completeness or "complete"
+        run.status = "partial" if completeness == "partial_degraded" else "succeeded"
+        run.finished_at = run.finished_at or _utcnow()
+        progress.status = run.status
+        progress.stage = "published"
+        progress.updated_at = _utcnow()
+
+        legacy_scan = db.query(Scan).filter(Scan.id == run.id, Scan.client_id == run.client_id).one_or_none()
+        if legacy_scan:
+            legacy_scan.status = "complete"
+            legacy_scan.completed_at = legacy_scan.completed_at or run.finished_at
+
+        recorded = record_step_once(
+            db,
+            scan_run_id=run.id,
+            step_id="publish_scan",
+            event="succeeded",
+            payload={
+                "status": run.status,
+                "completeness": completeness,
+                "methodology_version_set_id": run.methodology_version_set_id,
+                "avs_computation_id": avs.id,
+                "scan_provenance_hash": provenance.this_provenance_hash.hex(),
+            },
+        )
+        if recorded:
+            _write_scan_execution_audit(
+                db,
+                actor_id=actor_id,
+                action="scan.published",
+                resource_id=run.id,
+                after_state={
+                    "scan_run_id": run.id,
+                    "client_id": run.client_id,
+                    "status": run.status,
+                    "completeness": completeness,
+                    "stage": progress.stage,
+                    "methodology_version_set_id": run.methodology_version_set_id,
+                    "avs_computation_id": avs.id,
+                },
+                reason="Published scan dashboard projection after signed AVS computation",
+                correlation_id=run.idempotency_key,
+            )
+    except ScanExecutionError as exc:
+        record_step_once(
+            db,
+            scan_run_id=run.id,
+            step_id="publish_scan",
+            event="failed",
+            payload={"reason": safe_error(exc)},
+        )
+        raise
+
+    db.flush()
+    return PublishScanOutcome(
+        scan_run_id=run.id,
+        status=run.status,
+        completeness=run.completeness or "complete",
+        already_recorded=False,
+    )
 
 
 def _procrastinate_database_url() -> str:

@@ -19,6 +19,7 @@ from api.adapters.scan_runs import (
     ScanRunKickoffError,
     complete_scan_run_idempotency_response,
     create_or_replay_scan_run,
+    dashboard_projection_for_scan_run,
     progress_for_scan_run,
 )
 from api.auth import get_current_user_id
@@ -106,3 +107,15 @@ async def get_scan_run_progress(
     if progress is None:
         raise HTTPException(status_code=404, detail="Scan run not found")
     return progress
+
+
+@router.get("/scan-runs/{scan_run_id}/dashboard-projection")
+async def get_scan_run_dashboard_projection(
+    scan_run_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    projection = dashboard_projection_for_scan_run(db, scan_run_id=scan_run_id, user_id=user_id)
+    if projection is None:
+        raise HTTPException(status_code=404, detail="Scan run not found")
+    return projection

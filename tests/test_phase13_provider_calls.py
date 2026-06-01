@@ -6,7 +6,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from api.adapters.audit_log import verify_audit_chain
 from api.adapters import scan_execution
+from api.adapters.scan_runs import dashboard_projection_for_scan_run
 from api.adapters.provider_calls import execute_provider_samples
 from api.adapters.sampling import prepare_sample_plan
 from api.database import (
@@ -359,8 +361,11 @@ def test_scan_orchestrator_task_runs_provider_execution_through_registry(monkeyp
             assert len(claude.calls) == 10
             assert len(classifier_judge.calls) == 60
             progress = session.query(ScanProgress).one()
-            assert progress.stage == "avs_computed"
+            assert progress.stage == "published"
             assert progress.completed_calls == 20
+            run = session.query(ScanRun).one()
+            assert run.status == "succeeded"
+            assert run.completeness == "complete"
             assert session.query(ExecutionSample).filter(ExecutionSample.raw_response_hash.is_not(None)).count() == 20
             assert session.query(Sample).count() == 20
             assert session.query(Classification).count() == 40
@@ -371,6 +376,21 @@ def test_scan_orchestrator_task_runs_provider_execution_through_registry(monkeyp
             assert session.query(ScanStep).filter_by(step_id="provider_calls", event="succeeded").count() == 1
             assert session.query(ScanStep).filter_by(step_id="classify_samples", event="succeeded").count() == 1
             assert session.query(ScanStep).filter_by(step_id="compute_avs", event="succeeded").count() == 1
+            assert session.query(ScanStep).filter_by(step_id="publish_scan", event="succeeded").count() == 1
+            assert session.query(ScanStep).filter_by(step_id="compute_cai").count() == 0
+            projection = dashboard_projection_for_scan_run(session, scan_run_id=SCAN_RUN_ID, user_id="user-1")
+            assert projection is not None
+            assert projection["status"] == "succeeded"
+            assert projection["stage"] == "published"
+            assert projection["avs"] is not None
+            assert "cai" not in projection
+            assert "coverage" not in projection
+            assert "authority" not in projection
+            assert "recency" not in projection
+            actions = [event.action for event in session.query(AuditEvent).order_by(AuditEvent.id.asc()).all()]
+            assert "scan.published" in actions
+            assert "compute_cai.skipped" not in actions
+            assert verify_audit_chain(session, hmac_keys={1: b"aiso-local-dev-audit-key"}) == []
         finally:
             session.close()
     finally:
