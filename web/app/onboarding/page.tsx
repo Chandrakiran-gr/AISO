@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
@@ -41,18 +41,53 @@ const SCAN_OBJECTIVES = [
 ] as const;
 
 const PIPELINE_OBJECTIVES = [
-  { id: "awareness", label: "Awareness building" },
-  { id: "consideration", label: "Consideration" },
-  { id: "preference", label: "Preference / displacement" },
-  { id: "reputation_defense", label: "Reputation defense" },
-  { id: "competitive_intelligence", label: "Competitive intelligence" },
+  {
+    id: "awareness",
+    label: "Awareness building",
+    help: "Use this when you want AI answers to introduce your business, category, or market to people who are still learning what options exist.",
+  },
+  {
+    id: "consideration",
+    label: "Consideration",
+    help: "Use this when customers already know the category and are comparing approaches, vendors, stores, products, or providers.",
+  },
+  {
+    id: "preference",
+    label: "Preference / displacement",
+    help: "Use this when you want to understand whether AI answers prefer you over alternatives and what proof would shift that recommendation.",
+  },
+  {
+    id: "reputation_defense",
+    label: "Reputation defense",
+    help: "Use this when trust, risk, reviews, compliance, or public perception are central to how customers evaluate you.",
+  },
+  {
+    id: "competitive_intelligence",
+    label: "Competitive intelligence",
+    help: "Use this when the scan should emphasize why AI tools mention competitors, substitutes, marketplaces, or incumbent options.",
+  },
 ] as const;
 
-const VERTICAL_OPTIONS = [
-  { id: "b2b_saas", label: "Business software" },
-  { id: "local_services", label: "Local Services" },
-  { id: "ecommerce", label: "Online store / product brand" },
-] as const;
+type VerticalOption = {
+  id: string;
+  label: string;
+  description: string;
+  example?: string | null;
+};
+
+const SELECT_FIELD_HINTS: Record<string, string> = {
+  employee_band: "Choose the company-size band that best matches the customers you want AISO to model.",
+  revenue_band: "Choose the revenue band for the customers you most want to win, not necessarily every customer you could serve.",
+  acv_band: "Choose the approximate yearly value of a typical customer relationship.",
+  engagement_size_band: "Choose the typical project, program, retainer, or coaching engagement size.",
+  price_tier_band: "Choose how customers usually perceive your product pricing.",
+  price_tier: "Choose your broad customer-facing price position.",
+  client_roster_size: "Choose the approximate number of active clients or accounts this profile represents.",
+  aiso_use_case: "Choose whether this profile represents your own business, client work, or both.",
+  deployment_model: "Choose the delivery model customers evaluate when asking AI tools about fit, risk, and adoption.",
+  buying_committee_size: "Choose the number of people commonly involved in a purchase decision.",
+  sales_cycle_length_band: "Choose the typical time from serious evaluation to purchase or contract signature.",
+};
 
 interface FormState {
   businessName: string;
@@ -109,6 +144,23 @@ type ExistingClient = {
   industry: string | null;
   location: string | null;
   competitors: string[] | null;
+};
+
+type BusinessProfileData = {
+  onboarding_id: string;
+  client_id: string;
+  vertical: string;
+  objective: string;
+  category: string;
+  icp: Record<string, unknown>;
+  geographic_scope: Record<string, unknown>;
+  competitors: string[];
+  personas: Record<string, unknown>;
+  crawl_artifacts: Record<string, unknown>;
+  floor_met: boolean;
+  missing_fields: string[];
+  onboarding_completed_at?: string | null;
+  founder_reviewed_at?: string | null;
 };
 
 type ContextItem = {
@@ -270,6 +322,98 @@ function fieldValue(form: FormState, fieldId: string): string {
   return form.intake[fieldId] ?? "";
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function storedValueToInput(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean).join("\n");
+  }
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value).trim();
+}
+
+function businessProfileValueForPatchField(profile: BusinessProfileData, patchField: string): unknown {
+  const firmographics = recordValue(profile.icp.firmographics);
+  switch (patchField) {
+    case "category":
+      return profile.category;
+    case "competitors":
+      return profile.competitors;
+    case "industry":
+      return firmographics.industry;
+    case "employee_band":
+      return firmographics.employee_band;
+    case "revenue_band":
+      return firmographics.revenue_band;
+    case "firmographic_geography":
+    case "icp_geography":
+      return firmographics.geography;
+    case "primary_persona":
+      return profile.personas.primary;
+    case "economic_buyer":
+      return profile.personas.economic_buyer;
+    case "end_user":
+      return profile.personas.end_user;
+    case "nap":
+      return profile.geographic_scope.nap;
+    case "service_radius":
+      return profile.geographic_scope.service_radius;
+    case "hours":
+      return profile.geographic_scope.hours;
+    case "geographic_scope_description":
+      return profile.geographic_scope.description;
+    case "jurisdictions":
+      return profile.geographic_scope.jurisdictions;
+    case "shipping_geographic_scope":
+    case "shipping_scope":
+      return profile.geographic_scope.shipping;
+    default:
+      return profile.icp[patchField];
+  }
+}
+
+function intakeFromBusinessProfile(profile: BusinessProfileData, schema: IntakeSchema): Record<string, string> {
+  const intake: Record<string, string> = {};
+  for (const field of schema.fields) {
+    const value = storedValueToInput(businessProfileValueForPatchField(profile, field.patch_field));
+    if (value) intake[field.id] = value;
+  }
+  return intake;
+}
+
+function firstPresentProfileValue(profile: BusinessProfileData, patchFields: string[]): string {
+  for (const patchField of patchFields) {
+    const value = storedValueToInput(businessProfileValueForPatchField(profile, patchField));
+    if (value) return value;
+  }
+  return "";
+}
+
+function formFromExistingProfile(client: ExistingClient, profile: BusinessProfileData, schema: IntakeSchema): FormState {
+  const intake = intakeFromBusinessProfile(profile, schema);
+  const withStoredFields: FormState = {
+    ...DEFAULT,
+    businessName: client.name,
+    websiteUrl: client.url,
+    vertical: profile.vertical,
+    pipelineObjective: profile.objective || DEFAULT.pipelineObjective,
+    intake,
+    industry: profile.category || client.industry || firstPresentProfileValue(profile, ["industry", "brand_archetype", "target"]),
+    location: client.location || firstPresentProfileValue(profile, [
+      "geographic_scope_description",
+      "shipping_geographic_scope",
+      "service_radius",
+      "firmographic_geography",
+      "jurisdictions",
+    ]),
+    competitors: profile.competitors?.length ? profile.competitors.join(", ") : client.competitors?.join(", ") ?? "",
+  };
+  return legacyFormFromIntake(withStoredFields, schema);
+}
+
 function primaryLocationFromIntake(form: FormState): string {
   return (
     form.intake.geographic_scope_description
@@ -367,6 +511,49 @@ function objectiveSummary(scanObjective?: ScanObjective): string {
   if (selected.length > 0) return selected.map(objectiveLabel).join(", ");
   if ((scanObjective?.custom_objective ?? scanObjective?.custom ?? "").trim()) return "Custom objective";
   return "No template selected";
+}
+
+function hasScanObjective(scanObjective?: ScanObjective): boolean {
+  return selectedObjectiveIds(scanObjective).length > 0
+    || (scanObjective?.custom_objective ?? scanObjective?.custom ?? "").trim().length > 0;
+}
+
+function businessTypeOption(id: string, options: VerticalOption[]) {
+  return options.find((option) => option.id === id);
+}
+
+function pipelineObjectiveOption(id: string) {
+  return PIPELINE_OBJECTIVES.find((option) => option.id === id);
+}
+
+function selectFieldHint(field: IntakeField, value: string): string | null {
+  if (field.type !== "select") return null;
+  const base = SELECT_FIELD_HINTS[field.id];
+  if (!value) return base ?? "Choose the closest option. AISO uses this to route question generation and scoring.";
+  return base ? `${base} Selected: ${value}.` : `Selected: ${value}.`;
+}
+
+function compactHelp(...parts: Array<string | null | undefined>): string {
+  return parts.map((part) => part?.trim()).filter(Boolean).join(" ");
+}
+
+function optionHelp(title: string | undefined, body: string | null | undefined, example?: string | null): string {
+  return compactHelp(title ? `${title}:` : null, body, example);
+}
+
+function fieldCueText(field: IntakeField, value: string): string | null {
+  const base = field.hint ?? selectFieldHint(field, value);
+  const listHelp = field.type === "list" ? "Separate items with commas or line breaks." : null;
+  return compactHelp(base, listHelp) || null;
+}
+
+function InfoCue({ id, text }: { id: string; text: string }) {
+  return (
+    <span className={styles.infoCue} tabIndex={0} aria-describedby={id} aria-label={text}>
+      ?
+      <span id={id} role="tooltip" className={styles.infoBubble}>{text}</span>
+    </span>
+  );
 }
 
 function scanObjectiveFromSelection(objectives: string[], customObjective: string): ScanObjective {
@@ -473,15 +660,15 @@ function emptyProfile(form: FormState): ContextProfile {
       visibility_markets: locations,
       excluded_locations: [],
     },
-    goals: [manualItem(`Choose the right ${form.industry.trim() || "provider"}`, "goal")],
-    personas: [manualItem("Local customers", "persona")],
+    goals: [manualItem(`Evaluate the right ${form.industry.trim() || "option"}`, "goal")],
+    personas: [manualItem("Target customers", "persona")],
     scan_objective: defaultScanObjective(),
     buyer_contexts: [],
     differentiators: [],
     guardrails: [
       "Do not compare product brands as competitors.",
       "Do not treat offering groups as bookable services unless explicitly marked bookable.",
-      "Do not use visibility-only markets for urgent booking prompts.",
+      "Do not use visibility-only markets for urgent purchase or availability prompts.",
     ],
   };
 }
@@ -574,15 +761,21 @@ function evidenceLabels(items: ContextItem[]): string[] {
 function flagLabel(flag?: string): string {
   if (flag === "crawled") return "Crawled";
   if (flag === "guessed") return "Guessed";
-  if (flag === "needs_you") return "Needs you";
+  if (flag === "required") return "Required";
   return "";
 }
 
 function flagClass(flag?: string): string {
   if (flag === "crawled") return styles.flagCrawled;
   if (flag === "guessed") return styles.flagGuessed;
-  if (flag === "needs_you") return styles.flagNeedsYou;
+  if (flag === "required") return styles.flagRequired;
   return "";
+}
+
+function visibleFlag(flag: string | undefined, options: { required?: boolean; hasValue?: boolean } = {}): string | undefined {
+  if (options.required && !options.hasValue) return "required";
+  if (flag === "crawled" || flag === "guessed") return flag;
+  return undefined;
 }
 
 function contextMatchesForm(context: ClientContextData | null, form: FormState, clientId: string): boolean {
@@ -605,6 +798,18 @@ async function readApiError(res: Response, fallback: string): Promise<string> {
     // Keep fallback.
   }
   return fallback;
+}
+
+function isApprovedCrawlerProfileConflict(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("profile is 'approved'") || message.includes("profile is already 'approved'");
+}
+
+async function getIntakeVerticals(): Promise<VerticalOption[]> {
+  const res = await fetch(`${API}/v1/onboarding/intake-verticals`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to load business types (${res.status})`));
+  return res.json();
 }
 
 async function getIntakeSchema(vertical: string): Promise<IntakeSchema> {
@@ -652,6 +857,12 @@ async function startPipelineOnboarding(form: FormState, schema: IntakeSchema): P
 
 async function getClientContext(clientId: string): Promise<ClientContextData | null> {
   const res = await fetch(`${API}/v1/clients/${clientId}/context`, { cache: "no-store" });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function getOnboardingProfile(clientId: string): Promise<BusinessProfileData | null> {
+  const res = await fetch(`${API}/v1/onboarding/${clientId}`, { cache: "no-store" });
   if (!res.ok) return null;
   return res.json();
 }
@@ -908,7 +1119,10 @@ async function pollScan(clientId: string, scanId: string): Promise<{
 function Step1({
   form,
   set,
+  verticalOptions,
   schema,
+  verticalOptionsStatus,
+  verticalOptionsError,
   schemaStatus,
   schemaError,
   onNext,
@@ -917,7 +1131,10 @@ function Step1({
 }: {
   form: FormState;
   set: (f: FormState) => void;
+  verticalOptions: VerticalOption[];
   schema: IntakeSchema | null;
+  verticalOptionsStatus: ActionStatus;
+  verticalOptionsError: string | null;
   schemaStatus: ActionStatus;
   schemaError: string | null;
   onNext: () => void;
@@ -926,6 +1143,15 @@ function Step1({
 }) {
   const intakeIssues = schemaStatus === "loading" ? ["Intake schema is still loading."] : validateIntake(form, schema);
   const valid = form.businessName.trim().length > 0 && form.websiteUrl.startsWith("http") && form.vertical.trim().length > 0 && intakeIssues.length === 0;
+  const selectedBusinessType = businessTypeOption(form.vertical, verticalOptions);
+  const selectedObjective = pipelineObjectiveOption(form.pipelineObjective);
+  const verticalOptionsLoading = verticalOptionsStatus === "loading";
+  const businessTypeHelp = selectedBusinessType
+    ? optionHelp(selectedBusinessType.label, selectedBusinessType.description, selectedBusinessType.example)
+    : "This routes the intake questions and question-generation logic. Choose the closest business model, then use the specific category fields for detail.";
+  const objectiveHelp = selectedObjective
+    ? optionHelp(selectedObjective.label, selectedObjective.help)
+    : "This changes the mix of awareness, comparison, preference, reputation, and competitor questions AISO prioritizes.";
   function updateIntake(field: IntakeField, value: string) {
     const intake = { ...form.intake, [field.id]: value };
     let nextForm = { ...form, intake };
@@ -944,6 +1170,7 @@ function Step1({
         Choose a vertical and complete the required context before AISO builds the question bank.
       </p>
       {error && <div className={styles.validationError} role="alert">{error}</div>}
+      {verticalOptionsError && <div className={styles.validationError} role="alert">{verticalOptionsError}</div>}
       {schemaError && <div className={styles.validationError} role="alert">{schemaError}</div>}
       <div className={styles.fields}>
         <div className={styles.fieldGroup}>
@@ -972,22 +1199,35 @@ function Step1({
         </div>
         <div className={styles.optionalGrid}>
           <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="ob-vertical">Business type *</label>
+            <div className={styles.labelRow}>
+              <label className={styles.label} htmlFor="ob-vertical">Business type *</label>
+              <InfoCue
+                id="ob-vertical-tip"
+                text={businessTypeHelp}
+              />
+            </div>
             <select
               id="ob-vertical"
               className="input"
               value={form.vertical}
               onChange={(e) => set({ ...form, vertical: e.target.value, intake: {}, industry: "", location: "", competitors: "" })}
               required
+              disabled={verticalOptionsLoading || verticalOptions.length === 0}
             >
-              <option value="">Choose your business type</option>
-              {VERTICAL_OPTIONS.map((vertical) => (
+              <option value="">{verticalOptionsLoading ? "Loading business types..." : "Choose your business type"}</option>
+              {verticalOptions.map((vertical) => (
                 <option key={vertical.id} value={vertical.id}>{vertical.label}</option>
               ))}
             </select>
           </div>
           <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="ob-objective">Measurement objective *</label>
+            <div className={styles.labelRow}>
+              <label className={styles.label} htmlFor="ob-objective">Measurement objective *</label>
+              <InfoCue
+                id="ob-objective-tip"
+                text={objectiveHelp}
+              />
+            </div>
             <select
               id="ob-objective"
               className="input"
@@ -1013,13 +1253,16 @@ function Step1({
               {schema.fields.map((field) => {
                 const value = fieldValue(form, field.id);
                 const controlId = `ob-intake-${field.id}`;
+                const cueText = fieldCueText(field, value);
                 return (
                   <div key={field.id} className={styles.fieldGroup}>
                     <div className={styles.labelRow}>
                       <label className={styles.label} htmlFor={controlId}>{field.label}{field.required ? " *" : ""}</label>
-                      {!field.required && <span className={styles.labelHint}>Optional</span>}
+                      <span className={styles.labelTools}>
+                        {cueText && <InfoCue id={`${controlId}-tip`} text={cueText} />}
+                        {!field.required && <span className={styles.labelHint}>Optional</span>}
+                      </span>
                     </div>
-                    {field.hint && <p className={styles.fieldHelp}>{field.hint}</p>}
                     {field.type === "textarea" || field.type === "list" ? (
                       <textarea
                         id={controlId}
@@ -1050,11 +1293,6 @@ function Step1({
                         value={value}
                         onChange={(e) => updateIntake(field, e.target.value)}
                       />
-                    )}
-                    {field.type === "list" && (
-                      <p className={styles.fieldHelp}>
-                        Separate items with commas or line breaks.
-                      </p>
                     )}
                   </div>
                 );
@@ -1113,10 +1351,10 @@ function Step2({
           {isRunning ? "" : "✓"}
         </div>
         <div>
-          <strong>{isRunning ? "Discovering services, locations, proof, and CTAs" : "Discovery finished"}</strong>
+          <strong>{isRunning ? "Discovering offerings, locations, proof, and calls to action" : "Discovery finished"}</strong>
           <p>
             {isRunning
-              ? "This usually takes a few seconds for small business sites."
+              ? "This usually takes a few seconds for most public websites."
               : `${pageCount} public page${pageCount === 1 ? "" : "s"} reviewed. Continue to review and edit the extracted client context.`}
           </p>
         </div>
@@ -1125,7 +1363,7 @@ function Step2({
       {readyToReview && (
         <div className={styles.reviewHint}>
           <strong>Extracted context is ready</strong>
-          <span>The next step shows the discovered offerings, competitors, locations, personas, and proof signals before any scan runs.</span>
+          <span>The next step shows the discovered offerings, competitors, locations, audience segments, and proof signals before any scan runs.</span>
         </div>
       )}
 
@@ -1157,6 +1395,7 @@ function ContextSection({
   onChange,
   extra,
   flag,
+  required = false,
 }: {
   title: string;
   hint: string;
@@ -1165,10 +1404,12 @@ function ContextSection({
   onChange: (items: ContextItem[]) => void;
   extra?: Partial<ContextItem>;
   flag?: string;
+  required?: boolean;
 }) {
   const renderedItems = itemLines(items);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isEditingRef = useRef(false);
+  const sectionFlag = visibleFlag(flag, { required, hasValue: items.length > 0 });
 
   useEffect(() => {
     if (!isEditingRef.current && textareaRef.current && textareaRef.current.value !== renderedItems) {
@@ -1197,7 +1438,7 @@ function ContextSection({
           <p>{hint}</p>
         </div>
         <div className={styles.sectionMeta}>
-          {flagLabel(flag) && <span className={`${styles.sourceFlag} ${flagClass(flag)}`}>{flagLabel(flag)}</span>}
+          {flagLabel(sectionFlag) && <span className={`${styles.sourceFlag} ${flagClass(sectionFlag)}`}>{flagLabel(sectionFlag)}</span>}
           <span>{items.length}</span>
         </div>
       </div>
@@ -1233,6 +1474,7 @@ function BuyerContextSection({
   flag?: string;
 }) {
   const safeContexts = contexts;
+  const sectionFlag = visibleFlag(flag, { hasValue: safeContexts.length > 0 });
   function update(index: number, patch: Partial<BuyerContext>) {
     onChange(safeContexts.map((context, i) => (i === index ? { ...context, ...patch } : context)));
   }
@@ -1247,7 +1489,7 @@ function BuyerContextSection({
           <p>Add this only when you want AISO to test specific buyer needs, occasions, or constraints.</p>
         </div>
         <div className={styles.sectionMeta}>
-          {flagLabel(flag) && <span className={`${styles.sourceFlag} ${flagClass(flag)}`}>{flagLabel(flag)}</span>}
+          {flagLabel(sectionFlag) && <span className={`${styles.sourceFlag} ${flagClass(sectionFlag)}`}>{flagLabel(sectionFlag)}</span>}
           <span>{safeContexts.length}</span>
         </div>
       </div>
@@ -1265,7 +1507,7 @@ function BuyerContextSection({
                   className={`input ${styles.compactInput}`}
                   value={context.label}
                   onChange={(event) => update(index, { label: event.target.value })}
-                  placeholder="Customer type, e.g. Sensitive skin"
+                  placeholder="Customer type, e.g. operations leader"
                   aria-label="Buyer label"
                 />
                 <select
@@ -1371,6 +1613,9 @@ function Step3({
   }
   const scanObjective = normalizedScanObjective(profile.scan_objective ?? defaultScanObjective());
   const selectedObjectives = selectedObjectiveIds(scanObjective);
+  const customObjective = scanObjective.custom_objective ?? scanObjective.custom ?? "";
+  const objectiveCount = selectedObjectives.length + (customObjective.trim() ? 1 : 0);
+  const objectiveFlag = visibleFlag(draftFlags.objective, { required: true, hasValue: objectiveCount > 0 });
   function toggleScanObjective(objectiveId: string) {
     const next = selectedObjectives.includes(objectiveId)
       ? selectedObjectives.filter((selected) => selected !== objectiveId)
@@ -1381,9 +1626,9 @@ function Step3({
   return (
     <div>
       <span className={styles.stepBadge}>Step 3 of 4 · Review business profile</span>
-      <h2 className={styles.stepTitle}>Review what AISO learned before scanning</h2>
+      <h2 className={styles.stepTitle}>Review scan context before launch</h2>
       <p className={styles.stepSubtitle}>
-        AISO uses this profile to create the question bank. Fix anything that looks wrong before launching.
+        AISO uses this profile to create the question bank. Keep the context specific, factual, and free of anything that does not apply.
       </p>
       <div className={styles.reviewGuide}>
         <div>
@@ -1392,7 +1637,7 @@ function Step3({
         </div>
         <div>
           <strong>2. Separate meanings</strong>
-          <span>Services, service groups, product brands, competitors, and locations are used differently.</span>
+          <span>Offerings, offering groups, product lines, competitors, locations, and markets are used differently.</span>
         </div>
         <div>
           <strong>3. Continue when clean</strong>
@@ -1407,14 +1652,14 @@ function Step3({
             <p>This changes which buyer questions are prioritized in the final bank.</p>
           </div>
           <div className={styles.sectionMeta}>
-            {flagLabel(draftFlags.objective) && <span className={`${styles.sourceFlag} ${flagClass(draftFlags.objective)}`}>{flagLabel(draftFlags.objective)}</span>}
-            <span>1</span>
+            {flagLabel(objectiveFlag) && <span className={`${styles.sourceFlag} ${flagClass(objectiveFlag)}`}>{flagLabel(objectiveFlag)}</span>}
+            <span>{objectiveCount}</span>
           </div>
         </div>
         <OptimizationObjectiveSelector
           options={SCAN_OBJECTIVES}
           selectedObjectiveIds={selectedObjectives}
-          customObjective={scanObjective.custom_objective ?? scanObjective.custom ?? ""}
+          customObjective={customObjective}
           onToggleObjective={toggleScanObjective}
           onCustomObjectiveChange={(customObjective) => updateScanObjective(selectedObjectives, customObjective)}
         />
@@ -1427,7 +1672,7 @@ function Step3({
         />
         <ContextSection
           title="Categories"
-          hint="Broad business categories, not individual services."
+          hint="Broad business categories or product areas, not every individual offer."
           items={profile.categories}
           type="category"
           flag={draftFlags.category}
@@ -1435,23 +1680,24 @@ function Step3({
         />
         <ContextSection
           title="Offering groups"
-          hint="Groups like Signature Facials. Not bookable unless explicitly listed."
+          hint="Collections such as coaching programs, software plans, product lines, service packages, or memberships."
           items={profile.offering_groups}
           type="offering_group"
           extra={{ bookable: false }}
           onChange={(items) => update("offering_groups", items)}
         />
         <ContextSection
-          title="Bookable or buyable offerings"
-          hint="Concrete services/products customers can book, buy, or request."
+          title="Customer-facing offerings"
+          hint="Specific services, products, programs, packages, subscriptions, or plans customers can buy, book, request, or evaluate."
           items={profile.offerings}
           type="offering"
           extra={{ bookable: true }}
+          required
           onChange={(items) => update("offerings", items)}
         />
         <ContextSection
           title="Product brands"
-          hint="Brands used, sold, or carried. Not competitors."
+          hint="Brands, product lines, private labels, or vendors used, sold, or carried. Not competitors."
           items={profile.product_brands}
           type="product_brand"
           onChange={(items) => update("product_brands", items)}
@@ -1465,24 +1711,24 @@ function Step3({
           onChange={(items) => update("competitors", items)}
         />
         <ContextSection
-          title="Physical locations"
-          hint="Places tied to in-person availability."
+          title="Stores, offices, or physical locations"
+          hint="Places tied to in-person availability, pickup, visits, service, or local proof."
           items={profile.locations.physical_locations}
           type="physical_location"
           flag={draftFlags.geographic_scope}
           onChange={(items) => updateLocations("physical_locations", items)}
         />
         <ContextSection
-          title="Service areas"
-          hint="Areas where the business can serve or take customers."
+          title="Coverage, delivery, or service areas"
+          hint="Areas where customers can buy, receive delivery, book service, or work with the business."
           items={profile.locations.service_areas}
           type="service_area"
           flag={draftFlags.geographic_scope}
           onChange={(items) => updateLocations("service_areas", items)}
         />
         <ContextSection
-          title="Visibility markets"
-          hint="Broader markets for awareness questions, not urgent booking prompts."
+          title="Markets to measure visibility in"
+          hint="Broader geographic or audience markets for awareness and comparison questions, not urgent purchase or availability prompts."
           items={profile.locations.visibility_markets}
           type="visibility_market"
           extra={{ usage: "visibility_only" }}
@@ -1491,14 +1737,14 @@ function Step3({
         />
         <ContextSection
           title="Goals"
-          hint="Customer outcomes AISO should test."
+          hint="Customer outcomes, buying jobs, or evaluation goals AISO should test."
           items={profile.goals}
           type="goal"
           onChange={(items) => update("goals", items)}
         />
         <ContextSection
-          title="Personas"
-          hint="Customer types, occasions, constraints, or use cases. These become customer-intent prompts."
+          title="Audience segments or use cases"
+          hint="Customer types, buyer roles, occasions, constraints, or use cases. These become customer-intent prompts."
           items={profile.personas}
           type="persona"
           flag={draftFlags.personas}
@@ -1514,7 +1760,7 @@ function Step3({
       </div>
       <div className={styles.navRow}>
         <button type="button" className={styles.backBtn} onClick={onBack}>Back</button>
-        <button type="button" className={styles.nextBtn} onClick={onConfirm} disabled={saving || profile.offerings.length === 0}>
+        <button type="button" className={styles.nextBtn} onClick={onConfirm} disabled={saving || profile.offerings.length === 0 || !hasScanObjective(scanObjective)}>
           {saving ? "Saving profile..." : "Looks good, configure scan"}
         </button>
       </div>
@@ -1607,7 +1853,7 @@ function Step4({
   const selectedProviderKeysSet = form.providers.filter((id) => keySet[id as Provider]).length;
   const missingKeys = form.providers.filter((id) => !keySet[id as Provider]);
   const visibleValidationError = validationError ?? externalError;
-  const byokPanelOpen = keysOpen || Boolean(visibleValidationError);
+  const byokPanelOpen = keysOpen || missingKeys.length > 0 || Boolean(visibleValidationError);
   const providerNames = form.providers.map(providerName).join(", ");
   const customQuestionCount = validateCustomQuestions(form.customQuestions).questions.length;
 
@@ -1865,6 +2111,9 @@ export default function OnboardingPage() {
   const [context, setContext] = useState<ClientContextData | null>(null);
   const [profile, setProfile] = useState<ContextProfile>(emptyProfile(DEFAULT));
   const [draftFlags, setDraftFlags] = useState<Record<string, string>>({});
+  const [verticalOptions, setVerticalOptions] = useState<VerticalOption[]>([]);
+  const [verticalOptionsStatus, setVerticalOptionsStatus] = useState<ActionStatus>("loading");
+  const [verticalOptionsError, setVerticalOptionsError] = useState<string | null>(null);
   const [intakeSchema, setIntakeSchema] = useState<IntakeSchema | null>(null);
   const [schemaStatus, setSchemaStatus] = useState<ActionStatus>("idle");
   const [schemaError, setSchemaError] = useState<string | null>(null);
@@ -1879,11 +2128,40 @@ export default function OnboardingPage() {
   const [skipped, setSkipped] = useState<string[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [step]);
+
   useEffect(() => {
     if (!scanning) return;
     const id = setInterval(() => setScanIdx((i) => (i + 1) % SCAN_STEPS.length), 1800);
     return () => clearInterval(id);
   }, [scanning]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadVerticalOptions() {
+      setVerticalOptionsStatus("loading");
+      setVerticalOptionsError(null);
+      try {
+        const options = await getIntakeVerticals();
+        if (!active) return;
+        setVerticalOptions(options);
+        setVerticalOptionsStatus("idle");
+      } catch (err) {
+        if (!active) return;
+        setVerticalOptions([]);
+        setVerticalOptionsStatus("error");
+        setVerticalOptionsError(err instanceof Error ? err.message : "Unable to load business types.");
+      }
+    }
+    void loadVerticalOptions();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1926,7 +2204,7 @@ export default function OnboardingPage() {
         const client = clients[0] ?? null;
         if (!client || !active) return;
         setClientId(client.id);
-        const nextForm = {
+        let nextForm: FormState = {
           ...DEFAULT,
           businessName: client.name,
           websiteUrl: client.url,
@@ -1935,7 +2213,25 @@ export default function OnboardingPage() {
           competitors: client.competitors?.join(", ") ?? "",
         };
         setForm(nextForm);
-        const loadedContext = await getClientContext(client.id);
+        const [loadedContext, savedProfile] = await Promise.all([
+          getClientContext(client.id),
+          getOnboardingProfile(client.id),
+        ]);
+        if (!active) return;
+        if (savedProfile?.vertical) {
+          try {
+            const savedSchema = await getIntakeSchema(savedProfile.vertical);
+            if (!active) return;
+            nextForm = formFromExistingProfile(client, savedProfile, savedSchema);
+            setIntakeSchema(savedSchema);
+            setSchemaStatus("idle");
+            setSchemaError(null);
+          } catch (err) {
+            if (!active) return;
+            setSchemaError(err instanceof Error ? err.message : "Unable to load saved intake fields.");
+          }
+        }
+        setForm(nextForm);
         if (!active || !loadedContext) return;
         setContext(loadedContext);
         if (loadedContext.profile_json) {
@@ -2057,7 +2353,11 @@ export default function OnboardingPage() {
   async function handleConfirmContext() {
     if (!clientId) return;
     if (profile.offerings.length === 0) {
-      setError("Add at least one bookable or buyable offering before launching a scan.");
+      setError("Add at least one customer-facing offering before launching a scan.");
+      return;
+    }
+    if (!hasScanObjective(profile.scan_objective)) {
+      setError("Choose at least one scan objective before configuring the scan.");
       return;
     }
     const readyBuyerContexts = (profile.buyer_contexts ?? []).filter(buyerContextIsUsable);
@@ -2065,13 +2365,19 @@ export default function OnboardingPage() {
     setError(null);
     try {
       const normalized = normalizedProfile({ ...profile, buyer_contexts: readyBuyerContexts });
-      if (workspaceId) {
-        await editCrawlerBusinessProfile(workspaceId, normalized);
-        await approveCrawlerBusinessProfile(workspaceId);
+      if (workspaceId && context?.status !== "confirmed") {
+        try {
+          await editCrawlerBusinessProfile(workspaceId, normalized);
+          await approveCrawlerBusinessProfile(workspaceId);
+        } catch (err) {
+          if (!isApprovedCrawlerProfileConflict(err)) throw err;
+        }
+        setWorkspaceId(null);
       }
       await confirmPipelineBusinessProfile(clientId, normalized);
       const saved = await saveClientContext(clientId, normalized, warnings);
       setContext(saved);
+      if (saved.status === "confirmed") setWorkspaceId(null);
       setProfile(normalizedProfile(saved.profile_json ?? normalized));
       setWarnings(saved.warnings_json ?? warnings);
       setForm({ ...form, competitors: competitorNamesFromProfile(normalized).join(", ") });
@@ -2181,7 +2487,10 @@ export default function OnboardingPage() {
               setForm(nextForm);
               setProfile(emptyProfile(nextForm));
             }}
+            verticalOptions={verticalOptions}
             schema={intakeSchema}
+            verticalOptionsStatus={verticalOptionsStatus}
+            verticalOptionsError={verticalOptionsError}
             schemaStatus={schemaStatus}
             schemaError={schemaError}
             onNext={() => void handleBasicsNext()}

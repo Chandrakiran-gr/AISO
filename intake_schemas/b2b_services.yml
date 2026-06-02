@@ -1,0 +1,64 @@
+vertical: b2b_services
+label: Professional services, consulting, or coaching
+description: Expert-led businesses selling services, programs, advisory, implementation, or coaching to organizations or professionals.
+example: Use this for coaching businesses, consultants, agencies selling advisory work, and professional practices.
+required_fields:
+  - service_offerings
+  - industry
+  - engagement_size_band
+  - primary_persona
+  - geographic_scope_description
+  - specialization
+fields:
+  - id: service_offerings
+    label: Customer-facing services or programs
+    type: list
+    required: true
+    hint: Name the paid services, packages, coaching programs, retainers, or advisory offers customers can buy or request.
+    placeholder: Executive coaching, leadership workshop, implementation retainer
+    patch_field: service_offerings
+    validators:
+      min_items: 1
+  - id: industry
+    label: Best-fit customer segment
+    type: text
+    required: true
+    placeholder: Startup founders, retail operators, B2B leadership teams
+    patch_field: industry
+  - id: engagement_size_band
+    label: Typical engagement size
+    type: select
+    required: true
+    hint: Approximate value or scope for a typical project, program, or retainer.
+    patch_field: engagement_size_band
+    options:
+      - <$5k
+      - $5k-$25k
+      - $25k-$100k
+      - $100k-$250k
+      - $250k+
+  - id: primary_persona
+    label: Main buyer or decision maker
+    type: text
+    required: true
+    placeholder: Founder, HR leader, operations executive, practice owner
+    patch_field: primary_persona
+  - id: geographic_scope_description
+    label: Where you serve customers
+    type: text
+    required: true
+    placeholder: United States, remote worldwide, Boston and New York
+    patch_field: geographic_scope_description
+  - id: specialization
+    label: Specialization or niche
+    type: textarea
+    required: true
+    placeholder: Leadership coaching for technical founders, retail operations consulting, enterprise change management
+    patch_field: specialization
+  - id: competitors
+    label: Competitors or alternatives
+    type: list
+    required: false
+    hint: Include direct competitors, substitute providers, or common alternatives. Leave blank to skip competitor comparison questions.
+    placeholder: Competitor A, internal team, large consulting firm
+    patch_field: competitors

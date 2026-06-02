@@ -25,6 +25,7 @@ from api.adapters.prompt_registry import ensure_prompt_version
 from api.auth import get_current_user_id
 from api.database import BusinessProfile, Client, get_db
 from api.domain.onboarding import (
+    VERTICAL_DISPLAY_ORDER,
     context_floor_met,
     merge_profile_patch,
     missing_context_fields,
@@ -287,6 +288,13 @@ class IntakeSchemaResponse(BaseModel):
     fields: list[IntakeFieldResponse] = Field(default_factory=list)
 
 
+class IntakeVerticalResponse(BaseModel):
+    id: str
+    label: str
+    description: str = ""
+    example: Optional[str] = None
+
+
 def _profile_snapshot(profile: BusinessProfile) -> BusinessProfileSnapshot:
     return BusinessProfileSnapshot(
         client_id=profile.client_id,
@@ -440,6 +448,14 @@ def get_realism_filter_provider() -> UpstreamLLMProvider:
 
 
 def _load_intake_schema(vertical: str) -> IntakeSchemaResponse:
+    raw = _read_intake_schema(vertical)
+    try:
+        return IntakeSchemaResponse.model_validate(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Invalid intake schema") from exc
+
+
+def _read_intake_schema(vertical: str) -> dict[str, Any]:
     try:
         normalized = normalize_vertical(vertical)
     except ValueError as exc:
@@ -453,16 +469,46 @@ def _load_intake_schema(vertical: str) -> IntakeSchemaResponse:
         raw = yaml.safe_load(handle) or {}
     if not isinstance(raw, dict):
         raise HTTPException(status_code=500, detail="Invalid intake schema")
-    try:
-        return IntakeSchemaResponse.model_validate(raw)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail="Invalid intake schema") from exc
+    return raw
+
+
+@router.get("/onboarding/intake-verticals", response_model=list[IntakeVerticalResponse])
+async def list_intake_verticals():
+    """Return schema-backed business types for the onboarding UI."""
+    verticals: list[IntakeVerticalResponse] = []
+    for vertical in VERTICAL_DISPLAY_ORDER:
+        raw = _read_intake_schema(vertical)
+        try:
+            schema = IntakeSchemaResponse.model_validate(raw)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="Invalid intake schema") from exc
+        example = raw.get("example")
+        verticals.append(
+            IntakeVerticalResponse(
+                id=schema.vertical,
+                label=schema.label,
+                description=schema.description,
+                example=example if isinstance(example, str) else None,
+            )
+        )
+    return verticals
 
 
 @router.get("/onboarding/intake-schemas/{vertical}", response_model=IntakeSchemaResponse)
 async def get_intake_schema(vertical: str):
     """Return a vertical-conditioned intake schema for the onboarding UI."""
     return _load_intake_schema(vertical)
+
+
+@router.get("/onboarding/{onboarding_id}", response_model=BusinessProfileResponse)
+async def get_onboarding_profile(
+    onboarding_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return the saved onboarding profile for repeat scans and review flows."""
+    profile = _profile_for_user(db, onboarding_id, user_id)
+    return _profile_response(profile)
 
 
 @router.post(
@@ -510,6 +556,7 @@ async def start_onboarding(
             updated_at=now,
         )
         db.add(client)
+        db.flush()
 
     profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client_id).first()
     if profile:

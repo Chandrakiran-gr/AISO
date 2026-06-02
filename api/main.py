@@ -66,6 +66,7 @@ app.add_middleware(
         "sapienic.com",
         "*.sapienic.com",
         "*.up.railway.app",
+        "*.onrender.com",
     ]),
 )
 

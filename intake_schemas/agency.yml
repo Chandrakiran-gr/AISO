@@ -1,0 +1,43 @@
+vertical: agency
+label: Agency or reseller
+description: Agencies, resellers, or partner businesses using AISO for their own visibility, client visibility, or both.
+example: "Examples: marketing agency, implementation partner, reseller, consulting firm managing client scans."
+required_fields:
+  - client_roster_size
+  - vertical_distribution
+  - aiso_use_case
+fields:
+  - id: client_roster_size
+    label: Client roster size
+    type: select
+    required: true
+    hint: Approximate active client count or book of business.
+    patch_field: client_roster_size
+    options:
+      - 1-5
+      - 6-20
+      - 21-50
+      - 51-100
+      - 100+
+  - id: vertical_distribution
+    label: Client vertical mix
+    type: textarea
+    required: true
+    placeholder: Local services, ecommerce brands, B2B services, healthcare, legal
+    patch_field: vertical_distribution
+  - id: aiso_use_case
+    label: AISO use case
+    type: select
+    required: true
+    hint: Choose whether this onboarding profile represents your agency, your clients, or both.
+    patch_field: aiso_use_case
+    options:
+      - Own agency visibility
+      - Client visibility programs
+      - Both own and client visibility
+  - id: primary_persona
+    label: Primary user
+    type: text
+    required: false
+    placeholder: Agency founder, account strategist, client success lead
+    patch_field: primary_persona

@@ -1,0 +1,48 @@
+# ── AISO Backend — Render Blueprint ──────────────────────────────
+# Deploy via Render Dashboard → New → Blueprint → select this repo.
+# Render auto-detects this file and provisions all services below.
+#
+# Environment variables not listed here (API keys, secrets) must be
+# set manually in the Render dashboard after the first deploy.
+# ─────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    name: aiso-api
+    runtime: python
+    plan: free            # Free tier (750 hrs/mo, sleeps after 15 min idle)
+    branch: production    # Render only auto-deploys on pushes to this branch
+    buildCommand: |
+      pip install -r api/requirements.txt -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aiso-db
+          property: connectionString
+      - key: ENV
+        value: production
+      - key: AISO_AUTO_CREATE_TABLES
+        value: "0"
+      - key: PYTHON_VERSION
+        value: "3.14"
+      # ── Set these manually in the Render dashboard ──
+      # AISO_ALLOWED_ORIGINS       (your Vercel frontend URL)
+      # AISO_ALLOWED_HOSTS         (aiso-api.onrender.com)
+      # AISO_INTERNAL_API_SECRET
+      # AUTH_SECRET
+      # OPENAI_API_KEY
+      # ANTHROPIC_API_KEY
+      # PERPLEXITY_API_KEY
+      # GOOGLE_AI_API_KEY
+      # AISO_ADMIN_EMAILS
+      # AISO_STORAGE_BACKEND       (local or onedrive)
+      # AISO_STORAGE_ROOT          (storage)
+      # Microsoft OneDrive creds   (if using onedrive storage)
+
+databases:
+  - name: aiso-db
+    plan: free            # Free 90-day trial, then upgrade to starter ($7/mo)
+    databaseName: aiso
+    user: aiso

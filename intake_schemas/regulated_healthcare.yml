@@ -1,0 +1,60 @@
+vertical: regulated_healthcare
+label: Healthcare provider or organization
+description: Healthcare, wellness, clinical, or health-services organizations with jurisdictional, license, privacy, and claim constraints.
+example: "Examples: healthcare provider, health-tech service, clinic network, telehealth organization."
+required_fields:
+  - category
+  - jurisdictions
+  - license_numbers
+  - hipaa_constraints
+  - prohibited_claims
+  - primary_persona
+fields:
+  - id: category
+    label: Specialty or care category
+    type: text
+    required: true
+    placeholder: Primary care, behavioral health, specialty clinic, health technology
+    patch_field: category
+  - id: jurisdictions
+    label: Jurisdictions served
+    type: list
+    required: true
+    placeholder: Massachusetts, New York, United States
+    patch_field: jurisdictions
+    validators:
+      min_items: 1
+  - id: license_numbers
+    label: License or registration identifiers
+    type: list
+    required: true
+    hint: Use official identifiers when public claims depend on regulated status.
+    placeholder: License ID, NPI, state registration
+    patch_field: license_numbers
+    validators:
+      min_items: 1
+  - id: hipaa_constraints
+    label: Privacy or compliance constraints
+    type: textarea
+    required: true
+    placeholder: HIPAA, patient privacy, no diagnosis without consultation, no guarantees
+    patch_field: hipaa_constraints
+  - id: prohibited_claims
+    label: Claims AISO should avoid
+    type: textarea
+    required: true
+    placeholder: Guaranteed outcomes, cure claims, emergency advice, individualized diagnosis
+    patch_field: prohibited_claims
+  - id: primary_persona
+    label: Main patient, buyer, or stakeholder
+    type: text
+    required: true
+    placeholder: Patients, caregivers, benefits leaders, referring providers
+    patch_field: primary_persona
+  - id: competitors
+    label: Competitors or alternatives
+    type: list
+    required: false
+    hint: Leave blank to skip competitor comparison questions.
+    placeholder: Provider A, health system B, telehealth option
+    patch_field: competitors

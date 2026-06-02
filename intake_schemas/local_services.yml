@@ -1,6 +1,7 @@
 vertical: local_services
-label: Local Services
-description: Local businesses with service areas, locations, working hours, and optional competitors.
+label: Local service business
+description: Businesses serving customers through physical locations, appointments, visits, or defined service areas.
+example: "Examples: repair service, restaurant, tutoring center, clinic, contractor."
 required_fields:
   - nap
   - service_radius
@@ -11,13 +12,13 @@ fields:
     label: Business category
     type: text
     required: false
-    placeholder: HVAC, dental, family law, plumbing
+    placeholder: HVAC contractor, tutoring center, repair service, restaurant
     patch_field: category
   - id: nap
     label: Business name, address, and phone number
     type: textarea
     required: true
-    placeholder: "Acme Dental | 123 Main St, Boston, MA 02118 | (617) 555-0100"
+    placeholder: "Acme Services | 123 Main St, Boston, MA 02118 | (617) 555-0100"
     patch_field: nap
   - id: service_radius
     label: Service radius
@@ -29,7 +30,7 @@ fields:
     label: Core services
     type: list
     required: true
-    placeholder: Emergency repair, installation, maintenance
+    placeholder: Consultation, installation, repair, classes, appointments
     patch_field: service_taxonomy
     validators:
       min_items: 1
@@ -57,5 +58,5 @@ fields:
     label: Primary customer
     type: text
     required: false
-    placeholder: Homeowners with urgent repair needs
+    placeholder: Homeowners, students, business operators, local families
     patch_field: primary_persona
