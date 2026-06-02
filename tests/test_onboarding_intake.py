@@ -1,4 +1,5 @@
 import unittest
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -57,6 +58,7 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         start_data = start.json()
         onboarding_id = start_data["onboarding_id"]
         self.assertEqual(start_data["client_id"], onboarding_id)
+        self.assertEqual(UUID(onboarding_id, version=4).version, 4)
         self.assertFalse(start_data["floor_met"])
 
         incomplete = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
@@ -98,6 +100,20 @@ class OnboardingIntakeAPITests(unittest.TestCase):
             self.assertEqual(profile.personas["primary"], "VP Sales")
         finally:
             db.close()
+
+    def test_onboarding_start_rejects_slug_client_id(self):
+        start = self.client.post(
+            "/api/v1/onboarding/start",
+            json={
+                "client_id": "sapienic",
+                "display_name": "Sapienic",
+                "url": "https://sapienic.example",
+                "vertical": "b2b_saas",
+                "objective": "consideration",
+            },
+        )
+        self.assertEqual(start.status_code, 422)
+        self.assertEqual(start.json()["detail"], "client_id must be a UUIDv4")
 
     def test_phase_12_2_serves_starting_vertical_intake_schemas(self):
         for vertical in ("b2b_saas", "local_services", "ecommerce"):

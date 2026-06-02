@@ -30,6 +30,11 @@ type ScanData = {
   error?: string | null;
 };
 
+type ClientScanBundle = {
+  client: ClientData;
+  scans: ScanData[];
+};
+
 type DashboardState = {
   client: ClientData | null;
   scans: ScanData[];
@@ -70,17 +75,31 @@ export default function DashboardPage() {
         if (!clientsRes.ok) throw new Error("Unable to load clients");
 
         const clients: ClientData[] = await clientsRes.json();
-        const client = clients[0] ?? null;
-        if (!client) {
+        if (!clients.length) {
           if (active) {
             setState((prev) => ({ ...prev, client: null, loading: false }));
           }
           return;
         }
 
-        const scansRes = await fetch(`${API}/v1/clients/${client.id}/scans`, { cache: "no-store" });
-        if (!scansRes.ok) throw new Error("Unable to load scans");
-        const scans: ScanData[] = await scansRes.json();
+        const bundles: ClientScanBundle[] = await Promise.all(
+          clients.map(async (item) => {
+            const scansRes = await fetch(`${API}/v1/clients/${item.id}/scans`, { cache: "no-store" });
+            if (!scansRes.ok) throw new Error("Unable to load scans");
+            const scans: ScanData[] = await scansRes.json();
+            return { client: item, scans };
+          }),
+        );
+        const newestBundle = bundles.reduce<ClientScanBundle | null>((best, current) => {
+          if (!current.scans.length) return best;
+          if (!best || !best.scans.length) return current;
+          const currentTime = Date.parse(current.scans[0]?.created_at ?? "");
+          const bestTime = Date.parse(best.scans[0]?.created_at ?? "");
+          return currentTime > bestTime ? current : best;
+        }, null);
+        const selectedBundle = newestBundle ?? bundles[0];
+        const client = selectedBundle.client;
+        const scans = selectedBundle.scans;
         const latestComplete = scans.find((scan) => scan.status === "complete") ?? scans[0] ?? null;
         const [metricsRes, actionsRes, gapReportRes] = await Promise.all([
           fetch(`${API}/v1/clients/${client.id}/metrics`, { cache: "no-store" }),

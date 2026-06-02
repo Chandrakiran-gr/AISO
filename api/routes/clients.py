@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
-import uuid
+from uuid import UUID, uuid4
 import json
 
 from api.database import get_db, Client
@@ -19,8 +19,8 @@ router = APIRouter(tags=["clients"])
 # ── Schemas (Pydantic validation) ────────────────────────────────────────────
 
 class ClientCreate(BaseModel):
-    # Onboarding sends: id (slug) + display_name
-    id:           Optional[str] = None   # optional slug; auto-generated if absent
+    # Existing client UUID. New clients get a server-generated UUID when omitted.
+    id:           Optional[str] = None
     display_name: Optional[str] = None   # alias for name
     name:         Optional[str] = None   # legacy field
     url:          Optional[str] = None
@@ -55,6 +55,21 @@ def _competitors_json(value: Optional[List[str]]) -> Optional[str]:
     cleaned = [" ".join(str(item).strip().split()) for item in value]
     cleaned = [item for item in cleaned if item]
     return json.dumps(cleaned) if cleaned else None
+
+
+def _canonical_uuid4(value: Optional[str], *, field_name: str) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    try:
+        parsed = UUID(cleaned, version=4)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{field_name} must be a UUIDv4") from exc
+    if str(parsed) != cleaned.lower():
+        raise HTTPException(status_code=422, detail=f"{field_name} must be a canonical UUIDv4")
+    return str(parsed)
 
 
 def _serialize_client(client: Client) -> ClientResponse:
@@ -116,7 +131,7 @@ async def create_client(
     if not resolved_name:
         raise HTTPException(status_code=422, detail="name or display_name is required")
 
-    client_id = (payload.id or str(uuid.uuid4())).strip()
+    client_id = _canonical_uuid4(payload.id, field_name="id") or str(uuid4())
 
     existing = db.query(Client).filter(Client.id == client_id).first()
     if existing:
@@ -128,14 +143,6 @@ async def create_client(
         db.refresh(existing)
         response.status_code = status.HTTP_200_OK
         return _serialize_client(existing)
-
-    existing_for_user = db.query(Client).filter(Client.user_id == user_id).order_by(Client.created_at.asc()).first()
-    if existing_for_user:
-        _apply_client_payload(existing_for_user, payload, resolved_name, preserve_omitted=True)
-        db.commit()
-        db.refresh(existing_for_user)
-        response.status_code = status.HTTP_200_OK
-        return _serialize_client(existing_for_user)
 
     client = Client(
         id=client_id,

@@ -450,10 +450,6 @@ function normalizedProfile(profile: ContextProfile): ContextProfile {
   };
 }
 
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-}
-
 function emptyProfile(form: FormState): ContextProfile {
   const competitors = parseCompetitors(form.competitors).map((name) => manualItem(name, "competitor_business"));
   const locations = form.location ? [manualItem(form.location, "visibility_market", { usage: "visibility_only" })] : [];
@@ -617,12 +613,11 @@ async function getIntakeSchema(vertical: string): Promise<IntakeSchema> {
   return res.json();
 }
 
-async function startPipelineOnboarding(slug: string, form: FormState, schema: IntakeSchema): Promise<ExistingClient> {
+async function startPipelineOnboarding(form: FormState, schema: IntakeSchema): Promise<ExistingClient> {
   const res = await fetch(`${API}/v1/onboarding/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      client_id: slug,
       display_name: form.businessName,
       url: form.websiteUrl,
       vertical: form.vertical,
@@ -2036,7 +2031,7 @@ export default function OnboardingPage() {
         return;
       }
       const nextForm = legacyFormFromIntake(form, intakeSchema);
-      const client = await startPipelineOnboarding(slugify(nextForm.businessName), nextForm, intakeSchema);
+      const client = await startPipelineOnboarding(nextForm, intakeSchema);
       setForm(nextForm);
       setClientId(client.id);
       setWorkspaceId(null);
@@ -2132,7 +2127,7 @@ export default function OnboardingPage() {
               setError(result.error || "The scan failed. Check your API keys and try again.");
               return;
             }
-            setTimeout(() => router.push("/dashboard"), 1500);
+            setTimeout(() => router.push(`/dashboard/scans/${scanId}`), 1500);
           }
         } catch {
           // Poll errors are transient.

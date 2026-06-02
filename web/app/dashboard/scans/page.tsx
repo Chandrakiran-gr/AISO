@@ -13,6 +13,7 @@ type ClientData = {
 
 type ScanData = {
   id: string;
+  client_name?: string;
   status: "pending" | "running" | "complete" | "failed" | string;
   providers: string[] | null;
   groups: string[] | null;
@@ -59,9 +60,8 @@ export default function ScansPage() {
         const clientsRes = await fetch(`${API}/v1/clients`, { cache: "no-store" });
         if (!clientsRes.ok) throw new Error("Unable to load clients");
         const clients: ClientData[] = await clientsRes.json();
-        const firstClient = clients[0] ?? null;
 
-        if (!firstClient) {
+        if (!clients.length) {
           if (active) {
             setClient(null);
             setScans([]);
@@ -70,14 +70,22 @@ export default function ScansPage() {
           return;
         }
 
-        const scansRes = await fetch(`${API}/v1/clients/${firstClient.id}/scans`, {
-          cache: "no-store",
-        });
-        if (!scansRes.ok) throw new Error("Unable to load scan history");
-        const data: ScanData[] = await scansRes.json();
+        const scansByClient = await Promise.all(
+          clients.map(async (item) => {
+            const scansRes = await fetch(`${API}/v1/clients/${item.id}/scans`, {
+              cache: "no-store",
+            });
+            if (!scansRes.ok) throw new Error("Unable to load scan history");
+            const data: ScanData[] = await scansRes.json();
+            return data.map((scan) => ({ ...scan, client_name: item.name }));
+          }),
+        );
+        const data = scansByClient
+          .flat()
+          .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 
         if (active) {
-          setClient(firstClient);
+          setClient(clients.length === 1 ? clients[0] : null);
           setScans(data);
           setLoading(false);
         }
@@ -113,7 +121,7 @@ export default function ScansPage() {
         <div className={styles.topBarLeft}>
           <span className={styles.pageTitle}>Scan History</span>
           <span className={styles.pageSub}>
-            {client ? `All AI visibility scans for ${client.name}` : "No business profile yet"}
+            {client ? `All AI visibility scans for ${client.name}` : "All AI visibility scans across your businesses"}
           </span>
         </div>
         <Link href="/onboarding" className={styles.newScanBtn}>
@@ -163,6 +171,7 @@ export default function ScansPage() {
                 <div className={styles.scanMeta}>
                   <span className={styles.scanDate}>{formatDate(scan.created_at)}</span>
                   <span className={styles.scanProviders}>
+                    {scan.client_name ? `${scan.client_name} · ` : ""}
                     {(scan.providers ?? []).map((pid) => {
                       const p = PROVIDERS.find((x) => x.id === pid);
                       return p ? (

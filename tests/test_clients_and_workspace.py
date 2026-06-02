@@ -5,8 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from uuid import UUID
 
-from fastapi import Response
+from fastapi import HTTPException, Response
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -33,7 +34,6 @@ class ClientProfileTests(unittest.TestCase):
             created = asyncio.run(
                 create_client(
                     ClientCreate(
-                        id="acme_widgets",
                         display_name="Acme Widgets",
                         url="https://acme.example",
                         industry="Industrial widgets",
@@ -46,7 +46,7 @@ class ClientProfileTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(created.id, "acme_widgets")
+            self.assertEqual(UUID(created.id, version=4).version, 4)
             self.assertEqual(created.url, "https://acme.example")
             self.assertEqual(created.industry, "Industrial widgets")
             self.assertEqual(created.location, "Boston, MA")
@@ -55,7 +55,7 @@ class ClientProfileTests(unittest.TestCase):
             updated = asyncio.run(
                 create_client(
                     ClientCreate(
-                        id="acme_widgets",
+                        id=created.id,
                         display_name="Acme Widgets Updated",
                         url="https://new.example",
                         industry="B2B software",
@@ -78,41 +78,28 @@ class ClientProfileTests(unittest.TestCase):
         finally:
             session.close()
 
-    def test_create_client_updates_existing_user_business_when_new_slug_is_sent(self):
+    def test_create_client_rejects_non_uuid_client_id(self):
         session = self.Session()
         try:
             session.add(User(id="user-1", email="founder@example.com"))
-            session.add(
-                Client(
-                    id="first_business",
-                    user_id="user-1",
-                    name="First Business",
-                    url="https://first.example",
-                )
-            )
             session.commit()
 
-            updated = asyncio.run(
-                create_client(
-                    ClientCreate(
-                        id="second_business",
-                        display_name="Second Business",
-                        url="https://second.example",
-                        industry="Local services",
-                        competitors=["Rival A"],
-                    ),
-                    response=Response(),
-                    db=session,
-                    user_id="user-1",
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(
+                    create_client(
+                        ClientCreate(
+                            id="second_business",
+                            display_name="Second Business",
+                            url="https://second.example",
+                        ),
+                        response=Response(),
+                        db=session,
+                        user_id="user-1",
+                    )
                 )
-            )
-
-            self.assertEqual(updated.id, "first_business")
-            self.assertEqual(updated.name, "Second Business")
-            self.assertEqual(updated.url, "https://second.example")
-            self.assertEqual(updated.industry, "Local services")
-            self.assertEqual(updated.competitors, ["Rival A"])
-            self.assertEqual(session.query(Client).filter(Client.user_id == "user-1").count(), 1)
+            self.assertEqual(raised.exception.status_code, 422)
+            self.assertEqual(raised.exception.detail, "id must be a UUIDv4")
+            self.assertEqual(session.query(Client).filter(Client.user_id == "user-1").count(), 0)
         finally:
             session.close()
 
