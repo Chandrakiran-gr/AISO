@@ -1,4 +1,5 @@
 import unittest
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
@@ -85,6 +86,7 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         start_data = start.json()
         onboarding_id = start_data["onboarding_id"]
         self.assertEqual(start_data["client_id"], onboarding_id)
+        self.assertEqual(UUID(onboarding_id, version=4).version, 4)
         self.assertFalse(start_data["floor_met"])
 
         incomplete = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")

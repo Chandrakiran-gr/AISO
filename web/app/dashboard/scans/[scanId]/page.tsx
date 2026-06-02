@@ -169,27 +169,38 @@ export default function ScanDetailPage() {
         const clientsRes = await fetch(`${API}/v1/clients`, { cache: "no-store" });
         if (!clientsRes.ok) throw new Error("Unable to load clients");
         const clients: ClientData[] = await clientsRes.json();
-        const firstClient = clients[0] ?? null;
-        if (!firstClient) throw new Error("No business profile found");
+        if (!clients.length) throw new Error("No business profile found");
 
-        const scanRes = await fetch(`${API}/v1/clients/${firstClient.id}/scans/${scanId}`, {
-          cache: "no-store",
-        });
-        if (!scanRes.ok) throw new Error("Unable to load scan detail");
-        const scanDetail: ScanDetail = await scanRes.json();
+        let resolvedClient: ClientData | null = null;
+        let scanDetail: ScanDetail | null = null;
+        for (const candidate of clients) {
+          const candidateScanRes = await fetch(`${API}/v1/clients/${candidate.id}/scans/${scanId}`, {
+            cache: "no-store",
+          });
+          if (candidateScanRes.ok) {
+            resolvedClient = candidate;
+            scanDetail = await candidateScanRes.json();
+            break;
+          }
+          if (candidateScanRes.status !== 404) {
+            throw new Error("Unable to load scan detail");
+          }
+        }
+        if (!resolvedClient || !scanDetail) throw new Error("Unable to load scan detail");
+
         const encodedScanId = encodeURIComponent(scanId);
         const [customQuestionsRes, metricsRes, actionsRes, gapReportRes] = await Promise.all([
           fetch(
-            `${API}/v1/clients/${firstClient.id}/scans/${scanId}/custom-questions`,
+            `${API}/v1/clients/${resolvedClient.id}/scans/${scanId}/custom-questions`,
             { cache: "no-store" },
           ),
-          fetch(`${API}/v1/clients/${firstClient.id}/metrics?scan_id=${encodedScanId}`, {
+          fetch(`${API}/v1/clients/${resolvedClient.id}/metrics?scan_id=${encodedScanId}`, {
             cache: "no-store",
           }),
-          fetch(`${API}/v1/clients/${firstClient.id}/actions?status=open&scan_id=${encodedScanId}`, {
+          fetch(`${API}/v1/clients/${resolvedClient.id}/actions?status=open&scan_id=${encodedScanId}`, {
             cache: "no-store",
           }),
-          fetch(`${API}/v1/clients/${firstClient.id}/gap-report?scan_id=${encodedScanId}`, {
+          fetch(`${API}/v1/clients/${resolvedClient.id}/gap-report?scan_id=${encodedScanId}`, {
             cache: "no-store",
           }),
         ]);
@@ -204,7 +215,7 @@ export default function ScanDetailPage() {
         );
 
         if (active) {
-          setClient(firstClient);
+          setClient(resolvedClient);
           setScan(scanDetail);
           setCustomQuestions(customQuestionData);
           setMetrics(metricsData);

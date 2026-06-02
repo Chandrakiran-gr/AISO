@@ -117,6 +117,21 @@ class OnboardingStartResponse(BusinessProfileResponse):
     client_url: str
 
 
+def _canonical_uuid4(value: Optional[str], *, field_name: str) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    try:
+        parsed = uuid.UUID(cleaned, version=4)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{field_name} must be a UUIDv4") from exc
+    if str(parsed) != cleaned.lower():
+        raise HTTPException(status_code=422, detail=f"{field_name} must be a canonical UUIDv4")
+    return str(parsed)
+
+
 class OnboardingSubmitResponse(BaseModel):
     ok: bool
     onboarding_id: str
@@ -520,7 +535,7 @@ async def start_onboarding(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    client_id = (payload.client_id or str(uuid.uuid4())).strip()
+    client_id = _canonical_uuid4(payload.client_id, field_name="client_id") or str(uuid.uuid4())
     client = db.query(Client).filter(Client.id == client_id).first()
     if client and client.user_id != user_id:
         raise HTTPException(status_code=409, detail="Client id already exists")
