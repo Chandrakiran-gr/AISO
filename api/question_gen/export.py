@@ -13,8 +13,12 @@ from sqlalchemy.orm import Session
 
 from api import storage
 from api.database import BusinessProfile, Client, QuestionCandidate, QuestionScore, Scan, ScanArtifact
-from api.domain.ports import ScanEnqueueResult, ScanExecutor
+from api.domain.ports import ScanEnqueueResult, UpstreamScanExecutor
 from api.domain.question_selection import DEFAULT_SELECTION_TARGET_N
+from api.question_gen.question_bank import (
+    QuestionBankImportError,
+    import_selected_questions_to_question_bank,
+)
 
 
 QUESTION_CSV_COLUMNS = [
@@ -57,7 +61,7 @@ def export_questions_and_enqueue_scan(
     db: Session,
     *,
     client_id: str,
-    executor: ScanExecutor,
+    executor: UpstreamScanExecutor,
     target_n: int = DEFAULT_SELECTION_TARGET_N,
     scan_run_id: str | None = None,
 ) -> QuestionPortfolioExport:
@@ -68,6 +72,18 @@ def export_questions_and_enqueue_scan(
 
     scan = _scan_for_export(db, client_id=client_id, scan_run_id=scan_run_id)
     selected_at = datetime.now(timezone.utc)
+    try:
+        import_selected_questions_to_question_bank(
+            db,
+            client_id=client_id,
+            scan_id=scan.id,
+            selected_at=selected_at,
+            rows=rows,
+            vertical=profile.vertical,
+        )
+    except QuestionBankImportError as exc:
+        raise QuestionExportError(str(exc)) from exc
+
     filename = f"questions_{scan.id}.csv"
     local_path = storage.build_scan_artifact_path(client_id, scan.id, filename, stage="questions")
     local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,6 +125,9 @@ def export_questions_and_enqueue_scan(
     scan.status = "ready"
     scan.groups = json.dumps(["phase12_selected_questions"])
     scan.providers = scan.providers or json.dumps([])
+    # The Phase 12 executor is still a synchronous stub. The real downstream
+    # Procrastinate adapter must enqueue after commit or through an outbox so
+    # workers never observe an uncommitted scan_manifest.
     enqueue_result = executor.enqueue(scan_id=scan.id, client_id=client_id)
     db.flush()
 

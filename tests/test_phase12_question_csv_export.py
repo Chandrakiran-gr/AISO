@@ -12,13 +12,29 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from api.auth import get_current_user_id
-from api.database import Base, BusinessProfile, Client, QuestionCandidate, QuestionScore, Scan, ScanArtifact, User, get_db
+from api.database import (
+    Base,
+    BusinessProfile,
+    Client,
+    QuestionBankMembership,
+    QuestionBankQuestion,
+    QuestionBankScore,
+    QuestionBankVersion,
+    QuestionCandidate,
+    QuestionScore,
+    Scan,
+    ScanArtifact,
+    ScanManifest,
+    User,
+    get_db,
+)
 from api.domain.ports import ScanEnqueueResult
+from api.domain.question_bank import BANK_FRAME_BRAND, BANK_FRAME_COMPARISON, BANK_FRAME_UNBRANDED
 from api.domain.question_generation import BRAND_FRAMES, INTENT_CLASSES, JOURNEY_STAGES, question_text_hash
 from api.main import app
+from api.question_gen.export import QUESTION_CSV_COLUMNS, QUESTION_CSV_METHODOLOGY_VERSION
 from api.routes.onboarding import get_scan_executor
 from api.storage import OneDriveUploadResult, client_artifact_slug, materialize_artifact_file
-from api.question_gen.export import QUESTION_CSV_COLUMNS, QUESTION_CSV_METHODOLOGY_VERSION
 
 
 class RecordingScanExecutor:
@@ -150,6 +166,46 @@ class Phase12QuestionCsvExportTests(unittest.TestCase):
             self.assertTrue(all(row["question_text"] for row in rows))
             self.assertTrue(all(row["weighted_score"] for row in rows))
             self.assertTrue(all(row["realism_score"] for row in rows))
+
+            bank_versions = db.query(QuestionBankVersion).filter_by(client_id="client-1").all()
+            self.assertEqual(len(bank_versions), 1)
+            bank_version = bank_versions[0]
+            self.assertEqual(bank_version.n_total, 50)
+            self.assertEqual(bank_version.n_core, 35)
+            self.assertEqual(bank_version.n_tail, 15)
+            self.assertEqual(bank_version.rotation_reason, "phase12_initial_import")
+
+            canonical_questions = db.query(QuestionBankQuestion).filter_by(client_id="client-1").all()
+            self.assertEqual(len(canonical_questions), 50)
+            self.assertEqual(
+                {question.brand_frame for question in canonical_questions},
+                {BANK_FRAME_BRAND, BANK_FRAME_COMPARISON, BANK_FRAME_UNBRANDED},
+            )
+            self.assertTrue(all(question.source == "generated" for question in canonical_questions))
+            self.assertTrue(all(question.text_hash for question in canonical_questions))
+
+            self.assertEqual(db.query(QuestionBankScore).count(), 50)
+            self.assertEqual(
+                db.query(QuestionBankMembership)
+                .filter_by(bank_version_id=bank_version.bank_version_id)
+                .count(),
+                50,
+            )
+            manifest_rows = db.query(ScanManifest).filter_by(scan_id=scan.id).all()
+            self.assertEqual(len(manifest_rows), 50)
+            self.assertEqual(
+                {row.bank_version_id for row in manifest_rows},
+                {bank_version.bank_version_id},
+            )
+            self.assertEqual(
+                sum((row.weight_at_scan for row in manifest_rows), Decimal("0")).quantize(Decimal("0.0001")),
+                Decimal("50.0000"),
+            )
+            state_counts = {
+                state: sum(1 for row in manifest_rows if row.state_at_scan == state)
+                for state in {"FROZEN", "TAIL"}
+            }
+            self.assertEqual(state_counts, {"FROZEN": 35, "TAIL": 15})
         finally:
             db.close()
 

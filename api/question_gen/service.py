@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from api.adapters.prompt_registry import ensure_prompt_version
 from api.database import Client, QuestionCandidate
-from api.domain.ports import BusinessProfileSnapshot, LLMProvider
+from api.domain.ports import BusinessProfileSnapshot, UpstreamLLMProvider
 from api.domain.question_generation import (
     QUESTION_GENERATION_PROMPT_KEY,
     QUESTION_GENERATION_PROMPT_VERSION,
@@ -44,7 +44,7 @@ def generate_and_persist_question_candidates(
     *,
     client: Client,
     snapshot: BusinessProfileSnapshot,
-    provider: LLMProvider,
+    provider: UpstreamLLMProvider,
     target_n: int = 50,
     scan_run_id: str | None = None,
 ) -> PersistedQuestionGenerationRun:

@@ -10,6 +10,7 @@ google-genai            # Gemini provider with Google Search grounding
 google-generativeai     # Gemini fallback provider while migration stabilizes
 pytrends         # Google Trends popularity scoring (setup2.py score_popularity)
 requests         # HTTP dependency for pytrends
+publicsuffix2>=2.20191221  # classifier-1.0 source eTLD+1 extraction
 ollama           # Local LLM via Ollama  (setup2.py --llm local, optional)
 python-jose[cryptography]>=3.3.0
 reportlab>=4.0          # PDF export for content drafts

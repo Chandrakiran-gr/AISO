@@ -9,7 +9,7 @@ import os
 
 import requests
 
-from api.domain.ports import ProviderResponse
+from api.domain.ports import UpstreamProviderResponse
 from api.domain.question_generation import (
     QUESTION_GENERATION_SEED,
     context_from_runtime_payload,
@@ -50,7 +50,7 @@ class AnthropicQuestionGenerationAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         if not self.api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is required for Claude question generation")
 
@@ -73,7 +73,7 @@ class AnthropicQuestionGenerationAdapter:
         response.raise_for_status()
         payload = response.json()
         text = _anthropic_text(payload)
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=text,
             provider="anthropic",
             model=str(payload.get("model") or self.model),
@@ -99,7 +99,7 @@ class HeuristicQuestionGenerationAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         payload = _extract_runtime_inputs(prompt)
         context = context_from_runtime_payload(payload)
         candidates = heuristic_question_candidates(context)
@@ -115,7 +115,7 @@ class HeuristicQuestionGenerationAdapter:
             }
             for candidate in candidates
         ]
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=json.dumps(rows, sort_keys=True),
             provider=self.provider,
             model=self.model,

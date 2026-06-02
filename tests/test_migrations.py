@@ -11,6 +11,40 @@ from sqlalchemy import create_engine, inspect
 from api.database import Base
 
 MIGRATIONS_DIR = Path("migrations/versions")
+PHASE13_TABLES = (
+    "methodology_version_set",
+    "scan_runs",
+    "scan_progress",
+    "samples",
+    "scan_steps",
+    "idempotency_keys",
+    "cost_ledger",
+    "scan_raw_response_archive",
+    "scan_provenance",
+    "sample",
+    "classification",
+    "domain_classification",
+    "avs_computation",
+    "audit_event",
+)
+QUESTION_BANK_TABLES = (
+    "question_candidate_score",
+    "question_bank_version",
+    "question",
+    "question_score",
+    "question_bank_membership",
+    "scan_manifest",
+    "question_bridge",
+    "question_deprecation",
+)
+PHASE13_CLIENT_COLUMNS = {
+    "tier",
+    "cost_budget_default_usd",
+    "byok",
+    "byok_keys",
+    "owned_domains",
+    "competitor_domains",
+}
 
 
 def _alembic_config(db_path: Path) -> Config:
@@ -43,8 +77,60 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("business_profile", inspector.get_table_names())
                     self.assertIn("methodology_prompt_version", inspector.get_table_names())
                     self.assertIn("question_candidate", inspector.get_table_names())
-                    self.assertIn("question_score", inspector.get_table_names())
+                    for table_name in QUESTION_BANK_TABLES:
+                        self.assertIn(table_name, inspector.get_table_names())
+                    candidate_score_columns = {
+                        column["name"] for column in inspector.get_columns("question_candidate_score")
+                    }
+                    self.assertIn("d1_buyer_plausibility", candidate_score_columns)
+                    bank_score_columns = {
+                        column["name"] for column in inspector.get_columns("question_score")
+                    }
+                    self.assertIn("commercial_prox", bank_score_columns)
+                    for table_name in PHASE13_TABLES:
+                        self.assertIn(table_name, inspector.get_table_names())
+                    domain_cache_columns = {
+                        column["name"] for column in inspector.get_columns("domain_classification")
+                    }
+                    self.assertTrue(
+                        {
+                            "domain",
+                            "source_class",
+                            "classifier_version",
+                            "classifier_model",
+                            "prompt_hash",
+                            "confidence",
+                            "source",
+                            "evidence",
+                            "expires_at",
+                        }.issubset(domain_cache_columns)
+                    )
+                    raw_archive_columns = {
+                        column["name"] for column in inspector.get_columns("scan_raw_response_archive")
+                    }
+                    self.assertTrue(
+                        {
+                            "scan_id",
+                            "archive_type",
+                            "sample_count",
+                            "archive_url",
+                            "archive_hash",
+                        }.issubset(raw_archive_columns)
+                    )
+                    scan_run_columns = {
+                        column["name"] for column in inspector.get_columns("scan_runs")
+                    }
+                    self.assertIn("providers", scan_run_columns)
+                    sample_columns = {
+                        column["name"]: column for column in inspector.get_columns("samples")
+                    }
+                    self.assertIn("planned_provider_model", sample_columns)
+                    self.assertTrue(sample_columns["seed"]["nullable"])
                     self.assertIn("alembic_version", inspector.get_table_names())
+                    client_columns = {
+                        column["name"] for column in inspector.get_columns("clients")
+                    }
+                    self.assertTrue(PHASE13_CLIENT_COLUMNS.issubset(client_columns))
                     action_columns = {
                         column["name"] for column in inspector.get_columns("actions")
                     }
@@ -85,7 +171,39 @@ class AlembicMigrationTests(unittest.TestCase):
                     self.assertIn("business_profile", inspector.get_table_names())
                     self.assertIn("methodology_prompt_version", inspector.get_table_names())
                     self.assertIn("question_candidate", inspector.get_table_names())
-                    self.assertIn("question_score", inspector.get_table_names())
+                    for table_name in QUESTION_BANK_TABLES:
+                        self.assertIn(table_name, inspector.get_table_names())
+                    candidate_score_columns = {
+                        column["name"] for column in inspector.get_columns("question_candidate_score")
+                    }
+                    self.assertIn("d1_buyer_plausibility", candidate_score_columns)
+                    bank_score_columns = {
+                        column["name"] for column in inspector.get_columns("question_score")
+                    }
+                    self.assertIn("commercial_prox", bank_score_columns)
+                    for table_name in PHASE13_TABLES:
+                        self.assertIn(table_name, inspector.get_table_names())
+                    domain_cache_columns = {
+                        column["name"] for column in inspector.get_columns("domain_classification")
+                    }
+                    self.assertIn("source_class", domain_cache_columns)
+                    raw_archive_columns = {
+                        column["name"] for column in inspector.get_columns("scan_raw_response_archive")
+                    }
+                    self.assertIn("archive_hash", raw_archive_columns)
+                    scan_run_columns = {
+                        column["name"] for column in inspector.get_columns("scan_runs")
+                    }
+                    self.assertIn("providers", scan_run_columns)
+                    sample_columns = {
+                        column["name"]: column for column in inspector.get_columns("samples")
+                    }
+                    self.assertIn("planned_provider_model", sample_columns)
+                    self.assertTrue(sample_columns["seed"]["nullable"])
+                    client_columns = {
+                        column["name"] for column in inspector.get_columns("clients")
+                    }
+                    self.assertTrue(PHASE13_CLIENT_COLUMNS.issubset(client_columns))
                     conversation_columns = {
                         column["name"] for column in inspector.get_columns("conversations")
                     }

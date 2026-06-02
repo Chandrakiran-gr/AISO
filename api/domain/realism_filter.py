@@ -7,7 +7,7 @@ from typing import Any
 import json
 import re
 
-from api.domain.ports import LLMProvider, ProviderResponse
+from api.domain.ports import UpstreamLLMProvider, UpstreamProviderResponse
 
 
 REALISM_FILTER_PROMPT_KEY = "realism_filter"
@@ -47,7 +47,7 @@ Failure modes from §B.3:
 class RealismJudgeRun:
     score: float
     rationale: str
-    provider_response: ProviderResponse
+    provider_response: UpstreamProviderResponse
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,7 @@ def evaluate_realism(
     *,
     question: str,
     vertical: str,
-    provider: LLMProvider,
+    provider: UpstreamLLMProvider,
     idempotency_key: str,
     metadata: dict[str, Any] | None = None,
     runs: int = REALISM_SELF_CONSISTENCY_RUNS,

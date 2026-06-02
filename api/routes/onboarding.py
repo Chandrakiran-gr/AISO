@@ -33,7 +33,7 @@ from api.domain.onboarding import (
     normalize_vertical,
     profile_data_from_snapshot,
 )
-from api.domain.ports import BusinessProfileSnapshot, LLMProvider, ScanExecutor
+from api.domain.ports import BusinessProfileSnapshot, UpstreamLLMProvider, UpstreamScanExecutor
 from api.domain.profile_draft import (
     PROFILE_DRAFT_PROMPT_KEY,
     PROFILE_DRAFT_PROMPT_VERSION,
@@ -412,23 +412,23 @@ def _profile_draft_response(
     )
 
 
-def get_profile_draft_provider() -> LLMProvider:
+def get_profile_draft_provider() -> UpstreamLLMProvider:
     return default_profile_draft_provider()
 
 
-def get_scan_executor() -> ScanExecutor:
+def get_scan_executor() -> UpstreamScanExecutor:
     return default_scan_executor()
 
 
-def get_question_scorer_provider() -> LLMProvider:
+def get_question_scorer_provider() -> UpstreamLLMProvider:
     return default_question_scorer_provider()
 
 
-def get_question_generation_provider() -> LLMProvider:
+def get_question_generation_provider() -> UpstreamLLMProvider:
     return default_question_generation_provider()
 
 
-def get_realism_filter_provider() -> LLMProvider:
+def get_realism_filter_provider() -> UpstreamLLMProvider:
     return default_realism_filter_provider()
 
 
@@ -600,7 +600,7 @@ async def draft_business_profile(
     onboarding_id: str,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
-    provider: LLMProvider = Depends(get_profile_draft_provider),
+    provider: UpstreamLLMProvider = Depends(get_profile_draft_provider),
 ):
     """Generate a customer-confirmable profile draft from crawl artifacts."""
     profile = _profile_for_user(db, onboarding_id, user_id)
@@ -695,7 +695,7 @@ async def generate_onboarding_questions(
     payload: QuestionGenerationRequest | None = None,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
-    provider: LLMProvider = Depends(get_question_generation_provider),
+    provider: UpstreamLLMProvider = Depends(get_question_generation_provider),
 ):
     """Generate and persist the 3x candidate pool after profile confirmation."""
     payload = payload or QuestionGenerationRequest()
@@ -748,7 +748,7 @@ async def score_onboarding_questions(
     payload: QuestionScorerRequest | None = None,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
-    provider: LLMProvider = Depends(get_question_scorer_provider),
+    provider: UpstreamLLMProvider = Depends(get_question_scorer_provider),
 ):
     """Run the v1 five-dimension scorer over realism-passing candidates."""
     payload = payload or QuestionScorerRequest()
@@ -791,7 +791,7 @@ async def select_onboarding_questions(
     payload: QuestionSelectionRequest | None = None,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
-    executor: ScanExecutor = Depends(get_scan_executor),
+    executor: UpstreamScanExecutor = Depends(get_scan_executor),
 ):
     """Select the final question portfolio from scored candidates using the Phase 12 MIP."""
     payload = payload or QuestionSelectionRequest()
@@ -877,7 +877,7 @@ async def filter_onboarding_question_realism(
     payload: RealismFilterRequest | None = None,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
-    provider: LLMProvider = Depends(get_realism_filter_provider),
+    provider: UpstreamLLMProvider = Depends(get_realism_filter_provider),
 ):
     """Run the v1 realism filter over persisted question candidates."""
     payload = payload or RealismFilterRequest()

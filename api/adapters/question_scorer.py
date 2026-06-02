@@ -10,7 +10,7 @@ import re
 
 import requests
 
-from api.domain.ports import ProviderResponse
+from api.domain.ports import UpstreamProviderResponse
 from api.domain.question_scorer import weighted_score
 
 
@@ -43,7 +43,7 @@ class AnthropicQuestionScorerAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         if not self.api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is required for Claude question scoring")
 
@@ -65,7 +65,7 @@ class AnthropicQuestionScorerAdapter:
         )
         response.raise_for_status()
         payload = response.json()
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=_anthropic_text(payload),
             provider="anthropic",
             model=str(payload.get("model") or self.model),
@@ -91,7 +91,7 @@ class HeuristicQuestionScorerAdapter:
         seed: int,
         temperature: float,
         idempotency_key: str,
-    ) -> ProviderResponse:
+    ) -> UpstreamProviderResponse:
         payload = _extract_runtime_inputs(prompt)
         scores, rationale = heuristic_question_scores(payload)
         response = {
@@ -112,7 +112,7 @@ class HeuristicQuestionScorerAdapter:
             "weighted_score": weighted_score(scores),
             "rationale": rationale,
         }
-        return ProviderResponse(
+        return UpstreamProviderResponse(
             text=json.dumps(response, sort_keys=True),
             provider=self.provider,
             model=self.model,

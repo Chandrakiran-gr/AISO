@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from api.adapters.prompt_registry import ensure_prompt_version
 from api.database import QuestionCandidate, QuestionScore
-from api.domain.ports import BusinessProfileSnapshot, LLMProvider
+from api.domain.ports import BusinessProfileSnapshot, UpstreamLLMProvider
 from api.domain.question_scorer import (
     QUESTION_SCORER_PROMPT_KEY,
     QUESTION_SCORER_PROMPT_VERSION,
@@ -44,7 +44,7 @@ def apply_question_scorer(
     *,
     client_id: str,
     snapshot: BusinessProfileSnapshot,
-    provider: LLMProvider,
+    provider: UpstreamLLMProvider,
     scan_run_id: str | None = None,
     generator_version: str | None = None,
     limit: int | None = None,

@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 
-from api.domain.ports import BusinessProfileSnapshot, ProviderResponse
+from api.domain.ports import BusinessProfileSnapshot, UpstreamProviderResponse
 
 
 QUESTION_GENERATION_PROMPT_KEY = "question_generation"
@@ -120,7 +120,7 @@ class GeneratedQuestionCandidate:
 @dataclass(frozen=True)
 class QuestionGenerationResult:
     candidates: list[GeneratedQuestionCandidate]
-    provider_response: ProviderResponse
+    provider_response: UpstreamProviderResponse
     prompt_text: str
     distribution: dict[str, int]
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from api.adapters.prompt_registry import ensure_prompt_version
 from api.database import QuestionCandidate
-from api.domain.ports import LLMProvider
+from api.domain.ports import UpstreamLLMProvider
 from api.domain.realism_filter import (
     REALISM_FILTER_PROMPT_KEY,
     REALISM_FILTER_PROMPT_VERSION,
@@ -38,7 +38,7 @@ def apply_realism_filter(
     *,
     client_id: str,
     vertical: str,
-    provider: LLMProvider,
+    provider: UpstreamLLMProvider,
     scan_run_id: str | None = None,
     generator_version: str | None = None,
 ) -> RealismFilterRun:

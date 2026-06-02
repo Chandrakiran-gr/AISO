@@ -18,8 +18,13 @@ from api.database import (
     Conversation,
     Message,
     MethodologyPromptVersion,
+    QuestionBankMembership,
+    QuestionBankQuestion,
+    QuestionBankScore,
+    QuestionBankVersion,
     QuestionCandidate,
     QuestionScore,
+    ScanManifest,
     Scan,
     ScanAnalysis,
     ScanArtifact,
@@ -66,7 +71,14 @@ class DatabaseSchemaTests(unittest.TestCase):
             self.assertIn("business_profile", inspector.get_table_names())
             self.assertIn("methodology_prompt_version", inspector.get_table_names())
             self.assertIn("question_candidate", inspector.get_table_names())
+            self.assertIn("question_candidate_score", inspector.get_table_names())
+            self.assertIn("question_bank_version", inspector.get_table_names())
+            self.assertIn("question", inspector.get_table_names())
             self.assertIn("question_score", inspector.get_table_names())
+            self.assertIn("question_bank_membership", inspector.get_table_names())
+            self.assertIn("scan_manifest", inspector.get_table_names())
+            self.assertIn("question_bridge", inspector.get_table_names())
+            self.assertIn("question_deprecation", inspector.get_table_names())
 
             artifact_columns = {
                 column["name"] for column in inspector.get_columns("scan_artifacts")
@@ -239,7 +251,7 @@ class DatabaseSchemaTests(unittest.TestCase):
             )
 
             score_columns = {
-                column["name"] for column in inspector.get_columns("question_score")
+                column["name"] for column in inspector.get_columns("question_candidate_score")
             }
             self.assertTrue(
                 {
@@ -253,6 +265,46 @@ class DatabaseSchemaTests(unittest.TestCase):
                     "weighted_score",
                     "scorer_version",
                 }.issubset(score_columns)
+            )
+
+            bank_score_columns = {
+                column["name"] for column in inspector.get_columns("question_score")
+            }
+            self.assertTrue(
+                {
+                    "question_id",
+                    "scored_at",
+                    "journey_match",
+                    "brand_frame_match",
+                    "demand_signal",
+                    "commercial_prox",
+                    "buyer_plausibility",
+                    "scope_calibration",
+                    "objective_alignment",
+                    "construct_coverage",
+                    "provider_diff",
+                    "goodhart_resistance",
+                    "answer_stability",
+                    "composite",
+                    "scorer_version",
+                }.issubset(bank_score_columns)
+            )
+
+            question_columns = {
+                column["name"] for column in inspector.get_columns("question")
+            }
+            self.assertTrue(
+                {
+                    "question_id",
+                    "client_id",
+                    "text",
+                    "text_hash",
+                    "journey_stage",
+                    "brand_frame",
+                    "locality",
+                    "persona_id",
+                    "source",
+                }.issubset(question_columns)
             )
 
             prompt_columns = {
