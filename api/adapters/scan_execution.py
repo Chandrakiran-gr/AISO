@@ -276,6 +276,42 @@ def start_scan_orchestrator(
     return True
 
 
+def _materialize_dashboard_projection_step(db: Session, *, scan_run_id: str) -> None:
+    """Materialize the dashboard projection (metrics/citations/competitors/actions).
+
+    Idempotent and **non-fatal**: a projection failure is recorded as a step event
+    but does not abort the scan — the core output (AVS + signed provenance) is
+    already computed, and publish gates on those, not on the projection.
+    """
+    from api.adapters.scan_projection import materialize_dashboard_projection
+
+    if scan_step(db, scan_run_id=scan_run_id, step_id="materialize_dashboard_projection", event="succeeded"):
+        return
+    try:
+        result = materialize_dashboard_projection(db, scan_run_id=scan_run_id, actor_id="system")
+        record_step_once(
+            db,
+            scan_run_id=scan_run_id,
+            step_id="materialize_dashboard_projection",
+            event="succeeded",
+            payload={
+                "metric_count": result.metric_count,
+                "citation_count": result.citation_count,
+                "competitor_count": result.competitor_count,
+                "action_count": result.action_count,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — projection must never strand a scan
+        db.rollback()
+        record_step_once(
+            db,
+            scan_run_id=scan_run_id,
+            step_id="materialize_dashboard_projection",
+            event="failed",
+            payload={"error": safe_error(exc)},
+        )
+
+
 async def scan_orchestrator_task(
     *,
     scan_run_id: str,
@@ -318,6 +354,8 @@ async def scan_orchestrator_task(
         # CAI is intentionally deferred: AVS-1.0 names CAI but does not define
         # Coverage, Authority, or Recency sub-index formulas. The future
         # compute_cai saga step belongs here, between compute_avs and publish_scan.
+        _materialize_dashboard_projection_step(db, scan_run_id=scan_run_id)
+        db.commit()
         publish_scan(db, scan_run_id=scan_run_id, actor_id="system")
         db.commit()
     except Exception:

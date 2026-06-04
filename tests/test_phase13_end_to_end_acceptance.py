@@ -34,6 +34,7 @@ from api.database import (
     ScanArtifact,
     ScanManifest,
     ScanProgress,
+    ScanMetric,
     ScanProvenance,
     ScanRun,
     ScanStep,
@@ -385,6 +386,11 @@ def test_phase_13_12_end_to_end_acceptance_from_selected_questions_to_dashboard(
             assert math.isfinite(float(computation.avs_value))
             assert db.query(ScanStep).filter_by(scan_run_id=scan_id, step_id="publish_scan", event="succeeded").count() == 1
             assert db.query(ScanStep).filter_by(scan_run_id=scan_id, step_id="compute_cai").count() == 0
+            # Dashboard projection materialized before publish (Phase 1).
+            assert db.query(ScanStep).filter_by(
+                scan_run_id=scan_id, step_id="materialize_dashboard_projection", event="succeeded"
+            ).count() == 1
+            assert db.query(ScanMetric).filter_by(scan_id=scan_id, scope_type="overall").count() == 1
             audit_actions = [row.action for row in db.query(AuditEvent).order_by(AuditEvent.id.asc()).all()]
             assert "scan_run.created" in audit_actions
             assert "scan_run.enqueued" in audit_actions
