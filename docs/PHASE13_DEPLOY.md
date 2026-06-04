@@ -30,7 +30,7 @@ on each deploy. Otherwise run them once with the prod `DATABASE_URL` exported
 ## 2. Environment variables (API service)
 
 ```
-AISO_SCAN_ENGINE=phase13      # also the code default; set "legacy" to fall back
+AISO_SCAN_ENGINE=phase13      # explicit opt-in; code default is "legacy" until Phase 1 native consumers land
 ```
 
 These must already be present (the worker needs them too — Step 3):

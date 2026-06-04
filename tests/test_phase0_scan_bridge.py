@@ -149,6 +149,18 @@ class ScanBridgeTests(unittest.TestCase):
                 custom_questions=["Only question?"],
             )
 
+    def test_sparse_profile_with_template_groups_raises(self):
+        # Template groups requested but no profile signal and no custom questions.
+        with self.assertRaises(ScanBridgeError):
+            build_phase13_manifest_from_groups(
+                self.db,
+                client_id="client-1",
+                scan_id="88888888-8888-4888-8888-888888888888",
+                groups=["G1", "G2"],
+                profile={},
+                custom_questions=[],
+            )
+
     def test_no_questions_raises(self):
         with self.assertRaises(ScanBridgeError):
             build_phase13_manifest_from_groups(

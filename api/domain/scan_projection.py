@@ -24,7 +24,7 @@ from api.domain.avs import (
     normalized_aliases,
     wilson_interval,
 )
-from api.domain.classifier import host_from_url
+from api.domain.classifier import host_from_url, registered_domain as _registered_domain
 
 # source_class → action_role. Replaces the legacy static domain allowlist; the
 # class itself comes from the (LLM-backed, cached) source classifier.
@@ -146,6 +146,26 @@ def action_role_for_source_class(source_class: str | None) -> str:
     return _ACTION_ROLE_BY_SOURCE_CLASS.get((source_class or "UNKNOWN").upper(), "review_needed")
 
 
+def effective_owned_domains(client_url: str | None, configured: list[str] | None) -> list[str]:
+    """Owned (brand) domains for citation matching.
+
+    Falls back to the client's own website domain when ``owned_domains`` is not
+    configured — otherwise ``citation_rate`` (a headline metric) would always be
+    zero for the many clients that never set owned_domains explicitly.
+    Returns eTLD+1 (registered) domains.
+    """
+    domains: set[str] = set()
+    for value in configured or []:
+        registered = _registered_domain(host_from_url(str(value)))
+        if registered:
+            domains.add(registered)
+    if not domains and client_url:
+        registered = _registered_domain(host_from_url(str(client_url)))
+        if registered:
+            domains.add(registered)
+    return sorted(domains)
+
+
 def _avs_samples(rows: list[ProjectionSample]) -> dict[tuple[str, str], list[AVSSample]]:
     by_pair: dict[tuple[str, str], list[AVSSample]] = {}
     for i, s in enumerate(rows):
@@ -195,13 +215,15 @@ def _metric_row_with_citations(rows: list[ProjectionSample], aliases: list[str],
     positions: list[float] = []
     mention_count = 0
     citation_count = 0
-    owned = {d.lower() for d in owned_domains}
+    owned = {_registered_domain(d.lower()) for d in owned_domains if d}
     for s in rows:
         pos = first_mention_position(s.text, aliases)
         if pos is not None:
             mention_count += 1
             positions.append(float(pos[0]))
-        if owned and any(c.domain and any(c.domain.lower().endswith(o) for o in owned) for c in s.citations):
+        if owned and any(
+            c.domain and _registered_domain(c.domain.lower()) in owned for c in s.citations
+        ):
             citation_count += 1
 
     mention_rate = mention_count / total_samples if total_samples else 0.0
@@ -226,14 +248,17 @@ def _metric_row_with_citations(rows: list[ProjectionSample], aliases: list[str],
 
 def build_citation_rows(rows: list[ProjectionSample], *, owned_domains: list[str],
                         competitor_domains: list[str]) -> list[CitationRow]:
-    owned = {d.lower() for d in owned_domains}
-    competitor = {d.lower() for d in competitor_domains}
+    owned = {_registered_domain(d.lower()) for d in owned_domains if d}
+    competitor = {_registered_domain(d.lower()) for d in competitor_domains if d}
     out: list[CitationRow] = []
     for s in rows:
         for c in s.citations:
             domain = (c.domain or host_from_url(c.url)).lower()
-            is_brand = bool(domain) and any(domain.endswith(o) for o in owned)
-            is_competitor = bool(domain) and any(domain.endswith(o) for o in competitor)
+            registered = _registered_domain(domain)
+            # Match on the registered (eTLD+1) domain so subdomains like
+            # blog.acme.com count as the owned/competitor brand.
+            is_brand = bool(registered) and registered in owned
+            is_competitor = bool(registered) and registered in competitor
             out.append(
                 CitationRow(
                     sample_id=s.sample_id,
@@ -242,7 +267,7 @@ def build_citation_rows(rows: list[ProjectionSample], *, owned_domains: list[str
                     journey_stage=s.journey_stage,
                     citation_url=c.url,
                     source_domain=domain,
-                    registered_domain=domain,
+                    registered_domain=registered,
                     source_rank=c.source_rank,
                     source_class=c.source_class,
                     source_confidence=c.source_confidence,
@@ -265,20 +290,49 @@ def detect_competitor_mentions(text: str, competitor_aliases: dict[str, list[str
     return mentioned
 
 
+def _competitor_domain_match(registered_domain: str, aliases: list[str]) -> bool:
+    """Heuristic: does a cited registered domain belong to a competitor?
+
+    Matches the domain's second-level label (e.g. ``hubspot`` in ``hubspot.com``)
+    against a slugified competitor alias. Per-competitor domain attribution is
+    approximate without an explicit name→domain map, so this is intentionally
+    conservative (substring on the SLD label).
+    """
+    if not registered_domain:
+        return False
+    sld = registered_domain.split(".")[0]
+    for alias in aliases:
+        slug = "".join(ch for ch in alias.lower() if ch.isalnum())
+        if slug and (slug in sld or sld in slug):
+            return True
+    return False
+
+
 def build_competitor_rows(rows: list[ProjectionSample], *, brand_aliases: list[str],
                           competitors: dict[str, list[str]]) -> list[CompetitorRow]:
     """Per-competitor overall + per-provider presence and share of voice.
 
     Share of voice = competitor mentions / (brand mentions + all competitor
-    mentions) within the scope.
+    mentions) within the scope. ``citation_count`` counts cited domains that
+    heuristically belong to the competitor.
     """
     brand_norm = normalized_aliases(brand_aliases)
 
-    def _rows_for(bucket: list[ProjectionSample]) -> dict[str, int]:
+    def _mention_counts(bucket: list[ProjectionSample]) -> dict[str, int]:
         counts = {name: 0 for name in competitors}
         for s in bucket:
             for name in detect_competitor_mentions(s.text, competitors):
                 counts[name] += 1
+        return counts
+
+    def _citation_counts(bucket: list[ProjectionSample]) -> dict[str, int]:
+        counts = {name: 0 for name in competitors}
+        for s in bucket:
+            for c in s.citations:
+                domain = _registered_domain((c.domain or host_from_url(c.url)).lower())
+                for name, aliases in competitors.items():
+                    if _competitor_domain_match(domain, aliases or [name]):
+                        counts[name] += 1
         return counts
 
     def _brand_mentions(bucket: list[ProjectionSample]) -> int:
@@ -288,7 +342,8 @@ def build_competitor_rows(rows: list[ProjectionSample], *, brand_aliases: list[s
 
     def _emit(bucket: list[ProjectionSample], scope_type: str, provider: str | None) -> None:
         total = len(bucket)
-        comp_counts = _rows_for(bucket)
+        comp_counts = _mention_counts(bucket)
+        cite_counts = _citation_counts(bucket)
         brand = _brand_mentions(bucket)
         denom = brand + sum(comp_counts.values())
         for name, count in comp_counts.items():
@@ -299,7 +354,7 @@ def build_competitor_rows(rows: list[ProjectionSample], *, brand_aliases: list[s
                     competitor_name=name, scope_type=scope_type, provider=provider, journey_stage=None,
                     mention_count=count, mention_rate=round(count / total, 5) if total else 0.0,
                     mention_rate_ci_lower_95=round(lo, 5), mention_rate_ci_upper_95=round(hi, 5),
-                    share_of_voice=round(sov, 5), citation_count=0,
+                    share_of_voice=round(sov, 5), citation_count=cite_counts.get(name, 0),
                 )
             )
 
@@ -404,6 +459,43 @@ def build_action_plan(metric_rows: list[MetricRow], citation_rows: list[Citation
                 competing_sources=[{"domain": domain, "source_class": entry["source_class"], "count": entry["count"]}],
                 competing_competitors=[],
                 evidence={"citation_count": entry["count"], "providers": sorted(entry["providers"])},
+            )
+        )
+
+    # 3. Competitor pressure: competitors with material share of voice in the
+    #    overall scope where the brand is being out-mentioned.
+    brand_overall = next((m for m in metric_rows if m.scope_type == SCOPE_OVERALL), None)
+    brand_mention_rate = brand_overall.mention_rate if brand_overall else 0.0
+    for cr in sorted(
+        (c for c in competitor_rows if c.scope_type == SCOPE_OVERALL and c.mention_rate > 0),
+        key=lambda c: c.share_of_voice,
+        reverse=True,
+    ):
+        if cr.mention_rate < brand_mention_rate and cr.share_of_voice < 0.15:
+            continue
+        actions.append(
+            ActionRow(
+                action_key=f"competitor:{cr.competitor_name}",
+                title=f"Close the gap with {cr.competitor_name}",
+                description=(
+                    f"{cr.competitor_name} holds {cr.share_of_voice:.0%} share of voice "
+                    f"(mentioned in {cr.mention_count} answers) vs {brand_name} at "
+                    f"{brand_mention_rate:.0%}."
+                ),
+                priority="high" if cr.share_of_voice >= 0.3 else "medium",
+                category="competitor_pressure",
+                effort="high",
+                impact_estimate=round(cr.share_of_voice * 20, 2),
+                score=round(cr.share_of_voice * 10, 4),
+                sort_order=0,
+                action_role="competitive_evidence",
+                target_provider=None,
+                target_journey_stage=None,
+                target_questions=[],
+                competing_sources=[],
+                competing_competitors=[cr.competitor_name],
+                evidence={"share_of_voice": cr.share_of_voice, "mention_count": cr.mention_count,
+                          "citation_count": cr.citation_count},
             )
         )
 

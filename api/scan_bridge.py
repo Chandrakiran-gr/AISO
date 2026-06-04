@@ -52,6 +52,19 @@ class ScanBridgeError(RuntimeError):
     """Raised when a Phase 13 manifest cannot be built from the request."""
 
 
+_PROFILE_SIGNAL_FIELDS = (
+    "brand_name", "name", "category", "offerings", "services", "products",
+    "product_categories", "service_offerings", "industry", "description",
+)
+
+
+def _profile_has_signal(profile: dict | None) -> bool:
+    """True if the profile carries enough to generate meaningful questions."""
+    if not profile:
+        return False
+    return any(str(profile.get(field) or "").strip() for field in _PROFILE_SIGNAL_FIELDS)
+
+
 def _canonical_question_id(client_id: str, text_hash: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"aiso-question:{client_id}:{text_hash}"))
 
@@ -76,6 +89,15 @@ def build_phase13_manifest_from_groups(
 
     rows: list[dict] = []
     template_groups = [g for g in groups if g != MANUAL_GROUP]
+    has_custom = bool(custom_questions)
+    if template_groups and not _profile_has_signal(profile) and not has_custom:
+        # An empty/near-empty profile makes profile_to_question_rows emit generic
+        # placeholder questions ("the business local business category"), which
+        # would produce a meaningless scan. Refuse rather than scan on junk.
+        raise ScanBridgeError(
+            "Business profile is too sparse to generate questions. Complete the "
+            "profile (brand, category/offerings) or provide custom questions."
+        )
     if template_groups:
         rows.extend(profile_to_question_rows(profile or {}, selected_groups=template_groups))
     for question in custom_questions or []:

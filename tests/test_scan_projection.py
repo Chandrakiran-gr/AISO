@@ -15,6 +15,7 @@ from api.domain.scan_projection import (
     build_competitor_rows,
     build_metric_rows,
     detect_competitor_mentions,
+    effective_owned_domains,
 )
 
 
@@ -99,6 +100,28 @@ class ScanProjectionTests(unittest.TestCase):
         # g2.com cited twice (not owned) -> a source opportunity action exists
         source_actions = [a for a in actions if a.category == "source_opportunity"]
         self.assertTrue(any("g2.com" in a.action_key for a in source_actions))
+
+    def test_action_plan_includes_competitor_pressure(self):
+        metrics = build_metric_rows(self.rows, brand_aliases=["Acme CRM", "Acme"], owned_domains=["acme.com"])
+        cites = build_citation_rows(self.rows, owned_domains=["acme.com"], competitor_domains=[])
+        comps = build_competitor_rows(self.rows, brand_aliases=["Acme CRM", "Acme"],
+                                      competitors={"Salesforce": ["Salesforce"]})
+        actions = build_action_plan(metrics, cites, comps, brand_name="Acme CRM", limit=20)
+        pressure = [a for a in actions if a.category == "competitor_pressure"]
+        self.assertTrue(pressure)
+        self.assertEqual(pressure[0].competing_competitors, ["Salesforce"])
+
+    def test_effective_owned_domains_falls_back_to_url(self):
+        # configured wins, normalized to eTLD+1
+        self.assertEqual(
+            effective_owned_domains("https://acme.com", ["https://shop.acme.com/path"]),
+            ["acme.com"],
+        )
+        # empty configured -> derive from client url
+        self.assertEqual(effective_owned_domains("https://acme.com/about", []), ["acme.com"])
+        self.assertEqual(effective_owned_domains("https://acme.com/about", None), ["acme.com"])
+        # nothing available
+        self.assertEqual(effective_owned_domains(None, []), [])
 
 
 if __name__ == "__main__":

@@ -145,6 +145,7 @@ class ScanResponse(BaseModel):
     completed_at:      Optional[datetime] = None
     created_at:        datetime
     error:             Optional[str] = None
+    notice:            Optional[str] = None  # non-fatal advisory (e.g. BYOK ignored)
 
     class Config:
         from_attributes = True
@@ -658,6 +659,7 @@ async def start_scan(
             groups=payload.groups,
             custom_questions=payload.custom_questions,
             context_profile=context_profile,
+            byok_submitted=bool(payload.byok_keys),
         )
 
     scan = Scan(
@@ -697,6 +699,7 @@ async def _start_phase13_scan(
     groups: list[str],
     custom_questions: list[str],
     context_profile: Optional[dict],
+    byok_submitted: bool = False,
 ) -> dict:
     """Kick off a scan on the Phase 13 engine.
 
@@ -751,6 +754,12 @@ async def _start_phase13_scan(
         db.rollback()
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+    notice = (
+        "BYOK keys are not used for Phase 13 scans; this scan runs on "
+        "server-managed provider keys."
+        if byok_submitted
+        else None
+    )
     projection = next(
         (
             item
@@ -760,7 +769,7 @@ async def _start_phase13_scan(
         None,
     )
     if projection is not None:
-        return projection
+        return {**projection, "notice": notice}
     return {
         "id": scan_id,
         "client_id": client_id,
@@ -772,6 +781,7 @@ async def _start_phase13_scan(
         "completed_at": None,
         "created_at": datetime.now(timezone.utc),
         "error": None,
+        "notice": notice,
     }
 
 
