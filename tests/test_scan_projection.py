@@ -15,7 +15,6 @@ from api.domain.scan_projection import (
     build_competitor_rows,
     build_metric_rows,
     detect_competitor_mentions,
-    effective_owned_domains,
 )
 
 
@@ -112,15 +111,15 @@ class ScanProjectionTests(unittest.TestCase):
         self.assertEqual(pressure[0].competing_competitors, ["Salesforce"])
 
     def test_effective_owned_domains_falls_back_to_url(self):
-        # configured wins, normalized to eTLD+1
+        # effective_owned_domains lives in the adapter (eTLD+1 resolution layer)
+        from api.adapters.scan_projection import effective_owned_domains
+
         self.assertEqual(
             effective_owned_domains("https://acme.com", ["https://shop.acme.com/path"]),
             ["acme.com"],
         )
-        # empty configured -> derive from client url
         self.assertEqual(effective_owned_domains("https://acme.com/about", []), ["acme.com"])
         self.assertEqual(effective_owned_domains("https://acme.com/about", None), ["acme.com"])
-        # nothing available
         self.assertEqual(effective_owned_domains(None, []), [])
 
 

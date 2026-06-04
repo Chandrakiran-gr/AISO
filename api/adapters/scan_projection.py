@@ -32,7 +32,8 @@ from api.database import (
     ScanQuestionResult,
     ScanRun,
 )
-from api.domain.classifier import citation_urls, host_from_url, registered_domain
+from api.adapters.classifier import _registered_domain
+from api.domain.classifier import citation_urls, host_from_url
 from api.domain.scan_projection import (
     CitationFact,
     ProjectionSample,
@@ -41,8 +42,26 @@ from api.domain.scan_projection import (
     build_competitor_rows,
     build_metric_rows,
     build_question_results,
-    effective_owned_domains,
 )
+
+
+def effective_owned_domains(client_url: str | None, configured: list[str] | None) -> list[str]:
+    """Owned (brand) eTLD+1 domains for citation matching.
+
+    Resolution lives in the adapter (publicsuffix2 via _registered_domain); falls
+    back to the client's own website domain when owned_domains is unset, so
+    citation_rate isn't always zero for clients that never set it explicitly.
+    """
+    domains: set[str] = set()
+    for value in configured or []:
+        reg = _registered_domain(host_from_url(str(value)))
+        if reg:
+            domains.add(reg)
+    if not domains and client_url:
+        reg = _registered_domain(host_from_url(str(client_url)))
+        if reg:
+            domains.add(reg)
+    return sorted(domains)
 
 _PROJECTION_MODELS = (ScanMetric, ScanCitationP13, ScanCompetitor, ScanAction, ScanQuestionResult)
 
@@ -79,7 +98,10 @@ def materialize_dashboard_projection(db: Session, *, scan_run_id: str, actor_id:
 
     brand_aliases = [client.name]
     owned = effective_owned_domains(client.url, list(client.owned_domains or []))
-    competitor_domains = list(client.competitor_domains or [])
+    competitor_domains = sorted({
+        reg for d in (client.competitor_domains or [])
+        if (reg := _registered_domain(host_from_url(str(d))))
+    })
     competitors = {name: [name] for name in _competitor_names(client)}
 
     metric_rows = build_metric_rows(rows, brand_aliases=brand_aliases, owned_domains=owned)
@@ -174,7 +196,7 @@ def _build_projection_samples(db: Session, *, scan_run_id: str, client_id: str) 
         elif cls.classifier_type == "source":
             domain_map: dict[str, tuple[str, float | None]] = {}
             for judgment in cls.individual_judgments or []:
-                dom = registered_domain(host_from_url(str(judgment.get("domain") or "")))
+                dom = _registered_domain(host_from_url(str(judgment.get("domain") or "")))
                 if dom:
                     conf = judgment.get("confidence")
                     domain_map[dom] = (str(judgment.get("source_class") or "UNKNOWN"),
@@ -202,7 +224,7 @@ def _build_projection_samples(db: Session, *, scan_run_id: str, client_id: str) 
         source_map = source_domains_by_sample.get(s.id, {})
         citations: list[CitationFact] = []
         for url in citation_urls(s.raw_response_text or "", raw_metadata=raw_meta):
-            dom = registered_domain(host_from_url(url))
+            dom = _registered_domain(host_from_url(url))
             src_class, src_conf = source_map.get(dom, (None, None))
             citations.append(CitationFact(url=url, domain=dom, source_class=src_class, source_confidence=src_conf))
 

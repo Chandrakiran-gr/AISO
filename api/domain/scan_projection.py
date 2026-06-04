@@ -24,7 +24,12 @@ from api.domain.avs import (
     normalized_aliases,
     wilson_interval,
 )
-from api.domain.classifier import host_from_url, registered_domain as _registered_domain
+from api.domain.classifier import host_from_url
+
+# Domains reaching the builders are already resolved to eTLD+1 by the adapter
+# layer (which may use publicsuffix2). The pure builders only normalize case and
+# compare — they do not resolve, so the domain layer stays free of third-party
+# libraries. host_from_url is a stdlib (urlparse) fallback when a domain is absent.
 
 # source_class → action_role. Replaces the legacy static domain allowlist; the
 # class itself comes from the (LLM-backed, cached) source classifier.
@@ -164,24 +169,6 @@ def action_role_for_source_class(source_class: str | None) -> str:
     return _ACTION_ROLE_BY_SOURCE_CLASS.get((source_class or "UNKNOWN").upper(), "review_needed")
 
 
-def effective_owned_domains(client_url: str | None, configured: list[str] | None) -> list[str]:
-    """Owned (brand) domains for citation matching.
-
-    Falls back to the client's own website domain when ``owned_domains`` is not
-    configured — otherwise ``citation_rate`` (a headline metric) would always be
-    zero for the many clients that never set owned_domains explicitly.
-    Returns eTLD+1 (registered) domains.
-    """
-    domains: set[str] = set()
-    for value in configured or []:
-        registered = _registered_domain(host_from_url(str(value)))
-        if registered:
-            domains.add(registered)
-    if not domains and client_url:
-        registered = _registered_domain(host_from_url(str(client_url)))
-        if registered:
-            domains.add(registered)
-    return sorted(domains)
 
 
 def _avs_samples(rows: list[ProjectionSample]) -> dict[tuple[str, str], list[AVSSample]]:
@@ -233,15 +220,13 @@ def _metric_row_with_citations(rows: list[ProjectionSample], aliases: list[str],
     positions: list[float] = []
     mention_count = 0
     citation_count = 0
-    owned = {_registered_domain(d.lower()) for d in owned_domains if d}
+    owned = {d.lower() for d in owned_domains if d}
     for s in rows:
         pos = first_mention_position(s.text, aliases)
         if pos is not None:
             mention_count += 1
             positions.append(float(pos[0]))
-        if owned and any(
-            c.domain and _registered_domain(c.domain.lower()) in owned for c in s.citations
-        ):
+        if owned and any(c.domain and c.domain.lower() in owned for c in s.citations):
             citation_count += 1
 
     mention_rate = mention_count / total_samples if total_samples else 0.0
@@ -266,15 +251,14 @@ def _metric_row_with_citations(rows: list[ProjectionSample], aliases: list[str],
 
 def build_citation_rows(rows: list[ProjectionSample], *, owned_domains: list[str],
                         competitor_domains: list[str]) -> list[CitationRow]:
-    owned = {_registered_domain(d.lower()) for d in owned_domains if d}
-    competitor = {_registered_domain(d.lower()) for d in competitor_domains if d}
+    owned = {d.lower() for d in owned_domains if d}
+    competitor = {d.lower() for d in competitor_domains if d}
     out: list[CitationRow] = []
     for s in rows:
         for c in s.citations:
-            domain = (c.domain or host_from_url(c.url)).lower()
-            registered = _registered_domain(domain)
-            # Match on the registered (eTLD+1) domain so subdomains like
-            # blog.acme.com count as the owned/competitor brand.
+            # c.domain is already eTLD+1 (resolved by the adapter); owned and
+            # competitor sets are eTLD+1 too, so equality matches subdomains.
+            registered = (c.domain or host_from_url(c.url)).lower()
             is_brand = bool(registered) and registered in owned
             is_competitor = bool(registered) and registered in competitor
             out.append(
@@ -284,7 +268,7 @@ def build_citation_rows(rows: list[ProjectionSample], *, owned_domains: list[str
                     question_id=s.question_id,
                     journey_stage=s.journey_stage,
                     citation_url=c.url,
-                    source_domain=domain,
+                    source_domain=registered,
                     registered_domain=registered,
                     source_rank=c.source_rank,
                     source_class=c.source_class,
@@ -347,7 +331,7 @@ def build_competitor_rows(rows: list[ProjectionSample], *, brand_aliases: list[s
         counts = {name: 0 for name in competitors}
         for s in bucket:
             for c in s.citations:
-                domain = _registered_domain((c.domain or host_from_url(c.url)).lower())
+                domain = (c.domain or host_from_url(c.url)).lower()
                 for name, aliases in competitors.items():
                     if _competitor_domain_match(domain, aliases or [name]):
                         counts[name] += 1
@@ -386,7 +370,7 @@ def build_question_results(rows: list[ProjectionSample], *, brand_aliases: list[
                            competitors: dict[str, list[str]], owned_domains: list[str]) -> list[QuestionResultRow]:
     """Per-(question, provider) appeared/cited-sources rows (the 'Missed Questions' view)."""
     aliases = normalized_aliases(brand_aliases)
-    owned = {_registered_domain(d.lower()) for d in owned_domains if d}
+    owned = {d.lower() for d in owned_domains if d}
     by_pair: dict[tuple[str, str], list[ProjectionSample]] = {}
     for s in rows:
         by_pair.setdefault((s.question_id, s.provider), []).append(s)
@@ -408,7 +392,7 @@ def build_question_results(rows: list[ProjectionSample], *, brand_aliases: list[
                 if c.url in seen_urls:
                     continue
                 seen_urls.add(c.url)
-                reg = _registered_domain((c.domain or host_from_url(c.url)).lower())
+                reg = (c.domain or host_from_url(c.url)).lower()
                 cited.append({
                     "url": c.url, "domain": reg, "source_class": c.source_class,
                     "action_role": action_role_for_source_class(c.source_class), "is_brand": reg in owned,

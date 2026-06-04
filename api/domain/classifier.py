@@ -288,24 +288,6 @@ def host_from_url(url: str) -> str:
     return host
 
 
-def registered_domain(host: str) -> str:
-    """eTLD+1 of a host (e.g. ``blog.acme.co.uk`` -> ``acme.co.uk``).
-
-    Uses publicsuffix2 when available; falls back to the last two labels.
-    """
-    if not host:
-        return ""
-    try:
-        from publicsuffix2 import get_sld
-
-        return (get_sld(host) or host).lower()
-    except Exception:
-        parts = host.lower().strip(".").split(".")
-        if len(parts) <= 2:
-            return host.lower().strip(".")
-        return ".".join(parts[-2:])
-
-
 def source_judgment_payload(judgments: list[SourceDomainJudgment]) -> list[dict[str, Any]]:
     return [
         {
