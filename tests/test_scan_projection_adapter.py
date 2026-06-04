@@ -120,6 +120,29 @@ class MaterializationAdapterTests(unittest.TestCase):
         # at least one action
         self.assertGreater(self.db.query(ScanAction).filter_by(scan_id=self.SCAN_ID).count(), 0)
 
+    def test_phase13_actions_reader_shape(self):
+        from api.adapters.scan_projection_read import latest_phase13_scan_id, phase13_actions
+
+        materialize_dashboard_projection(self.db, scan_run_id=self.SCAN_ID)
+        # mark run published so the "latest" resolver finds it
+        run = self.db.query(ScanRun).filter_by(id=self.SCAN_ID).one()
+        run.status = "succeeded"
+        run.finished_at = datetime.now(timezone.utc)
+        self.db.commit()
+
+        self.assertEqual(latest_phase13_scan_id(self.db, client_id="client-1"), self.SCAN_ID)
+
+        actions = phase13_actions(self.db, client_id="client-1", scan_id=None, status=None)
+        self.assertTrue(actions)
+        a = actions[0]
+        # legacy ActionResponse shape keys present
+        for key in ("id", "client_id", "scan_id", "title", "priority", "impact_pts",
+                    "score", "sort_order", "status", "created_at", "target_questions_json"):
+            self.assertIn(key, a)
+        self.assertEqual(a["scan_id"], self.SCAN_ID)
+        # impact_pts is the legacy display string
+        self.assertTrue(a["impact_pts"] is None or a["impact_pts"].endswith("pts"))
+
     def test_materialization_is_idempotent(self):
         first = materialize_dashboard_projection(self.db, scan_run_id=self.SCAN_ID)
         self.db.commit()
