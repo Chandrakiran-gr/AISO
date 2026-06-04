@@ -143,6 +143,42 @@ class MaterializationAdapterTests(unittest.TestCase):
         # impact_pts is the legacy display string
         self.assertTrue(a["impact_pts"] is None or a["impact_pts"].endswith("pts"))
 
+    def test_phase13_gap_report_and_readers(self):
+        from api.adapters.scan_projection_read import (
+            phase13_citations,
+            phase13_gap_report,
+            phase13_sources,
+        )
+
+        materialize_dashboard_projection(self.db, scan_run_id=self.SCAN_ID)
+        self.db.commit()
+        client = self.db.query(Client).filter_by(id="client-1").one()
+
+        report = phase13_gap_report(self.db, client=client, scan_id=self.SCAN_ID)
+        # top-level keys the frontend renders
+        for key in ("summary", "coverage", "weak_segments", "source_opportunities",
+                    "source_intelligence", "competitor_gaps", "priority_fixes", "query_results"):
+            self.assertIn(key, report)
+        self.assertEqual(report["summary"]["appeared_count"], 2)
+        self.assertEqual(report["summary"]["missed_count"], 2)
+
+        # query_results: a missed question carries its cited sources in plain language
+        missed = [q for q in report["query_results"] if not q["appeared"]]
+        self.assertTrue(missed)
+        with_sources = [q for q in missed if q["cited_sources"]]
+        self.assertTrue(with_sources)
+        self.assertIn("source_label", with_sources[0]["cited_sources"][0])
+
+        # source opportunities surfaced (g2.com cited on a missed question)
+        domains = {s["domain"] for s in report["source_opportunities"]}
+        self.assertIn("g2.com", domains)
+
+        # citations + sources readers return rows
+        self.assertTrue(phase13_citations(self.db, client_id="client-1", scan_id=self.SCAN_ID))
+        sources = phase13_sources(self.db, client_id="client-1", scan_id=self.SCAN_ID)
+        self.assertTrue(sources)
+        self.assertIn("canonical_url", sources[0])  # SourceProfileResponse shape
+
     def test_materialization_is_idempotent(self):
         first = materialize_dashboard_projection(self.db, scan_run_id=self.SCAN_ID)
         self.db.commit()

@@ -161,6 +161,32 @@ def upgrade() -> None:
         )
     _create_index("ix_scan_action_scan", "scan_action", ["scan_id"])
 
+    if not _table_exists("scan_question_result"):
+        op.create_table(
+            "scan_question_result",
+            sa.Column("id", sa.String(), primary_key=True),
+            sa.Column("scan_id", sa.String(), nullable=False),
+            sa.Column("client_id", sa.String(), nullable=False),
+            sa.Column("methodology_version_set_id", sa.String(), nullable=True),
+            sa.Column("question_id", sa.String(), nullable=False),
+            sa.Column("question_text", sa.Text(), nullable=True),
+            sa.Column("provider", sa.Text(), nullable=False),
+            sa.Column("journey_stage", sa.Text(), nullable=True),
+            sa.Column("total_samples", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("mention_count", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("appeared", sa.Boolean(), nullable=False, server_default=sa.false()),
+            sa.Column("mention_rank", sa.Integer(), nullable=True),
+            sa.Column("avg_position", sa.Numeric(8, 4), nullable=True),
+            sa.Column("cited_sources_json", _json_type(), nullable=True),
+            sa.Column("competitors_mentioned_json", _json_type(), nullable=True),
+            sa.Column("answer_excerpt", sa.Text(), nullable=True),
+            sa.Column("priority_score", sa.Numeric(6, 2), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+            sa.ForeignKeyConstraint(["scan_id"], ["scan_runs.id"], ondelete="CASCADE"),
+            sa.UniqueConstraint("scan_id", "question_id", "provider", name="uq_scan_question_result"),
+        )
+    _create_index("ix_scan_question_result_scan", "scan_question_result", ["scan_id"])
+
 
 def downgrade() -> None:
     # Phase 13 migrations are forward-only in local adoption tests.

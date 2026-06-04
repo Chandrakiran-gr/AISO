@@ -1472,6 +1472,10 @@ async def get_client_gap_report(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    if is_phase13_engine():
+        from api.adapters.scan_projection_read import phase13_gap_report
+        return phase13_gap_report(db, client=client, scan_id=scan_id)
+
     if scan_id:
         scan = db.query(Scan).filter(
             Scan.id == scan_id,
@@ -1716,6 +1720,10 @@ async def list_scan_citations(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    if is_phase13_engine():
+        from api.adapters.scan_projection_read import phase13_citations
+        return phase13_citations(db, client_id=client_id, scan_id=scan_id)
+
     scan = db.query(Scan).filter(
         Scan.id == scan_id,
         Scan.client_id == client_id,
@@ -1863,6 +1871,11 @@ async def list_client_sources(
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+
+    if is_phase13_engine():
+        from api.adapters.scan_projection_read import phase13_sources
+        return phase13_sources(db, client_id=client_id, scan_id=scan_id, action_role=action_role,
+                               min_actionability=min_actionability, limit=limit, offset=offset)
 
     query = db.query(SourceProfile).filter(SourceProfile.client_id == client_id)
     if scan_id:

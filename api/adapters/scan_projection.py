@@ -29,6 +29,7 @@ from api.database import (
     ScanCompetitor,
     ScanManifest,
     ScanMetric,
+    ScanQuestionResult,
     ScanRun,
 )
 from api.domain.classifier import citation_urls, host_from_url, registered_domain
@@ -39,10 +40,11 @@ from api.domain.scan_projection import (
     build_citation_rows,
     build_competitor_rows,
     build_metric_rows,
+    build_question_results,
     effective_owned_domains,
 )
 
-_PROJECTION_MODELS = (ScanMetric, ScanCitationP13, ScanCompetitor, ScanAction)
+_PROJECTION_MODELS = (ScanMetric, ScanCitationP13, ScanCompetitor, ScanAction, ScanQuestionResult)
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,7 @@ class ProjectionResult:
     citation_count: int
     competitor_count: int
     action_count: int
+    question_count: int = 0
 
 
 class ProjectionError(RuntimeError):
@@ -82,6 +85,8 @@ def materialize_dashboard_projection(db: Session, *, scan_run_id: str, actor_id:
     metric_rows = build_metric_rows(rows, brand_aliases=brand_aliases, owned_domains=owned)
     citation_rows = build_citation_rows(rows, owned_domains=owned, competitor_domains=competitor_domains)
     competitor_rows = build_competitor_rows(rows, brand_aliases=brand_aliases, competitors=competitors)
+    question_rows = build_question_results(rows, brand_aliases=brand_aliases, competitors=competitors,
+                                           owned_domains=owned)
     action_rows = build_action_plan(metric_rows, citation_rows, competitor_rows, brand_name=client.name)
 
     mvs = run.methodology_version_set_id
@@ -126,8 +131,19 @@ def materialize_dashboard_projection(db: Session, *, scan_run_id: str, actor_id:
             evidence_json=a.evidence, status="open",
         ))
 
+    for qr in question_rows:
+        db.add(ScanQuestionResult(
+            id=str(uuid.uuid4()), scan_id=scan_run_id, client_id=client.id, methodology_version_set_id=mvs,
+            question_id=qr.question_id, question_text=qr.question_text, provider=qr.provider,
+            journey_stage=qr.journey_stage, total_samples=qr.total_samples, mention_count=qr.mention_count,
+            appeared=qr.appeared, mention_rank=qr.mention_rank, avg_position=qr.avg_position,
+            cited_sources_json=qr.cited_sources, competitors_mentioned_json=qr.competitors_mentioned,
+            answer_excerpt=qr.answer_excerpt, priority_score=qr.priority_score,
+        ))
+
     db.flush()
-    return ProjectionResult(len(metric_rows), len(citation_rows), len(competitor_rows), len(action_rows))
+    return ProjectionResult(len(metric_rows), len(citation_rows), len(competitor_rows),
+                            len(action_rows), len(question_rows))
 
 
 def _build_projection_samples(db: Session, *, scan_run_id: str, client_id: str) -> list[ProjectionSample]:
@@ -143,6 +159,7 @@ def _build_projection_samples(db: Session, *, scan_run_id: str, client_id: str) 
         .all()
     )
     journey_by_q = {m.question_id: (q.journey_stage, float(m.weight_at_scan)) for m, q in manifest_rows}
+    text_by_q = {q.question_id: (q.text or "") for _m, q in manifest_rows}
 
     sample_ids = [s.id for s in samples]
     stance_by_sample: dict[str, tuple[str, float]] = {}
@@ -193,6 +210,7 @@ def _build_projection_samples(db: Session, *, scan_run_id: str, client_id: str) 
             sample_id=s.id, question_id=s.question_id, provider=s.provider, journey_stage=journey,
             text=s.raw_response_text or "", stance_label=stance, stance_confidence=stance_conf,
             question_weight=weight, web_search_used=web_search_used, citations=citations,
+            question_text=text_by_q.get(s.question_id, ""),
         ))
     return out
 

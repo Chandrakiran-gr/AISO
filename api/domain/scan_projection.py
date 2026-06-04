@@ -66,6 +66,7 @@ class ProjectionSample:
     question_weight: float = 1.0
     web_search_used: bool | None = None
     citations: list[CitationFact] = field(default_factory=list)
+    question_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,23 @@ class CompetitorRow:
     mention_rate_ci_upper_95: float
     share_of_voice: float
     citation_count: int
+
+
+@dataclass(frozen=True)
+class QuestionResultRow:
+    question_id: str
+    question_text: str
+    provider: str
+    journey_stage: str
+    total_samples: int
+    mention_count: int
+    appeared: bool
+    mention_rank: int | None
+    avg_position: float | None
+    cited_sources: list[dict]
+    competitors_mentioned: list[str]
+    answer_excerpt: str | None
+    priority_score: float
 
 
 @dataclass(frozen=True)
@@ -361,6 +379,50 @@ def build_competitor_rows(rows: list[ProjectionSample], *, brand_aliases: list[s
     _emit(rows, SCOPE_OVERALL, None)
     for provider in sorted({s.provider for s in rows}):
         _emit([s for s in rows if s.provider == provider], SCOPE_PROVIDER, provider)
+    return out
+
+
+def build_question_results(rows: list[ProjectionSample], *, brand_aliases: list[str],
+                           competitors: dict[str, list[str]], owned_domains: list[str]) -> list[QuestionResultRow]:
+    """Per-(question, provider) appeared/cited-sources rows (the 'Missed Questions' view)."""
+    aliases = normalized_aliases(brand_aliases)
+    owned = {_registered_domain(d.lower()) for d in owned_domains if d}
+    by_pair: dict[tuple[str, str], list[ProjectionSample]] = {}
+    for s in rows:
+        by_pair.setdefault((s.question_id, s.provider), []).append(s)
+
+    out: list[QuestionResultRow] = []
+    for (qid, provider), bucket in by_pair.items():
+        positions: list[float] = []
+        mention_count = 0
+        comp_mentions: set[str] = set()
+        seen_urls: set[str] = set()
+        cited: list[dict] = []
+        for s in bucket:
+            pos = first_mention_position(s.text, aliases)
+            if pos is not None:
+                mention_count += 1
+                positions.append(float(pos[0]))
+            comp_mentions |= detect_competitor_mentions(s.text, competitors)
+            for c in s.citations:
+                if c.url in seen_urls:
+                    continue
+                seen_urls.add(c.url)
+                reg = _registered_domain((c.domain or host_from_url(c.url)).lower())
+                cited.append({
+                    "url": c.url, "domain": reg, "source_class": c.source_class,
+                    "action_role": action_role_for_source_class(c.source_class), "is_brand": reg in owned,
+                })
+        appeared = mention_count > 0
+        out.append(QuestionResultRow(
+            question_id=qid, question_text=(bucket[0].question_text or ""), provider=provider,
+            journey_stage=bucket[0].journey_stage, total_samples=len(bucket), mention_count=mention_count,
+            appeared=appeared, mention_rank=(1 if appeared else None),
+            avg_position=(round(sum(positions) / len(positions), 4) if positions else None),
+            cited_sources=cited, competitors_mentioned=sorted(comp_mentions),
+            answer_excerpt=((bucket[0].text or "")[:280] or None),
+            priority_score=round(min(6.0 + (0.0 if appeared else 1.5), 10.0), 2),
+        ))
     return out
 
 

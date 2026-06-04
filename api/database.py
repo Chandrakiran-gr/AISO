@@ -591,6 +591,38 @@ class ScanAction(Base):
     created_at                 = Column(DateTime, nullable=False, default=_utcnow)
 
 
+class ScanQuestionResult(Base):
+    """Phase 13 dashboard projection: per-(question, provider) appearance + sources.
+
+    Backs the 'Missed Questions' view. Materialized at publish so dashboard reads
+    are fast and tied to the signed scan, rather than recomputed from raw samples.
+    """
+    __tablename__ = "scan_question_result"
+    __table_args__ = (
+        UniqueConstraint("scan_id", "question_id", "provider", name="uq_scan_question_result"),
+        Index("ix_scan_question_result_scan", "scan_id"),
+    )
+
+    id                         = Column(String, primary_key=True)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
+    question_id                = Column(String, nullable=False)
+    question_text              = Column(Text, nullable=True)
+    provider                   = Column(Text, nullable=False)
+    journey_stage              = Column(Text, nullable=True)
+    total_samples              = Column(Integer, nullable=False, default=0)
+    mention_count              = Column(Integer, nullable=False, default=0)
+    appeared                   = Column(Boolean, nullable=False, default=False)
+    mention_rank               = Column(Integer, nullable=True)
+    avg_position               = Column(Numeric(8, 4), nullable=True)
+    cited_sources_json         = Column(_json_type(), nullable=True)
+    competitors_mentioned_json = Column(_json_type(), nullable=True)
+    answer_excerpt             = Column(Text, nullable=True)
+    priority_score             = Column(Numeric(6, 2), nullable=True)
+    created_at                 = Column(DateTime, nullable=False, default=_utcnow)
+
+
 class AuditEvent(Base):
     """Insert-only hash-chained audit event."""
     __tablename__ = "audit_event"
