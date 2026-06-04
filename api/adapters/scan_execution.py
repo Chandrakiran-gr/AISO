@@ -341,7 +341,14 @@ def default_scan_executor() -> ScanExecutor:
     return _DEFAULT_SCAN_EXECUTOR
 
 
-def create_procrastinate_scan_executor() -> ProcrastinateScanExecutor:
+def build_procrastinate_app() -> tuple[Any, Any]:
+    """Construct the Procrastinate app and register the orchestrator task.
+
+    Shared by the API-side executor (which defers jobs) and the worker
+    entrypoint (`api/worker.py`, which consumes them). Both connect to the
+    same PostgreSQL queue and register the task under the same name/queue so
+    a deferred job is picked up by the worker.
+    """
     try:
         import procrastinate
     except ImportError as exc:
@@ -350,6 +357,13 @@ def create_procrastinate_scan_executor() -> ProcrastinateScanExecutor:
     connector = procrastinate.PsycopgConnector(conninfo=_procrastinate_database_url())
     app = procrastinate.App(connector=connector)
     task = app.task(name="scan_orchestrator_task", queue="scan_orchestrator")(scan_orchestrator_task)
+    return app, task
+
+
+def create_procrastinate_scan_executor() -> ProcrastinateScanExecutor:
+    import procrastinate
+
+    app, task = build_procrastinate_app()
     already_enqueued_exception = getattr(
         getattr(procrastinate, "exceptions", object()),
         "AlreadyEnqueued",
