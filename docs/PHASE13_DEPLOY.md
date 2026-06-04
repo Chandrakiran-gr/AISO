@@ -86,6 +86,21 @@ branch is being retired in Step 5).
 
 ---
 
+## 5b. (Optional) Backfill the dashboard projection for old scans
+
+New scans materialize the dashboard projection automatically. To populate it for
+scans published before this rollout (so their gap-report/actions show up under
+`phase13`):
+
+```bash
+python scripts/backfill_phase13_projection.py --dry-run   # preview
+python scripts/backfill_phase13_projection.py             # materialize missing
+```
+
+Run with the prod `DATABASE_URL` exported (e.g. `railway run`).
+
+---
+
 ## 6. Retire the `production` branch (after Steps 1–5 verified)
 
 Nothing references `production` anymore (Render config removed; Railway deploys
