@@ -130,6 +130,19 @@ class Phase13EndpointTests(unittest.TestCase):
         self.assertTrue(citations)
         self.assertIn("citation_url", citations[0])
 
+    def test_phase13_flag_falls_back_to_legacy_when_no_phase13_data(self):
+        # A client with no Phase 13 scan must NOT be served an empty phase13
+        # report under the flag — it falls back to legacy (which 404s here as
+        # there's no legacy scan either), proving existing users aren't blanked.
+        from fastapi import HTTPException
+
+        self.db.add(Client(id="client-2", user_id="user-1", name="Legacy Co", url="https://legacy.example",
+                           cost_budget_default_usd=Decimal("5.00")))
+        self.db.commit()
+        with mock.patch.dict(os.environ, PHASE13):
+            with self.assertRaises(HTTPException):
+                asyncio.run(get_client_gap_report("client-2", scan_id=None, db=self.db, user_id="user-1"))
+
     def test_legacy_default_does_not_hit_phase13(self):
         # With the default engine (legacy) and no legacy rows, gap-report 404s
         # rather than returning phase13 data — proving the branch is flag-gated.
