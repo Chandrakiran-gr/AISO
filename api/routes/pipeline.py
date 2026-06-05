@@ -1473,8 +1473,10 @@ async def get_client_gap_report(
         raise HTTPException(status_code=404, detail="Client not found")
 
     if is_phase13_engine():
-        from api.adapters.scan_projection_read import phase13_gap_report
-        return phase13_gap_report(db, client=client, scan_id=scan_id)
+        from api.adapters.scan_projection_read import phase13_gap_report, phase13_scan_available
+        if phase13_scan_available(db, client_id=client_id, scan_id=scan_id):
+            return phase13_gap_report(db, client=client, scan_id=scan_id)
+        # No Phase 13 scan for this client/scan yet — fall back to legacy below.
 
     if scan_id:
         scan = db.query(Scan).filter(
@@ -1721,8 +1723,10 @@ async def list_scan_citations(
         raise HTTPException(status_code=404, detail="Client not found")
 
     if is_phase13_engine():
-        from api.adapters.scan_projection_read import phase13_citations
-        return phase13_citations(db, client_id=client_id, scan_id=scan_id)
+        from api.adapters.scan_projection_read import phase13_citations, phase13_scan_available
+        if phase13_scan_available(db, client_id=client_id, scan_id=scan_id):
+            return phase13_citations(db, client_id=client_id, scan_id=scan_id)
+        # Legacy scan id (or no Phase 13 data) — fall back to legacy below.
 
     scan = db.query(Scan).filter(
         Scan.id == scan_id,
@@ -1873,9 +1877,11 @@ async def list_client_sources(
         raise HTTPException(status_code=404, detail="Client not found")
 
     if is_phase13_engine():
-        from api.adapters.scan_projection_read import phase13_sources
-        return phase13_sources(db, client_id=client_id, scan_id=scan_id, action_role=action_role,
-                               min_actionability=min_actionability, limit=limit, offset=offset)
+        from api.adapters.scan_projection_read import phase13_scan_available, phase13_sources
+        if phase13_scan_available(db, client_id=client_id, scan_id=scan_id):
+            return phase13_sources(db, client_id=client_id, scan_id=scan_id, action_role=action_role,
+                                   min_actionability=min_actionability, limit=limit, offset=offset)
+        # No Phase 13 data for this client — fall back to legacy below.
 
     query = db.query(SourceProfile).filter(SourceProfile.client_id == client_id)
     if scan_id:

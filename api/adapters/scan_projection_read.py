@@ -80,6 +80,22 @@ def _plain_source_label(source_class: str | None) -> str:
     return _PLAIN_SOURCE_LABEL.get((source_class or "UNKNOWN").upper(), "Other website")
 
 
+def phase13_scan_available(db: Session, *, client_id: str, scan_id: str | None = None) -> bool:
+    """True if there is a published Phase 13 scan to serve for this request.
+
+    Lets the dashboard endpoints fall back to the legacy path for clients (or
+    specific scans) that have no Phase 13 data yet — so flipping the engine flag
+    never blanks an existing user's dashboard.
+    """
+    query = db.query(ScanRun.id).filter(
+        ScanRun.client_id == client_id,
+        ScanRun.status.in_(("succeeded", "partial")),
+    )
+    if scan_id:
+        query = query.filter(ScanRun.id == scan_id)
+    return db.query(query.exists()).scalar()
+
+
 def latest_phase13_scan_id(db: Session, *, client_id: str) -> str | None:
     """Most recent published (succeeded/partial) Phase 13 scan for the client."""
     row = (
