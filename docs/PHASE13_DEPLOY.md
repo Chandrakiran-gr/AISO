@@ -17,13 +17,16 @@ The frontend (Vercel) needs no change for Phase 0.
 Against the **production Postgres** `DATABASE_URL`:
 
 ```bash
-alembic upgrade head
-procrastinate --app api.worker:app schema --apply   # idempotent; creates procrastinate_* tables
+railway run alembic upgrade head
+railway run procrastinate --app api.worker:app schema --apply   # idempotent; creates procrastinate_* tables
 ```
 
-If the API service uses the `Procfile`, the `release:` line runs both automatically
-on each deploy. Otherwise run them once with the prod `DATABASE_URL` exported
-(e.g. `railway run alembic upgrade head` from the linked project).
+> ⚠️ Run these at **deploy time, not build time** — they need a live Postgres
+> connection. Do **not** put them in a Nixpacks `Procfile` `release:` line: Railway
+> runs that during the image build (no `DATABASE_URL`), which fails the build.
+> Use `railway run …` (above) against the linked project, or a Railway
+> **pre-deploy command** on the service (Settings → Deploy → Pre-deploy Command),
+> which runs in the deploy environment with env vars present.
 
 ---
 
