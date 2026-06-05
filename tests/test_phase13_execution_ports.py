@@ -135,6 +135,10 @@ def _record_import_violation(
         return
     if imported_module in ALLOWED_DOMAIN_IMPORTS:
         return
+    # Pure domain modules may compose other pure domain modules (domain services
+    # building on value objects). Still forbids adapters/routes/database/infra.
+    if imported_module.startswith("api.domain."):
+        return
     if imported_module.startswith("api."):
         violations.append(f"{path.name}: {imported_module}")
         return

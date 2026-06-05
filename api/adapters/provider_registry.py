@@ -53,6 +53,12 @@ class WebishProviderAdapter(LLMProvider):
             raw_metadata={
                 "provider_metadata": raw_metadata,
                 "usage_metadata": usage,
+                # Structured citation/source URLs are first-class evidence for the
+                # Phase 13 dashboard projection (citation-rate, source intelligence).
+                # Forward them so extraction is provider-agnostic and not dependent
+                # on deep-parsing each provider's raw dump.
+                "citations": _to_dict_list(getattr(result, "citations", None)),
+                "search_results": _to_dict_list(getattr(result, "search_results", None)),
                 "web_search_used": getattr(result, "web_search_used", None),
                 "search_queries": list(getattr(result, "search_queries", []) or []),
                 "sampling": {
@@ -83,6 +89,22 @@ def _load_query(module_name: str, function_name: str) -> Callable[[str], Any]:
     if not callable(query):
         raise RuntimeError(f"Provider query is not callable: {module_name}.{function_name}")
     return query
+
+
+def _to_dict_list(items: Any) -> list[dict[str, Any]]:
+    """Serialize a list of citation/search-result dataclasses to plain dicts."""
+    if not items:
+        return []
+    out: list[dict[str, Any]] = []
+    for item in items:
+        to_dict = getattr(item, "to_dict", None)
+        if callable(to_dict):
+            value = to_dict()
+            if isinstance(value, dict):
+                out.append(value)
+        elif isinstance(item, dict):
+            out.append(item)
+    return out
 
 
 def _safe_call(value: Any, method_name: str) -> dict[str, Any]:

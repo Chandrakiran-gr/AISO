@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from api.auth import get_current_user_id
 from api.database import Action, Client, Scan, get_db
+from api.feature_flags import is_phase13_engine
+from api.adapters.scan_projection_read import phase13_actions
 
 router = APIRouter(tags=["actions"])
 
@@ -81,6 +83,9 @@ async def list_actions(
     if clean_status and clean_status not in VALID_STATUSES:
         raise HTTPException(status_code=422, detail="Unsupported action status")
 
+    if is_phase13_engine():
+        return phase13_actions(db, client_id=client_id, scan_id=scan_id, status=clean_status)
+
     selected_scan_id = scan_id
     if not selected_scan_id:
         latest = db.query(Scan.id).filter(
@@ -120,6 +125,22 @@ async def update_action(
 ):
     """Update the lifecycle state for one action item."""
     _ensure_client(db, client_id, user_id)
+
+    if is_phase13_engine():
+        from api.adapters.scan_projection_read import _action_payload
+        from api.database import ScanAction
+
+        scan_action = db.query(ScanAction).filter(
+            ScanAction.id == action_id,
+            ScanAction.client_id == client_id,
+        ).first()
+        if not scan_action:
+            raise HTTPException(status_code=404, detail="Action not found")
+        scan_action.status = payload.status
+        db.commit()
+        db.refresh(scan_action)
+        return _action_payload(scan_action)
+
     action = db.query(Action).filter(
         Action.id == action_id,
         Action.client_id == client_id,

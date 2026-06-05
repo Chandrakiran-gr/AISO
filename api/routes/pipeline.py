@@ -3,7 +3,7 @@ Pipeline router — triggers and monitors AISO pipeline runs.
 Wraps setup2.py → collect.py → analysis1.py → analysis2.py
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
@@ -19,10 +19,19 @@ import csv
 from api.database import get_db, Action, Scan, Client, ClientContext, ScanArtifact, ScanCitation, ScanResult, SourceProfile, User
 from api.auth import get_current_user_id
 from api.adapters.scan_runs import (
+    create_or_replay_scan_run,
+    ScanRunKickoffError,
     phase13_metrics_for_client,
     phase13_timeline_points_for_clients,
     scan_run_list_projections_for_client,
 )
+from api.adapters.scan_execution import (
+    ScanExecutionError,
+    default_scan_executor,
+    ensure_scan_run_enqueued,
+)
+from api.feature_flags import is_phase13_engine
+from api.scan_bridge import ScanBridgeError, build_phase13_manifest_from_groups
 from api.entitlements import entitlements_for_user
 from api.scan_workspace import MANUAL_GROUP, prepare_scan_workspace
 from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
@@ -136,6 +145,7 @@ class ScanResponse(BaseModel):
     completed_at:      Optional[datetime] = None
     created_at:        datetime
     error:             Optional[str] = None
+    notice:            Optional[str] = None  # non-fatal advisory (e.g. BYOK ignored)
 
     class Config:
         from_attributes = True
@@ -612,10 +622,15 @@ async def start_scan(
     client_id: str,
     payload: ScanCreate,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id)
 ):
-    """Trigger a new pipeline scan for a client. Returns immediately; runs in background."""
+    """Trigger a new scan for a client. Returns immediately; runs in background.
+
+    Routes to the Phase 13 saga (default) or the legacy ``run_pipeline`` path
+    based on the ``AISO_SCAN_ENGINE`` flag.
+    """
     # BOLA check — ensure client belongs to user
     client = db.query(Client).filter(
         Client.id == client_id,
@@ -633,6 +648,19 @@ async def start_scan(
     groups_ok, group_message = validate_scan_group_capabilities(payload.groups, competitor_names)
     if not groups_ok:
         raise HTTPException(status_code=400, detail=group_message)
+
+    if is_phase13_engine():
+        return await _start_phase13_scan(
+            request,
+            db,
+            client_id=client_id,
+            user_id=user_id,
+            providers=payload.providers,
+            groups=payload.groups,
+            custom_questions=payload.custom_questions,
+            context_profile=context_profile,
+            byok_submitted=bool(payload.byok_keys),
+        )
 
     scan = Scan(
         id=str(uuid.uuid4()),
@@ -659,6 +687,102 @@ async def start_scan(
     )
 
     return _scan_response(scan)
+
+
+async def _start_phase13_scan(
+    request: Request,
+    db: Session,
+    *,
+    client_id: str,
+    user_id: str,
+    providers: list[str],
+    groups: list[str],
+    custom_questions: list[str],
+    context_profile: Optional[dict],
+    byok_submitted: bool = False,
+) -> dict:
+    """Kick off a scan on the Phase 13 engine.
+
+    Builds a question-bank manifest from the selected groups (the Phase 0
+    bridge), creates the downstream ``ScanRun`` from that manifest, and enqueues
+    the Procrastinate saga. The ``ScanRun`` is the system of record — no legacy
+    ``Scan`` row is written — and its projection drives the dashboard/poll APIs.
+
+    Note: BYOK keys are not propagated to the worker-run saga in Phase 0; Phase
+    13 scans use server-managed provider keys. BYOK support is tracked separately.
+    """
+    scan_id = str(uuid.uuid4())
+    try:
+        build_phase13_manifest_from_groups(
+            db,
+            client_id=client_id,
+            scan_id=scan_id,
+            groups=groups,
+            profile=context_profile,
+            custom_questions=custom_questions,
+        )
+        result = create_or_replay_scan_run(
+            db,
+            client_id=client_id,
+            user_id=user_id,
+            source_scan_id=scan_id,
+            idempotency_key=str(uuid.uuid4()),
+            providers=providers,
+            complete_idempotency_response=False,
+        )
+        db.commit()
+    except ScanBridgeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ScanRunKickoffError as exc:
+        db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    executor = getattr(request.app.state, "scan_executor", None)
+    if executor is None:
+        executor = default_scan_executor()
+        request.app.state.scan_executor = executor
+    try:
+        await ensure_scan_run_enqueued(
+            db,
+            scan_run_id=result.body["scan_run_id"],
+            actor_id=user_id,
+            executor=executor,
+        )
+        db.commit()
+    except ScanExecutionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    notice = (
+        "BYOK keys are not used for Phase 13 scans; this scan runs on "
+        "server-managed provider keys."
+        if byok_submitted
+        else None
+    )
+    projection = next(
+        (
+            item
+            for item in scan_run_list_projections_for_client(db, client_id=client_id)
+            if item["id"] == scan_id
+        ),
+        None,
+    )
+    if projection is not None:
+        return {**projection, "notice": notice}
+    return {
+        "id": scan_id,
+        "client_id": client_id,
+        "status": "pending",
+        "providers": providers,
+        "groups": groups,
+        "skipped_providers": None,
+        "started_at": None,
+        "completed_at": None,
+        "created_at": datetime.now(timezone.utc),
+        "error": None,
+        "notice": notice,
+    }
 
 
 @router.get("/clients/{client_id}/scans", response_model=List[ScanResponse])
@@ -1348,6 +1472,10 @@ async def get_client_gap_report(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    if is_phase13_engine():
+        from api.adapters.scan_projection_read import phase13_gap_report
+        return phase13_gap_report(db, client=client, scan_id=scan_id)
+
     if scan_id:
         scan = db.query(Scan).filter(
             Scan.id == scan_id,
@@ -1592,6 +1720,10 @@ async def list_scan_citations(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    if is_phase13_engine():
+        from api.adapters.scan_projection_read import phase13_citations
+        return phase13_citations(db, client_id=client_id, scan_id=scan_id)
+
     scan = db.query(Scan).filter(
         Scan.id == scan_id,
         Scan.client_id == client_id,
@@ -1739,6 +1871,11 @@ async def list_client_sources(
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+
+    if is_phase13_engine():
+        from api.adapters.scan_projection_read import phase13_sources
+        return phase13_sources(db, client_id=client_id, scan_id=scan_id, action_role=action_role,
+                               min_actionability=min_actionability, limit=limit, offset=offset)
 
     query = db.query(SourceProfile).filter(SourceProfile.client_id == client_id)
     if scan_id:

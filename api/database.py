@@ -453,6 +453,176 @@ class AVSComputation(Base):
     is_primary                 = Column(Boolean, nullable=False, default=True)
 
 
+class ScanMetric(Base):
+    """Phase 13 dashboard projection: scoped visibility metrics with CIs.
+
+    One row per (scan, scope_type, provider?, journey_stage?). scope_type is one
+    of 'overall' | 'provider' | 'journey_stage' | 'provider_journey'. Mention rate
+    and citation rate are tracked separately, each with a 95% Wilson interval.
+    """
+    __tablename__ = "scan_metric"
+    __table_args__ = (
+        UniqueConstraint(
+            "scan_id", "scope_type", "provider", "journey_stage",
+            name="uq_scan_metric_scope",
+        ),
+        Index("ix_scan_metric_scan", "scan_id"),
+    )
+
+    id                         = Column(String, primary_key=True)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
+    scope_type                 = Column(Text, nullable=False)
+    provider                   = Column(Text, nullable=True)
+    journey_stage              = Column(Text, nullable=True)
+    total_questions            = Column(Integer, nullable=False, default=0)
+    total_samples              = Column(Integer, nullable=False, default=0)
+    mention_count              = Column(Integer, nullable=False, default=0)
+    mention_rate               = Column(Numeric(6, 5), nullable=True)
+    mention_rate_ci_lower_95   = Column(Numeric(6, 5), nullable=True)
+    mention_rate_ci_upper_95   = Column(Numeric(6, 5), nullable=True)
+    citation_count             = Column(Integer, nullable=False, default=0)
+    citation_rate              = Column(Numeric(6, 5), nullable=True)
+    citation_rate_ci_lower_95  = Column(Numeric(6, 5), nullable=True)
+    citation_rate_ci_upper_95  = Column(Numeric(6, 5), nullable=True)
+    avs_value                  = Column(Numeric(6, 3), nullable=True)
+    presence                   = Column(Numeric(6, 5), nullable=True)
+    prominence                 = Column(Numeric(6, 5), nullable=True)
+    positivity                 = Column(Numeric(6, 5), nullable=True)
+    avs_ci_lower_95            = Column(Numeric(6, 3), nullable=True)
+    avs_ci_upper_95            = Column(Numeric(6, 3), nullable=True)
+    avg_position               = Column(Numeric(8, 4), nullable=True)
+    computed_at                = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ScanCitationP13(Base):
+    """Phase 13 native citation: a brand/source URL referenced in a sample.
+
+    Distinct from the legacy ``scan_citations`` table; FKs to ``scan_runs`` and
+    ``sample`` for auditability back to the exact answer.
+    """
+    __tablename__ = "scan_citation"
+    __table_args__ = (
+        Index("ix_scan_citation_scan_domain", "scan_id", "source_domain"),
+        Index("ix_scan_citation_scan_class", "scan_id", "source_class"),
+    )
+
+    id                         = Column(String, primary_key=True)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
+    sample_id                  = Column(String, nullable=True)
+    provider                   = Column(Text, nullable=False)
+    question_id                = Column(String, nullable=True)
+    journey_stage              = Column(Text, nullable=True)
+    citation_url               = Column(Text, nullable=False)
+    canonical_url              = Column(Text, nullable=True)
+    source_domain              = Column(Text, nullable=True)
+    registered_domain          = Column(Text, nullable=True)
+    source_rank                = Column(Integer, nullable=True)
+    source_class               = Column(Text, nullable=True)
+    source_confidence          = Column(Numeric(5, 4), nullable=True)
+    action_role                = Column(Text, nullable=True)
+    is_brand_citation          = Column(Boolean, nullable=False, default=False)
+    is_competitor_citation     = Column(Boolean, nullable=False, default=False)
+    web_search_used            = Column(Boolean, nullable=True)
+    answer_excerpt             = Column(Text, nullable=True)
+    created_at                 = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ScanCompetitor(Base):
+    """Phase 13 dashboard projection: competitor presence + share of voice."""
+    __tablename__ = "scan_competitor"
+    __table_args__ = (
+        UniqueConstraint(
+            "scan_id", "competitor_name", "scope_type", "provider", "journey_stage",
+            name="uq_scan_competitor_scope",
+        ),
+        Index("ix_scan_competitor_scan", "scan_id"),
+    )
+
+    id                         = Column(String, primary_key=True)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
+    competitor_name            = Column(Text, nullable=False)
+    scope_type                 = Column(Text, nullable=False)
+    provider                   = Column(Text, nullable=True)
+    journey_stage              = Column(Text, nullable=True)
+    mention_count              = Column(Integer, nullable=False, default=0)
+    mention_rate               = Column(Numeric(6, 5), nullable=True)
+    mention_rate_ci_lower_95   = Column(Numeric(6, 5), nullable=True)
+    mention_rate_ci_upper_95   = Column(Numeric(6, 5), nullable=True)
+    share_of_voice             = Column(Numeric(6, 5), nullable=True)
+    citation_count             = Column(Integer, nullable=False, default=0)
+    computed_at                = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ScanAction(Base):
+    """Phase 13 dashboard projection: a prioritized, evidence-backed action."""
+    __tablename__ = "scan_action"
+    __table_args__ = (
+        UniqueConstraint("scan_id", "action_key", name="uq_scan_action_key"),
+        Index("ix_scan_action_scan", "scan_id"),
+    )
+
+    id                         = Column(String, primary_key=True)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
+    action_key                 = Column(String, nullable=False)
+    title                      = Column(Text, nullable=False)
+    description                = Column(Text, nullable=True)
+    priority                   = Column(Text, nullable=True)
+    category                   = Column(Text, nullable=True)
+    effort                     = Column(Text, nullable=True)
+    impact_estimate            = Column(Numeric(6, 3), nullable=True)
+    score                      = Column(Numeric(8, 4), nullable=True)
+    sort_order                 = Column(Integer, nullable=True)
+    action_role                = Column(Text, nullable=True)
+    target_provider            = Column(Text, nullable=True)
+    target_journey_stage       = Column(Text, nullable=True)
+    target_questions_json      = Column(_json_type(), nullable=True)
+    competing_sources_json     = Column(_json_type(), nullable=True)
+    competing_competitors_json = Column(_json_type(), nullable=True)
+    evidence_json              = Column(_json_type(), nullable=True)
+    status                     = Column(Text, nullable=False, default="open")
+    created_at                 = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ScanQuestionResult(Base):
+    """Phase 13 dashboard projection: per-(question, provider) appearance + sources.
+
+    Backs the 'Missed Questions' view. Materialized at publish so dashboard reads
+    are fast and tied to the signed scan, rather than recomputed from raw samples.
+    """
+    __tablename__ = "scan_question_result"
+    __table_args__ = (
+        UniqueConstraint("scan_id", "question_id", "provider", name="uq_scan_question_result"),
+        Index("ix_scan_question_result_scan", "scan_id"),
+    )
+
+    id                         = Column(String, primary_key=True)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
+    question_id                = Column(String, nullable=False)
+    question_text              = Column(Text, nullable=True)
+    provider                   = Column(Text, nullable=False)
+    journey_stage              = Column(Text, nullable=True)
+    total_samples              = Column(Integer, nullable=False, default=0)
+    mention_count              = Column(Integer, nullable=False, default=0)
+    appeared                   = Column(Boolean, nullable=False, default=False)
+    mention_rank               = Column(Integer, nullable=True)
+    avg_position               = Column(Numeric(8, 4), nullable=True)
+    cited_sources_json         = Column(_json_type(), nullable=True)
+    competitors_mentioned_json = Column(_json_type(), nullable=True)
+    answer_excerpt             = Column(Text, nullable=True)
+    priority_score             = Column(Numeric(6, 2), nullable=True)
+    created_at                 = Column(DateTime, nullable=False, default=_utcnow)
+
+
 class AuditEvent(Base):
     """Insert-only hash-chained audit event."""
     __tablename__ = "audit_event"

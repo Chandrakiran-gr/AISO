@@ -1,6 +1,9 @@
 import asyncio
 import json
+import os
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy import create_engine
@@ -86,6 +89,7 @@ class ScanCapabilityTests(unittest.TestCase):
                         "client-1",
                         ScanCreate(client_id="client-1", providers=["gemini"], groups=["G3"]),
                         BackgroundTasks(),
+                        SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace())),
                         db=session,
                         user_id="user-1",
                     )
@@ -98,17 +102,20 @@ class ScanCapabilityTests(unittest.TestCase):
             session.close()
 
     def test_start_scan_allows_g7_without_competitors_as_reduced_coverage(self):
+        # Legacy-engine behavior: capability pass creates a legacy Scan row.
         session = self._session_with_client()
         try:
-            response = asyncio.run(
-                start_scan(
-                    "client-1",
-                    ScanCreate(client_id="client-1", providers=["gemini"], groups=["G7"]),
-                    BackgroundTasks(),
-                    db=session,
-                    user_id="user-1",
+            with mock.patch.dict(os.environ, {"AISO_SCAN_ENGINE": "legacy"}):
+                response = asyncio.run(
+                    start_scan(
+                        "client-1",
+                        ScanCreate(client_id="client-1", providers=["gemini"], groups=["G7"]),
+                        BackgroundTasks(),
+                        SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace())),
+                        db=session,
+                        user_id="user-1",
+                    )
                 )
-            )
 
             self.assertEqual(response["status"], "pending")
             self.assertEqual(response["groups"], ["G7"])
