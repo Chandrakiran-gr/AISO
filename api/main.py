@@ -58,17 +58,22 @@ app.add_middleware(
 )
 
 # ── Trusted hosts ────────────────────────────────────────────────────────────
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=_csv_env("AISO_ALLOWED_HOSTS", [
-        "localhost",
-        "127.0.0.1",
-        "sapienic.com",
-        "*.sapienic.com",
-        "*.up.railway.app",
-        "*.onrender.com",
-    ]),
-)
+_allowed_hosts = list(_csv_env("AISO_ALLOWED_HOSTS", [
+    "localhost",
+    "127.0.0.1",
+    "sapienic.com",
+    "*.sapienic.com",
+    "*.up.railway.app",
+    "*.onrender.com",
+]))
+# Railway's container healthcheck originates from this host. Always allow it —
+# even when AISO_ALLOWED_HOSTS is set (which otherwise replaces the defaults) —
+# so the platform healthcheck isn't rejected with HTTP 400 and the deploy can
+# go live. (Hosting-platform healthcheck hosts are not a security boundary.)
+for _required_host in ("healthcheck.railway.app",):
+    if _required_host not in _allowed_hosts:
+        _allowed_hosts.append(_required_host)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 
 # ── Request timing middleware ─────────────────────────────────────────────────
 @app.middleware("http")
