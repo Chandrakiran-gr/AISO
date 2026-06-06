@@ -66,6 +66,7 @@ class ScanBridgeTests(unittest.TestCase):
                 user_id="user-1",
                 name="VectorCRM",
                 url="https://vector.example",
+                tier="pro",  # paid tier → Phase 13 engine
                 cost_budget_default_usd=Decimal("5.00"),
             )
         )
@@ -277,6 +278,46 @@ class ScanBridgeTests(unittest.TestCase):
         self.assertEqual(self.db.query(ScanRun).count(), 1)
         self.assertEqual(self.db.query(Scan).count(), 0)
         self.assertEqual(self.db.query(ScanManifest).filter(ScanManifest.scan_id == scan_run_id).count(), 2)
+
+    def test_start_scan_free_tier_routes_to_legacy(self):
+        # A free-tier client must NOT hit Phase 13 (would use server keys) even
+        # when AISO_SCAN_ENGINE=phase13 — it falls back to the legacy engine.
+        from api.database import Scan
+        from api.routes.pipeline import ScanCreate, start_scan
+
+        self.db.add(Client(id="client-free", user_id="user-1", name="FreeCo",
+                           url="https://free.example", tier="free",
+                           cost_budget_default_usd=Decimal("5.00")))
+        self.db.commit()
+        executor = _RecordingExecutor()
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(scan_executor=executor)))
+
+        with mock.patch.dict(os.environ, {"AISO_SCAN_ENGINE": "phase13"}):
+            response = asyncio.run(
+                start_scan(
+                    "client-free",
+                    ScanCreate(client_id="client-free", providers=["claude"], groups=["G1"]),
+                    BackgroundTasks(), request, db=self.db, user_id="user-1",
+                )
+            )
+
+        # Legacy path: a Scan row was created, the Phase 13 executor was NOT called,
+        # and no ScanRun exists for this client.
+        self.assertEqual(len(executor.calls), 0)
+        self.assertEqual(response["status"], "pending")
+        self.assertEqual(self.db.query(Scan).filter(Scan.client_id == "client-free").count(), 1)
+        self.assertEqual(self.db.query(ScanRun).filter(ScanRun.client_id == "client-free").count(), 0)
+
+    def test_phase13_enabled_for_tier_rules(self):
+        from api.feature_flags import phase13_enabled_for_tier
+
+        with mock.patch.dict(os.environ, {"AISO_SCAN_ENGINE": "phase13"}):
+            self.assertTrue(phase13_enabled_for_tier("pro"))
+            self.assertTrue(phase13_enabled_for_tier("enterprise"))
+            self.assertFalse(phase13_enabled_for_tier("free"))
+            self.assertFalse(phase13_enabled_for_tier(None))  # safe default
+        with mock.patch.dict(os.environ, {"AISO_SCAN_ENGINE": "legacy"}):
+            self.assertFalse(phase13_enabled_for_tier("pro"))  # master switch off
 
 
 if __name__ == "__main__":

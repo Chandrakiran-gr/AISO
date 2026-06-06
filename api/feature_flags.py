@@ -38,3 +38,23 @@ def scan_engine() -> str:
 
 def is_phase13_engine() -> bool:
     return scan_engine() == SCAN_ENGINE_PHASE13
+
+
+# Free tier (the default) never runs on Phase 13: the Phase 13 worker uses
+# server-side provider keys, so free/BYOK clients must stay on the legacy
+# in-process engine (which uses the user's own keys) and never consume the
+# company's API budget. Set a client's tier to any non-"free" value to opt it
+# into the Phase 13 engine.
+FREE_TIER = "free"
+
+
+def phase13_enabled_for_tier(tier: str | None) -> bool:
+    """Whether a NEW scan should run on Phase 13 for a client of this tier.
+
+    Gated by the global AISO_SCAN_ENGINE master switch AND the client tier:
+    only non-free tiers use Phase 13 (server keys); free tier → legacy (BYOK).
+    Defaults safe — an unknown/empty tier is treated as free.
+    """
+    if not is_phase13_engine():
+        return False
+    return (tier or FREE_TIER).strip().lower() != FREE_TIER
