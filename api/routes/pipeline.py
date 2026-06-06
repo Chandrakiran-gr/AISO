@@ -30,7 +30,7 @@ from api.adapters.scan_execution import (
     default_scan_executor,
     ensure_scan_run_enqueued,
 )
-from api.feature_flags import is_phase13_engine
+from api.feature_flags import is_phase13_engine, phase13_enabled_for_tier
 from api.scan_bridge import ScanBridgeError, build_phase13_manifest_from_groups
 from api.entitlements import entitlements_for_user
 from api.scan_workspace import MANUAL_GROUP, prepare_scan_workspace
@@ -649,7 +649,10 @@ async def start_scan(
     if not groups_ok:
         raise HTTPException(status_code=400, detail=group_message)
 
-    if is_phase13_engine():
+    # Route by tier: paid clients run on the Phase 13 engine (server keys);
+    # free/BYOK clients run on the legacy engine with their own keys, so a free
+    # user never consumes the company's API budget.
+    if phase13_enabled_for_tier(getattr(client, "tier", None)):
         return await _start_phase13_scan(
             request,
             db,

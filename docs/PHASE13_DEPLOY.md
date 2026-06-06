@@ -33,13 +33,25 @@ railway run procrastinate --app api.worker:app schema --apply   # idempotent; cr
 ## 2. Environment variables (API service)
 
 ```
-AISO_SCAN_ENGINE=phase13      # explicit opt-in; code default is "legacy" until Phase 1 native consumers land
+AISO_SCAN_ENGINE=phase13      # master switch; code default is "legacy"
 ```
 
+**Tier routing — important.** `AISO_SCAN_ENGINE=phase13` is a *master switch*, not a
+global cutover. Scans are routed **per client tier**:
+- **Paid tier** (`Client.tier` ≠ `"free"`) → Phase 13 engine (server-side keys).
+- **Free tier** (the default) → legacy engine, using the user's **own BYOK keys**.
+
+So a free user never consumes your API budget. To put a client on Phase 13, set its
+`tier` to a paid value (e.g. `pro`). To **test** Phase 13, set a test client's tier:
+```sql
+UPDATE clients SET tier = 'pro' WHERE id = '<your-test-client-id>';
+```
+Setting `AISO_SCAN_ENGINE=legacy` is the kill-switch — everyone back to legacy.
+
 These must already be present (the worker needs them too — Step 3):
-`DATABASE_URL` (Postgres), `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-`PERPLEXITY_API_KEY`, `GOOGLE_AI_API_KEY`, `AISO_AUDIT_HMAC_KEY`,
-`AISO_STORAGE_BACKEND`, `AISO_STORAGE_ROOT`.
+`DATABASE_URL` (Postgres), `ANTHROPIC_API_KEY` (required — the classifier runs on
+Claude; add `OPENAI_API_KEY`/`PERPLEXITY_API_KEY`/`GOOGLE_AI_API_KEY` for those
+providers), `AISO_AUDIT_HMAC_KEY`, `AISO_STORAGE_BACKEND`, `AISO_STORAGE_ROOT`.
 
 ---
 
