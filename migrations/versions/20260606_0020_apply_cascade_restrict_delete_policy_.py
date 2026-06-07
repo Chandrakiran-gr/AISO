@@ -6,11 +6,14 @@ survives; and the immutable records (scan_provenance's FKs and every
 methodology_version_set reference) are left as NO ACTION so they cannot be
 silently deleted.
 
-Existing foreign keys were created without explicit names, so SQLite reflects
-them anonymously and Postgres auto-names them. To drop them portably we pass a
-``naming_convention`` to ``batch_alter_table`` (``fk_<table>_<column>``); Alembic
-applies it to the reflected constraints so they can be dropped and re-created
-with the new ``ondelete`` rule. All affected FKs are single-column.
+Existing foreign keys were created without explicit names, so PostgreSQL
+auto-names them (e.g. ``actions_client_id_fkey``) while SQLite reflects them
+anonymously. To drop them portably we resolve each FK's REAL name from the live
+database via the inspector; on SQLite (where reflected FKs have no name) we fall
+back to the batch ``naming_convention`` (``fk_<table>_<column>``), which assigns
+that name during the table recreate. We then re-create each FK with an explicit
+``fk_<table>_<column>`` name and the new ``ondelete`` rule. All affected FKs are
+single-column.
 
 Revision ID: 20260606_0020
 Revises: 20260605_0019
@@ -18,6 +21,7 @@ Create Date: 2026-06-06 12:25:51.850865
 """
 
 from alembic import op
+import sqlalchemy as sa
 
 
 revision = "20260606_0020"
@@ -102,11 +106,35 @@ POLICY: dict[str, list[tuple[str, str, str, str]]] = {
 }
 
 
+def _existing_fk_name(inspector, table: str, column: str) -> str | None:
+    """Real name of the single-column FK currently constraining (table, column).
+
+    Returns the actual constraint name (PostgreSQL) or None when the dialect
+    reflects FKs anonymously (SQLite).
+    """
+    for fk in inspector.get_foreign_keys(table):
+        if fk.get("constrained_columns") == [column]:
+            return fk.get("name")
+    return None
+
+
 def _rewrite(ondelete_for) -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    # Resolve every FK's real name up front, before any DDL runs. On SQLite the
+    # reflected name is None, so fall back to the naming_convention name that
+    # batch mode assigns during the recreate.
+    drop_names = {
+        table: {
+            col: (_existing_fk_name(inspector, table, col) or f"fk_{table}_{col}")
+            for col, *_ in fks
+        }
+        for table, fks in POLICY.items()
+    }
     for table, fks in POLICY.items():
         with op.batch_alter_table(table, schema=None, naming_convention=NAMING) as batch:
             for col, _ref_t, _ref_c, _od in fks:
-                batch.drop_constraint(f"fk_{table}_{col}", type_="foreignkey")
+                batch.drop_constraint(drop_names[table][col], type_="foreignkey")
             for col, ref_t, ref_c, od in fks:
                 batch.create_foreign_key(
                     f"fk_{table}_{col}", ref_t, [col], [ref_c], ondelete=ondelete_for(od)
