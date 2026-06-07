@@ -712,7 +712,7 @@ def persist_collect_csv_results(
                     mention_count=result.mention_count,
                     avg_position=result.avg_position,
                     visibility_score=result.visibility_score,
-                    competitor_data=json.dumps(result.competitor_data),
+                    competitor_data=result.competitor_data,
                 )
             )
         # Only register CSV artifacts. JSON/JSONL files (question_ranking_report.json,
@@ -790,11 +790,11 @@ def persist_collect_csv_results(
             profile.influence_score = payload.get("influence_score")  # type: ignore[assignment]
             profile.relevance_score = payload.get("relevance_score")  # type: ignore[assignment]
             profile.client_mentioned = bool(payload.get("client_mentioned"))
-            profile.competitors_mentioned_json = json.dumps(payload.get("competitors_mentioned") or [])
-            profile.topics_json = json.dumps(payload.get("topics") or [])
+            profile.competitors_mentioned_json = payload.get("competitors_mentioned") or []
+            profile.topics_json = payload.get("topics") or []
             profile.fetch_status = profile.fetch_status or "metadata_only"
             profile.classification_reason = str(payload.get("classification_reason") or "") or None
-            profile.metadata_json = json.dumps(payload.get("metadata") or {})
+            profile.metadata_json = payload.get("metadata") or {}
             profile.updated_at = now
             profile_ids_by_url[canonical_url] = profile.id
 
@@ -826,7 +826,7 @@ def persist_collect_csv_results(
                     relevance_score=citation.relevance_score,
                     confidence_score=citation.confidence_score,
                     classification_reason=citation.classification_reason,
-                    metadata_json=json.dumps(citation.metadata),
+                    metadata_json=citation.metadata,
                 )
             )
         for action in build_action_recommendations(results, citations):

@@ -774,8 +774,8 @@ class Scan(Base):
     id          = Column(String, primary_key=True)            # UUID
     client_id   = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     status      = Column(String, default="pending")           # pending | running | complete | failed
-    providers   = Column(Text, nullable=True)                 # JSON array ["openai","claude",...]
-    groups      = Column(Text, nullable=True)                 # JSON array ["G1","G2",...]
+    providers   = Column(_json_type(), nullable=True)         # JSON array ["openai","claude",...]
+    groups      = Column(_json_type(), nullable=True)         # JSON array ["G1","G2",...]
     started_at  = Column(DateTime, nullable=True)
     completed_at= Column(DateTime, nullable=True)
     error       = Column(Text, nullable=True)
@@ -795,7 +795,7 @@ class ScanResult(Base):
     mention_count     = Column(Integer, default=0)
     avg_position      = Column(Float, nullable=True)
     visibility_score  = Column(Float, nullable=True)           # 0.0 – 100.0
-    competitor_data   = Column(Text, nullable=True)            # JSON: {competitor: mention_count}
+    competitor_data   = Column(_json_type(), nullable=True)    # JSON: {competitor: mention_count}
     created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -998,7 +998,7 @@ class ScanArtifact(Base):
     mime_type         = Column(String, nullable=True)
     size_bytes        = Column(BigInteger, nullable=True)
     sha256            = Column(String, nullable=True)
-    metadata_json     = Column(Text, nullable=True)             # JSON for non-query metadata
+    metadata_json     = Column(Text, nullable=True)             # storage-serialized JSON string (kept Text: produced by the storage layer)
     created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -1025,13 +1025,13 @@ class SourceProfile(Base):
     influence_score            = Column(Float, nullable=True)
     relevance_score            = Column(Float, nullable=True)
     client_mentioned           = Column(Boolean, nullable=True)
-    competitors_mentioned_json = Column(Text, nullable=True)
-    topics_json                = Column(Text, nullable=True)
+    competitors_mentioned_json = Column(_json_type(), nullable=True)
+    topics_json                = Column(_json_type(), nullable=True)
     fetch_status               = Column(String, nullable=True)
     last_fetched_at            = Column(DateTime, nullable=True)
     last_enriched_at           = Column(DateTime, nullable=True)
     classification_reason      = Column(Text, nullable=True)
-    metadata_json              = Column(Text, nullable=True)
+    metadata_json              = Column(_json_type(), nullable=True)
     created_at                 = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at                 = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -1069,7 +1069,7 @@ class ScanCitation(Base):
     relevance_score = Column(Float, nullable=True)
     confidence_score = Column(Float, nullable=True)
     classification_reason = Column(Text, nullable=True)
-    metadata_json  = Column(Text, nullable=True)                # JSON provider citation metadata
+    metadata_json  = Column(_json_type(), nullable=True)        # JSON provider citation metadata
     created_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

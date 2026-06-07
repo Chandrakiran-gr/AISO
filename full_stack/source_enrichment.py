@@ -107,9 +107,11 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-def _json_loads(value: str | None, fallback: object) -> object:
+def _json_loads(value: object, fallback: object) -> object:
     if not value:
         return fallback
+    if isinstance(value, (list, dict)):  # JSON-typed column already parsed
+        return value
     try:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
@@ -366,7 +368,7 @@ def enrich_source_profiles_for_scan(
                     profile.actionability_score = update.actionability_score
                     profile.relevance_score = update.relevance_score
                     profile.client_mentioned = update.client_mentioned
-                    profile.competitors_mentioned_json = json.dumps(update.competitors_mentioned)
+                    profile.competitors_mentioned_json = update.competitors_mentioned
                     profile.classification_reason = update.classification_reason
                     enriched += 1
                 else:
@@ -374,7 +376,7 @@ def enrich_source_profiles_for_scan(
                 profile.fetch_status = update.fetch_status
                 profile.last_fetched_at = update.fetched_at
                 profile.last_enriched_at = update.fetched_at
-                profile.metadata_json = json.dumps(update.metadata)
+                profile.metadata_json = update.metadata
                 profile.updated_at = update.fetched_at
                 db.commit()
 
