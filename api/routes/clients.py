@@ -74,9 +74,9 @@ def _canonical_uuid4(value: Optional[str], *, field_name: str) -> Optional[str]:
 
 def _serialize_client(client: Client) -> ClientResponse:
     competitors = None
-    if client.competitors:
+    if client.competitor_names:
         try:
-            parsed = json.loads(client.competitors)
+            parsed = json.loads(client.competitor_names)
             competitors = parsed if isinstance(parsed, list) else None
         except json.JSONDecodeError:
             competitors = None
@@ -106,7 +106,7 @@ def _apply_client_payload(
     if not preserve_omitted or "location" in fields_set:
         client.location = payload.location
     if not preserve_omitted or "competitors" in fields_set:
-        client.competitors = _competitors_json(payload.competitors)
+        client.competitor_names = _competitors_json(payload.competitors)
 
 
 @router.get("/clients", response_model=List[ClientResponse])
@@ -151,7 +151,7 @@ async def create_client(
         url=payload.resolved_url or f"https://example.com/{client_id}",
         industry=payload.industry,
         location=payload.location,
-        competitors=_competitors_json(payload.competitors),
+        competitor_names=_competitors_json(payload.competitors),
     )
     db.add(client)
     db.commit()

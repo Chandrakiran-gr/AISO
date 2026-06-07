@@ -18,7 +18,6 @@ from api.database import (
     Conversation,
     Message,
     Scan,
-    ScanAnalysis,
     ScanResult,
     User,
 )
@@ -113,16 +112,6 @@ class AssistantRouteTests(unittest.TestCase):
                 group="G2",
                 total_questions=10,
                 mention_count=7,
-            )
-        )
-        session.add(
-            ScanAnalysis(
-                id="analysis-1",
-                client_id="client-1",
-                scan_id="scan-1",
-                provider="openai",
-                group="G2",
-                summary="OpenAI found AISO in 7 of 10 comparison prompts.",
             )
         )
         session.add(

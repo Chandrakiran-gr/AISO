@@ -20,7 +20,6 @@ from api.database import (
     Client,
     ClientContext,
     Scan,
-    ScanAnalysis,
     ScanCitation,
     ScanResult,
 )
@@ -481,9 +480,9 @@ def generate_actions(
 
     # 5. Get competitor names from client profile
     competitor_names = []
-    if client.competitors:
+    if client.competitor_names:
         try:
-            parsed = json.loads(client.competitors)
+            parsed = json.loads(client.competitor_names)
             if isinstance(parsed, list):
                 competitor_names = [str(c).strip() for c in parsed if str(c).strip()]
         except (json.JSONDecodeError, TypeError):

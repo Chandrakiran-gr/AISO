@@ -26,7 +26,6 @@ from api.database import (
     Conversation,
     Message,
     Scan,
-    ScanAnalysis,
     ScanCitation,
     ScanResult,
     get_db,
@@ -460,17 +459,12 @@ def _recent_scan_history(db: Session, client_id: str, latest_scan_id: str | None
     for scan in scans:
         if scan.id == latest_scan_id:
             continue
-        analyses = db.query(ScanAnalysis).filter(
-            ScanAnalysis.client_id == client_id,
-            ScanAnalysis.scan_id == scan.id,
-            ScanAnalysis.summary.isnot(None),
-        ).order_by(ScanAnalysis.created_at.desc()).limit(3).all()
         history.append(
             {
                 "scan_id": scan.id,
                 "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
                 "created_at": scan.created_at.isoformat() if scan.created_at else None,
-                "summaries": [analysis.summary for analysis in analyses if analysis.summary],
+                "summaries": [],
             }
         )
     return history[:3]

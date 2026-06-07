@@ -64,7 +64,6 @@ Useful inspection commands:
 | `scans` | Pipeline runs for a client. |
 | `scan_results` | Aggregated provider/group visibility metrics. |
 | `scan_artifacts` | Metadata for generated or uploaded data/report files. |
-| `scan_analysis` | Structured summaries, strengths, weaknesses, and recommendations. |
 | `scan_citations` | Source-level evidence cited by AI providers. |
 | `actions` | Future user-facing recommendation tasks. |
 
@@ -107,6 +106,32 @@ S3 move straightforward. In that future state, only `storage_backend` and
 storage_backend = s3
 storage_path = clients/{client_id}/scans/{scan_id}/raw/responses.csv
 ```
+
+## Profiles & Competitor Storage
+
+Business-profile data flows through three tables — a deliberate pipeline, not
+duplication:
+
+```text
+crawl_business_profiles   raw extraction from the onboarding crawl (per crawl job)
+        ↓ (human review / discovery)
+client_contexts           confirmed client context from public website evidence
+        ↓ (onboarding intake)
+business_profile          canonical Phase-12 profile that feeds question generation
+```
+
+Competitors are likewise stored in **three role-distinct** places (not redundant
+copies):
+
+| Column | Holds | Used by |
+| --- | --- | --- |
+| `clients.competitor_names` | competitor **names** (JSON array) — the working list | scans, action engine, scan capabilities |
+| `clients.competitor_domains` | competitor **domains** (array) | citation/source matching, classifier |
+| `business_profile.competitors` | Phase-12 **onboarding-confirmed** names | question generation (via the profile snapshot) |
+
+The API request/response field is still named `competitors`; it maps to the
+`clients.competitor_names` column (renamed in migration 0022 to disambiguate it
+from `competitor_domains`).
 
 ## Referential Integrity & Delete Policy
 

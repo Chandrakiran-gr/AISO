@@ -1026,10 +1026,10 @@ def _confirmed_context_profile(db: Session, client_id: str) -> Optional[dict]:
 
 
 def _client_competitors(client: Client) -> List[str]:
-    if not client.competitors:
+    if not client.competitor_names:
         return []
     try:
-        data = json.loads(client.competitors)
+        data = json.loads(client.competitor_names)
     except Exception:
         return []
     if not isinstance(data, list):

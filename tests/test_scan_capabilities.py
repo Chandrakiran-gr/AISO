@@ -38,7 +38,7 @@ class ScanCapabilityTests(unittest.TestCase):
                 url="https://example.com",
                 industry="Local service",
                 location="Boston, MA",
-                competitors=json.dumps(competitors) if competitors is not None else None,
+                competitor_names=json.dumps(competitors) if competitors is not None else None,
             )
         )
         if context_profile is not None:

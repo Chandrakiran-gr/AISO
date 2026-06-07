@@ -218,7 +218,7 @@ def _question_templates() -> dict[str, list[str]]:
 
 
 def _profile_values(client: Client) -> dict[str, str]:
-    competitors = _split_competitors(client.competitors)
+    competitors = _split_competitors(client.competitor_names)
     competitor_a = competitors[0] if competitors else ""
     competitor_b = competitors[1] if len(competitors) > 1 else competitor_a
     city, region = _location_parts(client.location)

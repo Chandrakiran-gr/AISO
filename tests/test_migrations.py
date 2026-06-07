@@ -67,7 +67,6 @@ class AlembicMigrationTests(unittest.TestCase):
 
                     self.assertIn("users", inspector.get_table_names())
                     self.assertIn("scan_artifacts", inspector.get_table_names())
-                    self.assertIn("scan_analysis", inspector.get_table_names())
                     self.assertIn("scan_citations", inspector.get_table_names())
                     self.assertIn("client_contexts", inspector.get_table_names())
                     self.assertIn("conversations", inspector.get_table_names())

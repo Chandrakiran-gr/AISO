@@ -206,7 +206,7 @@ async def update_client_context(
     context.profile_json = json.dumps(payload.profile_json, ensure_ascii=False, sort_keys=True)
     context.warnings_json = json.dumps(payload.warnings_json, ensure_ascii=False)
     context.updated_at = datetime.now(timezone.utc)
-    client.competitors = json.dumps(profile_competitor_names(payload.profile_json), ensure_ascii=False)
+    client.competitor_names = json.dumps(profile_competitor_names(payload.profile_json), ensure_ascii=False)
     client.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(context)

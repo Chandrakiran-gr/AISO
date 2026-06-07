@@ -47,7 +47,7 @@ class PipelineMetricsTests(unittest.TestCase):
                     user_id="user-1",
                     name="Pempsa",
                     url="https://pempsa.example",
-                    competitors=json.dumps(["Bella Boutique Spa", "Christine's Day Spa"]),
+                    competitor_names=json.dumps(["Bella Boutique Spa", "Christine's Day Spa"]),
                 )
             )
             session.add(
@@ -198,7 +198,7 @@ class PipelineMetricsTests(unittest.TestCase):
                 user_id="user-1",
                 name="Pempsa",
                 url="https://pempsa.example",
-                competitors=json.dumps(["Bella Boutique Spa"]),
+                competitor_names=json.dumps(["Bella Boutique Spa"]),
             )
             scan = Scan(
                 id="scan-1",
@@ -410,7 +410,7 @@ class PipelineMetricsTests(unittest.TestCase):
                 user_id="user-1",
                 name="Pempsa",
                 url="https://pempsa.example",
-                competitors=json.dumps(["Bella Boutique Spa"]),
+                competitor_names=json.dumps(["Bella Boutique Spa"]),
             )
         )
         session.add(

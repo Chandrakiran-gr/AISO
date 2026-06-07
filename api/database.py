@@ -100,7 +100,7 @@ class Client(Base):
     url          = Column(String, nullable=False)             # "https://bostonbrew.com"
     industry     = Column(String, nullable=True)
     location     = Column(String, nullable=True)
-    competitors  = Column(Text, nullable=True)                # JSON array of competitor names
+    competitor_names = Column(Text, nullable=True)            # JSON array of competitor names (clients.competitor_domains holds domains)
     tier          = Column(String, default="free", nullable=False)  # free | pro | growth | scale | enterprise
     cost_budget_default_usd = Column(Numeric(10, 2), default=5, nullable=False)
     byok          = Column(Boolean, default=False, nullable=False)
@@ -1000,28 +1000,6 @@ class ScanArtifact(Base):
     sha256            = Column(String, nullable=True)
     metadata_json     = Column(Text, nullable=True)             # JSON for non-query metadata
     created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-
-class ScanAnalysis(Base):
-    """Structured analysis generated from scan results."""
-    __tablename__ = "scan_analysis"
-    __table_args__ = (
-        Index("ix_scan_analysis_client_scan", "client_id", "scan_id"),
-        Index("ix_scan_analysis_scope", "provider", "group"),
-    )
-
-    id                   = Column(String, primary_key=True)    # UUID
-    client_id            = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
-    scan_id              = Column(String, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True)
-    provider             = Column(String, nullable=True)        # null for cross-provider analysis
-    group                = Column(String, nullable=True)        # null for cross-group analysis
-    analysis_type        = Column(String, default="visibility_summary", nullable=False)
-    summary              = Column(Text, nullable=True)
-    strengths_json       = Column(Text, nullable=True)          # JSON array
-    weaknesses_json      = Column(Text, nullable=True)          # JSON array
-    recommendations_json = Column(Text, nullable=True)          # JSON array
-    raw_json             = Column(Text, nullable=True)          # source model/tool output
-    created_at           = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class SourceProfile(Base):

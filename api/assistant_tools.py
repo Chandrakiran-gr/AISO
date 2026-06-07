@@ -21,7 +21,6 @@ from api.database import (
     ClientContext,
     ContentDraft,
     Scan,
-    ScanAnalysis,
     ScanCitation,
     ScanResult,
 )
