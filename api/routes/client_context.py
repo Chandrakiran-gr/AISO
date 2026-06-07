@@ -61,12 +61,14 @@ def _ensure_client(db: Session, client_id: str, user_id: str) -> Client:
     return client
 
 
-def _safe_json_loads(value: str | None, fallback: Any) -> Any:
+def _safe_json_loads(value: Any, fallback: Any) -> Any:
     if not value:
         return fallback
+    if isinstance(value, (list, dict)):  # JSON-typed column already parsed
+        return value
     try:
         return json.loads(value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return fallback
 
 

@@ -445,7 +445,7 @@ class AssistantRouteTests(unittest.TestCase):
             _refresh_conversation_summary(session, conversation)
 
             self.assertIsNotNone(conversation.summary_json)
-            summary = json.loads(conversation.summary_json)
+            summary = conversation.summary_json
             self.assertEqual(summary["message_count"], 2)
             self.assertIn("message 0", summary["summary"])
             self.assertEqual(len(_llm_messages(_assistant_context(session, conversation), "current turn")), 20)

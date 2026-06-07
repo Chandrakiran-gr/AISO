@@ -82,9 +82,11 @@ def _priority_from_impact(impact: float) -> str:
     return "low"
 
 
-def _safe_json(value: str | None) -> Any:
+def _safe_json(value: Any) -> Any:
     if not value:
         return {}
+    if isinstance(value, (list, dict)):  # JSON-typed column already parsed
+        return value
     try:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):

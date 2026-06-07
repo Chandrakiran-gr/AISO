@@ -705,7 +705,7 @@ class Conversation(Base):
     client_id   = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id     = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title       = Column(String, nullable=True)
-    summary_json = Column(Text, nullable=True)
+    summary_json = Column(_json_type(), nullable=True)
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     archived_at = Column(DateTime, nullable=True)
@@ -723,7 +723,7 @@ class Message(Base):
     conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     role            = Column(String, nullable=False)  # user | assistant | system
     content         = Column(Text, nullable=False)
-    metadata_json   = Column(Text, nullable=True)
+    metadata_json   = Column(_json_type(), nullable=True)
     created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -747,7 +747,7 @@ class ContentDraft(Base):
     reviewed_at     = Column(DateTime, nullable=True)
     review_notes    = Column(Text, nullable=True)
     source_action_id     = Column(String, ForeignKey("actions.id", ondelete="SET NULL"), nullable=True)   # Action that triggered this content
-    target_questions_json = Column(Text, nullable=True)       # JSON array of scan questions this content targets
+    target_questions_json = Column(_json_type(), nullable=True)  # JSON array of scan questions this content targets
     export_format   = Column(String, nullable=True)           # pdf | docx | null
     export_path     = Column(Text, nullable=True)             # Local path to exported file
     created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))

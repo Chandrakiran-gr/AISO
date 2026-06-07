@@ -257,9 +257,11 @@ TOOLS: list[dict[str, Any]] = [
 
 # ── Tool dispatcher ──────────────────────────────────────────────────────────
 
-def _safe_json(value: str | None) -> Any:
+def _safe_json(value: Any) -> Any:
     if not value:
         return {}
+    if isinstance(value, (list, dict)):  # JSON-typed column already parsed
+        return value
     try:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):

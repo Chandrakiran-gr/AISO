@@ -204,12 +204,14 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _safe_json_loads(value: str | None, fallback: Any) -> Any:
+def _safe_json_loads(value: Any, fallback: Any) -> Any:
     if not value:
         return fallback
+    if isinstance(value, (list, dict)):  # JSON-typed column already parsed
+        return value
     try:
         return json.loads(value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return fallback
 
 
@@ -547,14 +549,11 @@ def _refresh_conversation_summary(db: Session, conversation: Conversation) -> No
             continue
         snippets.append(f"{message.role}: {content[:140]}")
     summary = "Earlier conversation summary: " + " | ".join(snippets)
-    conversation.summary_json = json.dumps(
-        {
-            "summary": summary[:1600],
-            "message_count": len(older),
-            "updated_at": _now().isoformat(),
-        },
-        ensure_ascii=False,
-    )
+    conversation.summary_json = {
+        "summary": summary[:1600],
+        "message_count": len(older),
+        "updated_at": _now().isoformat(),
+    }
 
 
 def _deep_scan_context(
@@ -1342,7 +1341,7 @@ async def stream_message(
         conversation_id=conversation.id,
         role="user",
         content=user_content,
-        metadata_json=json.dumps({"redacted": user_content != payload.content}, ensure_ascii=False),
+        metadata_json={"redacted": user_content != payload.content},
         created_at=now,
     )
     db.add(user_message)
@@ -1428,19 +1427,16 @@ async def stream_message(
             conversation_id=conversation.id,
             role="assistant",
             content=assistant_content,
-            metadata_json=json.dumps(
-                {
-                    "provider": provider,
-                    "model": model,
-                    "latency_ms": round((time.perf_counter() - started) * 1000),
-                    "token_count": None,
-                    "fallback": not assistant_content,
-                    "guardrail_refusal": bool(guardrail_refusal),
-                    "tool_calls": [a["tool"] for a in tool_activity_log],
-                    "draft_id": saved_draft_id,
-                },
-                ensure_ascii=False,
-            ),
+            metadata_json={
+                "provider": provider,
+                "model": model,
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+                "token_count": None,
+                "fallback": not assistant_content,
+                "guardrail_refusal": bool(guardrail_refusal),
+                "tool_calls": [a["tool"] for a in tool_activity_log],
+                "draft_id": saved_draft_id,
+            },
             created_at=_now(),
         )
         db.add(assistant_message)
