@@ -19,9 +19,19 @@ Production should use PostgreSQL:
 DATABASE_URL=postgresql://user:password@host:5432/aiso
 ```
 
-FastAPI can initialize tables on startup through `api.database.init_db()` during
-local development. Production should set `AISO_AUTO_CREATE_TABLES=0` and apply
-Alembic migrations instead.
+Alembic migrations are the single source of truth for the schema in **every**
+environment, including local development. Set up or update any database with:
+
+```bash
+.venv/bin/alembic upgrade head
+```
+
+Implicit `create_all()` on app startup is **off by default**
+(`AISO_AUTO_CREATE_TABLES=0`). It only ever creates *missing* tables and never
+alters existing ones, so leaving it on silently drifts the live schema away from
+the migrations. Enable it (`=1`) only for a throwaway local DB you don't care
+about. A CI guard (`tests/test_migration_model_sync.py`) fails the build if the
+models and migrations ever diverge again.
 
 ## Migrations
 
@@ -54,7 +64,6 @@ Useful inspection commands:
 | `scans` | Pipeline runs for a client. |
 | `scan_results` | Aggregated provider/group visibility metrics. |
 | `scan_artifacts` | Metadata for generated or uploaded data/report files. |
-| `scan_analysis` | Structured summaries, strengths, weaknesses, and recommendations. |
 | `scan_citations` | Source-level evidence cited by AI providers. |
 | `actions` | Future user-facing recommendation tasks. |
 
@@ -98,6 +107,53 @@ storage_backend = s3
 storage_path = clients/{client_id}/scans/{scan_id}/raw/responses.csv
 ```
 
+## Profiles & Competitor Storage
+
+Business-profile data flows through three tables — a deliberate pipeline, not
+duplication:
+
+```text
+crawl_business_profiles   raw extraction from the onboarding crawl (per crawl job)
+        ↓ (human review / discovery)
+client_contexts           confirmed client context from public website evidence
+        ↓ (onboarding intake)
+business_profile          canonical Phase-12 profile that feeds question generation
+```
+
+Competitors are likewise stored in **three role-distinct** places (not redundant
+copies):
+
+| Column | Holds | Used by |
+| --- | --- | --- |
+| `clients.competitor_names` | competitor **names** (JSON array) — the working list | scans, action engine, scan capabilities |
+| `clients.competitor_domains` | competitor **domains** (array) | citation/source matching, classifier |
+| `business_profile.competitors` | Phase-12 **onboarding-confirmed** names | question generation (via the profile snapshot) |
+
+The API request/response field is still named `competitors`; it maps to the
+`clients.competitor_names` column (renamed in migration 0022 to disambiguate it
+from `competitor_domains`).
+
+## Referential Integrity & Delete Policy
+
+Foreign keys are enforced in every environment. PostgreSQL does this natively;
+SQLite does not unless `PRAGMA foreign_keys=ON` is set per connection, so the app
+engine sets it via a connect-event listener in `api/database.py`. (The test suite
+builds minimal fixtures on its own engines and relies on SQLite's lax default;
+the delete policy is verified directly in `tests/test_db_integrity.py`.)
+
+`ON DELETE` rules (migration `0020`):
+
+| Behavior | Applies to | Effect |
+| --- | --- | --- |
+| `CASCADE` | client / scan / user / conversation-owned rows | Deleting the parent deletes the owned rows (e.g. deleting a client removes its scans, citations, actions, onboarding crawl tree, question bank, …). |
+| `SET NULL` | optional cross-links: `content_drafts.conversation_id` / `.source_action_id` / `.reviewed_by`, `crawl_business_profiles.approved_by_user_id`, `scan_citations.source_profile_id`, `question_bridge.new_question_id`, `question_deprecation.replaced_by`, `question_bank_version.parent_version_id` | The owning row survives; only the reference is cleared. |
+| `NO ACTION` (protected) | `scan_provenance.*` and every `methodology_version_set_id` reference | Immutable/compliance records: the parent cannot be deleted while referenced. `audit_event` has no FKs and is likewise immutable. |
+
+Note: with FK enforcement on and **no** `relationship()` definitions yet, the ORM
+does not infer parent-before-child insert ordering. Application flows that create
+a parent and child in a single flush must add them in dependency order (the app's
+per-step commits already do this).
+
 ## Security Rules
 
 - Never store BYOK provider API keys in any table or artifact metadata.
@@ -116,5 +172,4 @@ storage_path = clients/{client_id}/scans/{scan_id}/raw/responses.csv
 - Add follow-up Alembic migrations for future schema changes.
 - Add account-linking metadata if additional OAuth providers are introduced.
 - Add object storage behind the artifact metadata contract.
-- Add cascade/delete policy for client-owned records.
 - Add retention rules for local artifacts and expired scans.

@@ -15,13 +15,13 @@ PHASE13_TABLES = (
     "methodology_version_set",
     "scan_runs",
     "scan_progress",
-    "samples",
+    "execution_samples",
     "scan_steps",
     "idempotency_keys",
     "cost_ledger",
     "scan_raw_response_archive",
     "scan_provenance",
-    "sample",
+    "samples",
     "classification",
     "domain_classification",
     "avs_computation",
@@ -67,7 +67,6 @@ class AlembicMigrationTests(unittest.TestCase):
 
                     self.assertIn("users", inspector.get_table_names())
                     self.assertIn("scan_artifacts", inspector.get_table_names())
-                    self.assertIn("scan_analysis", inspector.get_table_names())
                     self.assertIn("scan_citations", inspector.get_table_names())
                     self.assertIn("client_contexts", inspector.get_table_names())
                     self.assertIn("conversations", inspector.get_table_names())
@@ -122,7 +121,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     }
                     self.assertIn("providers", scan_run_columns)
                     sample_columns = {
-                        column["name"]: column for column in inspector.get_columns("samples")
+                        column["name"]: column for column in inspector.get_columns("execution_samples")
                     }
                     self.assertIn("planned_provider_model", sample_columns)
                     self.assertTrue(sample_columns["seed"]["nullable"])
@@ -142,14 +141,18 @@ class AlembicMigrationTests(unittest.TestCase):
             finally:
                 engine.dispose()
 
-    def test_upgrade_head_adopts_existing_create_all_database(self):
+    def test_stamp_head_adopts_existing_create_all_database(self):
+        # A database first built by create_all() is already at the head schema,
+        # so the supported way to bring it under Alembic is `stamp head` — not
+        # `upgrade head`, which would replay table-creating/renaming migrations
+        # (e.g. 0021) over an already-final schema and collide. See docs/DATABASE.md.
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "aiso.db"
             engine = create_engine(f"sqlite:///{db_path}")
             Base.metadata.create_all(engine)
 
             with patch.dict("os.environ", {"DATABASE_URL": f"sqlite:///{db_path}"}):
-                command.upgrade(_alembic_config(db_path), "head")
+                command.stamp(_alembic_config(db_path), "head")
 
             try:
                 with engine.connect() as connection:
@@ -196,7 +199,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     }
                     self.assertIn("providers", scan_run_columns)
                     sample_columns = {
-                        column["name"]: column for column in inspector.get_columns("samples")
+                        column["name"]: column for column in inspector.get_columns("execution_samples")
                     }
                     self.assertIn("planned_provider_model", sample_columns)
                     self.assertTrue(sample_columns["seed"]["nullable"])

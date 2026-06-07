@@ -16,6 +16,11 @@ if str(ROOT) not in sys.path:
 
 from api.database import Base  # noqa: E402
 
+# Import every module that defines ORM models so they register on ``Base.metadata``
+# before autogenerate runs. Without this, Alembic does not see the crawler tables
+# and would emit destructive ``DROP TABLE`` operations for them.
+import api.crawler.models  # noqa: E402,F401
+
 config = context.config
 
 if config.config_file_name is not None:
@@ -36,6 +41,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -54,7 +60,11 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,
+        )
 
         with context.begin_transaction():
             context.run_migrations()

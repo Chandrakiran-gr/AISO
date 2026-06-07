@@ -20,7 +20,6 @@ from api.database import (
     Client,
     ClientContext,
     Scan,
-    ScanAnalysis,
     ScanCitation,
     ScanResult,
 )
@@ -83,13 +82,29 @@ def _priority_from_impact(impact: float) -> str:
     return "low"
 
 
-def _safe_json(value: str | None) -> Any:
+def _safe_json(value: Any) -> Any:
     if not value:
         return {}
+    if isinstance(value, (list, dict)):  # JSON-typed column already parsed
+        return value
     try:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return {}
+
+
+def _json_or_none(value: Any) -> Any:
+    """Normalize an action-data value for a JSON column: pass through list/dict,
+    parse a legacy JSON string, and use None for empty. (The action-data dict
+    still carries JSON strings from json.dumps; this stores them as structures.)"""
+    if not value:
+        return None
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 def _provider_name(provider_id: str) -> str:
@@ -481,13 +496,8 @@ def generate_actions(
 
     # 5. Get competitor names from client profile
     competitor_names = []
-    if client.competitors:
-        try:
-            parsed = json.loads(client.competitors)
-            if isinstance(parsed, list):
-                competitor_names = [str(c).strip() for c in parsed if str(c).strip()]
-        except (json.JSONDecodeError, TypeError):
-            pass
+    if isinstance(client.competitor_names, list):
+        competitor_names = [str(c).strip() for c in client.competitor_names if str(c).strip()]
 
     # 6. Generate actions from each category
     raw_actions: list[dict[str, Any]] = []
@@ -521,10 +531,10 @@ def generate_actions(
             category=data["category"],
             impact_estimate=data.get("impact_estimate"),
             remediation_type=data.get("remediation_type"),
-            target_questions_json=data.get("target_questions_json"),
-            target_providers_json=data.get("target_providers_json"),
+            target_questions_json=_json_or_none(data.get("target_questions_json")),
+            target_providers_json=_json_or_none(data.get("target_providers_json")),
             evidence_summary=data.get("evidence_summary"),
-            evidence_json=data.get("evidence_json"),
+            evidence_json=_json_or_none(data.get("evidence_json")),
             score=data.get("impact_estimate"),
             sort_order=idx,
             status="open",

@@ -21,12 +21,14 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    event,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import relationship, sessionmaker, Session
 from datetime import datetime, timezone
 import os
+import sqlite3
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./aiso.db")
 
@@ -36,6 +38,24 @@ engine = create_engine(
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
     echo=False,
 )
+
+
+@event.listens_for(engine, "connect")
+def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record):
+    """Turn on foreign-key enforcement for the application's SQLite connections.
+
+    SQLite ships with FK constraints DISABLED per connection, so without this
+    ``ON DELETE`` rules never fire and dangling references go undetected.
+    PostgreSQL enforces FKs natively, so this is a no-op there (guarded by the
+    DBAPI connection type). Scoped to the app ``engine`` deliberately: the test
+    suite builds minimal fixtures on its own engines and relies on SQLite's lax
+    default, so enforcement is verified separately in test_db_integrity.py.
+    """
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -75,12 +95,12 @@ class Client(Base):
     __tablename__ = "clients"
 
     id           = Column(String, primary_key=True)           # UUID
-    user_id      = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    user_id      = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name         = Column(String, nullable=False)             # "Boston Brew Coffee"
     url          = Column(String, nullable=False)             # "https://bostonbrew.com"
     industry     = Column(String, nullable=True)
     location     = Column(String, nullable=True)
-    competitors  = Column(Text, nullable=True)                # JSON array of competitor names
+    competitor_names = Column(_json_type(), nullable=True)    # competitor names; clients.competitor_domains holds domains
     tier          = Column(String, default="free", nullable=False)  # free | pro | growth | scale | enterprise
     cost_budget_default_usd = Column(Numeric(10, 2), default=5, nullable=False)
     byok          = Column(Boolean, default=False, nullable=False)
@@ -112,7 +132,7 @@ class BusinessProfile(Base):
         ),
     )
 
-    client_id       = Column(String, ForeignKey("clients.id"), primary_key=True)
+    client_id       = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), primary_key=True)
     vertical        = Column(String, nullable=False)
     objective       = Column(String, nullable=False)
     category        = Column(String, nullable=False, default="")
@@ -190,7 +210,7 @@ class ScanRun(Base):
     )
 
     id                         = Column(String, primary_key=True)
-    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     idempotency_key            = Column(Text, nullable=False)
     methodology_version        = Column(Text, nullable=False)
     methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
@@ -223,7 +243,7 @@ class ScanProgress(Base):
 
 class ExecutionSample(Base):
     """Idempotent provider-call result row used by the execution saga."""
-    __tablename__ = "samples"
+    __tablename__ = "execution_samples"
 
     scan_run_id        = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), primary_key=True)
     question_id        = Column(Text, primary_key=True)
@@ -345,7 +365,7 @@ class ScanProvenance(Base):
 
 class Sample(Base):
     """Canonical raw LLM response sample used for classification and AVS."""
-    __tablename__ = "sample"
+    __tablename__ = "samples"
     __table_args__ = (
         UniqueConstraint(
             "scan_id",
@@ -383,17 +403,22 @@ class Classification(Base):
     """Classifier judgment row for stance/source outputs consumed by AVS."""
     __tablename__ = "classification"
     __table_args__ = (
-        UniqueConstraint(
+        # Declared as a unique Index (not a UniqueConstraint) to match migration
+        # 0017, which created it via CREATE UNIQUE INDEX. Functionally identical
+        # (uniqueness on the triple) but keeps models == migrations on both
+        # SQLite and PostgreSQL so ``alembic check`` stays clean.
+        Index(
+            "uq_classification_sample_type_version",
             "sample_id",
             "classifier_type",
             "classifier_version",
-            name="uq_classification_sample_type_version",
+            unique=True,
         ),
         Index("ix_classification_sample_type", "sample_id", "classifier_type"),
     )
 
     id                     = Column(String, primary_key=True)
-    sample_id              = Column(String, ForeignKey("sample.id"), nullable=False)
+    sample_id              = Column(String, ForeignKey("samples.id", ondelete="CASCADE"), nullable=False)
     classifier_type        = Column(Text, nullable=False)
     classifier_version     = Column(Text, nullable=False)
     classifier_model       = Column(Text, nullable=False)
@@ -438,7 +463,7 @@ class AVSComputation(Base):
     )
 
     id                         = Column(String, primary_key=True)
-    scan_id                    = Column(String, ForeignKey("scan_provenance.scan_id"), nullable=False)
+    scan_id                    = Column(String, ForeignKey("scan_provenance.scan_id", ondelete="CASCADE"), nullable=False)
     methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=False)
     avs_value                  = Column(Numeric(6, 3), nullable=False)
     presence                   = Column(Numeric(6, 5), nullable=False)
@@ -460,7 +485,7 @@ class ScanMetric(Base):
     of 'overall' | 'provider' | 'journey_stage' | 'provider_journey'. Mention rate
     and citation rate are tracked separately, each with a 95% Wilson interval.
     """
-    __tablename__ = "scan_metric"
+    __tablename__ = "scan_metrics"
     __table_args__ = (
         UniqueConstraint(
             "scan_id", "scope_type", "provider", "journey_stage",
@@ -470,8 +495,8 @@ class ScanMetric(Base):
     )
 
     id                         = Column(String, primary_key=True)
-    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
-    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
     scope_type                 = Column(Text, nullable=False)
     provider                   = Column(Text, nullable=True)
@@ -502,15 +527,15 @@ class ScanCitationP13(Base):
     Distinct from the legacy ``scan_citations`` table; FKs to ``scan_runs`` and
     ``sample`` for auditability back to the exact answer.
     """
-    __tablename__ = "scan_citation"
+    __tablename__ = "scan_source_citations"
     __table_args__ = (
         Index("ix_scan_citation_scan_domain", "scan_id", "source_domain"),
         Index("ix_scan_citation_scan_class", "scan_id", "source_class"),
     )
 
     id                         = Column(String, primary_key=True)
-    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
-    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
     sample_id                  = Column(String, nullable=True)
     provider                   = Column(Text, nullable=False)
@@ -533,7 +558,7 @@ class ScanCitationP13(Base):
 
 class ScanCompetitor(Base):
     """Phase 13 dashboard projection: competitor presence + share of voice."""
-    __tablename__ = "scan_competitor"
+    __tablename__ = "scan_competitors"
     __table_args__ = (
         UniqueConstraint(
             "scan_id", "competitor_name", "scope_type", "provider", "journey_stage",
@@ -543,8 +568,8 @@ class ScanCompetitor(Base):
     )
 
     id                         = Column(String, primary_key=True)
-    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
-    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
     competitor_name            = Column(Text, nullable=False)
     scope_type                 = Column(Text, nullable=False)
@@ -561,15 +586,15 @@ class ScanCompetitor(Base):
 
 class ScanAction(Base):
     """Phase 13 dashboard projection: a prioritized, evidence-backed action."""
-    __tablename__ = "scan_action"
+    __tablename__ = "scan_actions"
     __table_args__ = (
         UniqueConstraint("scan_id", "action_key", name="uq_scan_action_key"),
         Index("ix_scan_action_scan", "scan_id"),
     )
 
     id                         = Column(String, primary_key=True)
-    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
-    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
     action_key                 = Column(String, nullable=False)
     title                      = Column(Text, nullable=False)
@@ -597,15 +622,15 @@ class ScanQuestionResult(Base):
     Backs the 'Missed Questions' view. Materialized at publish so dashboard reads
     are fast and tied to the signed scan, rather than recomputed from raw samples.
     """
-    __tablename__ = "scan_question_result"
+    __tablename__ = "scan_question_results"
     __table_args__ = (
         UniqueConstraint("scan_id", "question_id", "provider", name="uq_scan_question_result"),
         Index("ix_scan_question_result_scan", "scan_id"),
     )
 
     id                         = Column(String, primary_key=True)
-    scan_id                    = Column(String, ForeignKey("scan_runs.id"), nullable=False)
-    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False)
+    scan_id                    = Column(String, ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False)
+    client_id                  = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     methodology_version_set_id = Column(String, ForeignKey("methodology_version_set.id"), nullable=True)
     question_id                = Column(String, nullable=False)
     question_text              = Column(Text, nullable=True)
@@ -659,11 +684,11 @@ class ClientContext(Base):
         Index("ix_client_contexts_status", "status"),
     )
 
-    client_id     = Column(String, ForeignKey("clients.id"), primary_key=True)
+    client_id     = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), primary_key=True)
     status        = Column(String, default="not_started", nullable=False)  # not_started | discovering | draft | confirmed | needs_review | failed
-    profile_json  = Column(Text, nullable=True)                            # structured draft/confirmed profile
-    evidence_json = Column(Text, nullable=True)                            # website evidence + source URLs
-    warnings_json = Column(Text, nullable=True)                            # uncertainty/safety/classification warnings
+    profile_json  = Column(_json_type(), nullable=True)                    # structured draft/confirmed profile
+    evidence_json = Column(_json_type(), nullable=True)                    # website evidence + source URLs
+    warnings_json = Column(_json_type(), nullable=True)                    # uncertainty/safety/classification warnings
     created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -677,10 +702,10 @@ class Conversation(Base):
     )
 
     id          = Column(String, primary_key=True)
-    client_id   = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
-    user_id     = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    client_id   = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id     = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title       = Column(String, nullable=True)
-    summary_json = Column(Text, nullable=True)
+    summary_json = Column(_json_type(), nullable=True)
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     archived_at = Column(DateTime, nullable=True)
@@ -695,10 +720,10 @@ class Message(Base):
     )
 
     id              = Column(String, primary_key=True)
-    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False, index=True)
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     role            = Column(String, nullable=False)  # user | assistant | system
     content         = Column(Text, nullable=False)
-    metadata_json   = Column(Text, nullable=True)
+    metadata_json   = Column(_json_type(), nullable=True)
     created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -711,18 +736,18 @@ class ContentDraft(Base):
     )
 
     id              = Column(String, primary_key=True)
-    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=True)
-    client_id       = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
-    created_by      = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+    client_id       = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by      = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     content_type    = Column(String, nullable=False)          # blog_post | linkedin_post | platform_listing | review_response | faq_page | schema_markup | other
     title           = Column(String, nullable=False)
     content         = Column(Text, nullable=False)
     status          = Column(String, default="pending_review", nullable=False)  # pending_review | approved | rejected | archived
-    reviewed_by     = Column(String, ForeignKey("users.id"), nullable=True)
+    reviewed_by     = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at     = Column(DateTime, nullable=True)
     review_notes    = Column(Text, nullable=True)
-    source_action_id     = Column(String, ForeignKey("actions.id"), nullable=True)   # Action that triggered this content
-    target_questions_json = Column(Text, nullable=True)       # JSON array of scan questions this content targets
+    source_action_id     = Column(String, ForeignKey("actions.id", ondelete="SET NULL"), nullable=True)   # Action that triggered this content
+    target_questions_json = Column(_json_type(), nullable=True)  # JSON array of scan questions this content targets
     export_format   = Column(String, nullable=True)           # pdf | docx | null
     export_path     = Column(Text, nullable=True)             # Local path to exported file
     created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -737,7 +762,7 @@ class AssistantRateLimitEvent(Base):
     )
 
     id         = Column(String, primary_key=True)
-    user_id    = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    user_id    = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     event_type = Column(String, nullable=False, default="assistant_message")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
@@ -747,10 +772,10 @@ class Scan(Base):
     __tablename__ = "scans"
 
     id          = Column(String, primary_key=True)            # UUID
-    client_id   = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    client_id   = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     status      = Column(String, default="pending")           # pending | running | complete | failed
-    providers   = Column(Text, nullable=True)                 # JSON array ["openai","claude",...]
-    groups      = Column(Text, nullable=True)                 # JSON array ["G1","G2",...]
+    providers   = Column(_json_type(), nullable=True)         # JSON array ["openai","claude",...]
+    groups      = Column(_json_type(), nullable=True)         # JSON array ["G1","G2",...]
     started_at  = Column(DateTime, nullable=True)
     completed_at= Column(DateTime, nullable=True)
     error       = Column(Text, nullable=True)
@@ -762,15 +787,15 @@ class ScanResult(Base):
     __tablename__ = "scan_results"
 
     id                = Column(String, primary_key=True)      # UUID
-    scan_id           = Column(String, ForeignKey("scans.id"), nullable=False, index=True)
-    client_id         = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    scan_id           = Column(String, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True)
+    client_id         = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     provider          = Column(String, nullable=False)         # "openai" | "claude" | ...
     group             = Column(String, nullable=False)         # "G1" ... "G7"
     total_questions   = Column(Integer, default=0)
     mention_count     = Column(Integer, default=0)
     avg_position      = Column(Float, nullable=True)
     visibility_score  = Column(Float, nullable=True)           # 0.0 – 100.0
-    competitor_data   = Column(Text, nullable=True)            # JSON: {competitor: mention_count}
+    competitor_data   = Column(_json_type(), nullable=True)    # JSON: {competitor: mention_count}
     created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -789,7 +814,7 @@ class QuestionCandidate(Base):
     )
 
     id                     = Column(String, primary_key=True)
-    client_id              = Column(String, ForeignKey("clients.id"), nullable=False)
+    client_id              = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     scan_run_id            = Column(String, nullable=True)
     text                   = Column(Text, nullable=False)
     text_hash              = Column(String, nullable=False)
@@ -810,7 +835,7 @@ class QuestionScore(Base):
     """Immutable score row for one candidate under a scorer version."""
     __tablename__ = "question_candidate_score"
 
-    question_id = Column(String, ForeignKey("question_candidate.id"), primary_key=True)
+    question_id = Column(String, ForeignKey("question_candidate.id", ondelete="CASCADE"), primary_key=True)
     scored_at   = Column(DateTime, primary_key=True)
     d1_buyer_plausibility = Column(Numeric(5, 3), nullable=True)
     d2_commercial_proximity = Column(Numeric(5, 3), nullable=True)
@@ -827,7 +852,7 @@ class QuestionBankVersion(Base):
     __tablename__ = "question_bank_version"
 
     bank_version_id   = Column(String, primary_key=True)
-    client_id         = Column(String, ForeignKey("clients.id"), nullable=False)
+    client_id         = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     avs_version       = Column(Text, nullable=False)
     effective_from    = Column(DateTime, nullable=False)
     effective_to      = Column(DateTime, nullable=True)
@@ -835,7 +860,7 @@ class QuestionBankVersion(Base):
     n_tail            = Column(Integer, nullable=False)
     n_total           = Column(Integer, nullable=False)
     rotation_reason   = Column(Text, nullable=True)
-    parent_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id"), nullable=True)
+    parent_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id", ondelete="SET NULL"), nullable=True)
     created_at        = Column(DateTime, nullable=False, default=_utcnow)
 
 
@@ -859,7 +884,7 @@ class QuestionBankQuestion(Base):
     )
 
     question_id   = Column(String, primary_key=True)
-    client_id     = Column(String, ForeignKey("clients.id"), nullable=False)
+    client_id     = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     text          = Column(Text, nullable=False)
     text_hash     = Column(Text, nullable=False)
     journey_stage = Column(Text, nullable=False)
@@ -874,7 +899,7 @@ class QuestionBankScore(Base):
     """Canonical question-bank score row from question-bank-1.0.md."""
     __tablename__ = "question_score"
 
-    question_id          = Column(String, ForeignKey("question.question_id"), primary_key=True)
+    question_id          = Column(String, ForeignKey("question.question_id", ondelete="CASCADE"), primary_key=True)
     scored_at            = Column(DateTime, primary_key=True)
     journey_match        = Column(Numeric(5, 3), nullable=True)
     brand_frame_match    = Column(Numeric(5, 3), nullable=True)
@@ -901,8 +926,8 @@ class QuestionBankMembership(Base):
         ),
     )
 
-    bank_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id"), primary_key=True)
-    question_id     = Column(String, ForeignKey("question.question_id"), primary_key=True)
+    bank_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id", ondelete="CASCADE"), primary_key=True)
+    question_id     = Column(String, ForeignKey("question.question_id", ondelete="CASCADE"), primary_key=True)
     state           = Column(Text, nullable=False)
     weight          = Column(Numeric(6, 4), nullable=False, default=1)
     entered_at      = Column(DateTime, nullable=False)
@@ -913,8 +938,8 @@ class ScanManifest(Base):
     __tablename__ = "scan_manifest"
 
     scan_id        = Column(String, primary_key=True)
-    question_id    = Column(String, ForeignKey("question.question_id"), primary_key=True)
-    bank_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id"), nullable=False)
+    question_id    = Column(String, ForeignKey("question.question_id", ondelete="CASCADE"), primary_key=True)
+    bank_version_id = Column(String, ForeignKey("question_bank_version.bank_version_id", ondelete="CASCADE"), nullable=False)
     weight_at_scan = Column(Numeric(6, 4), nullable=False)
     state_at_scan  = Column(Text, nullable=False)
 
@@ -930,8 +955,8 @@ class QuestionBridge(Base):
     )
 
     bridge_id         = Column(String, primary_key=True)
-    old_question_id   = Column(String, ForeignKey("question.question_id"), nullable=False)
-    new_question_id   = Column(String, ForeignKey("question.question_id"), nullable=True)
+    old_question_id   = Column(String, ForeignKey("question.question_id", ondelete="CASCADE"), nullable=False)
+    new_question_id   = Column(String, ForeignKey("question.question_id", ondelete="SET NULL"), nullable=True)
     bridge_scan_id    = Column(String, nullable=True)
     equivalence_score = Column(Numeric(5, 3), nullable=True)
     bridge_method     = Column(Text, nullable=False)
@@ -944,10 +969,10 @@ class QuestionDeprecation(Base):
     """Deprecation record for a canonical question."""
     __tablename__ = "question_deprecation"
 
-    question_id    = Column(String, ForeignKey("question.question_id"), primary_key=True)
+    question_id    = Column(String, ForeignKey("question.question_id", ondelete="CASCADE"), primary_key=True)
     deprecated_at  = Column(DateTime, nullable=False)
     reason         = Column(Text, nullable=False)
-    replaced_by    = Column(String, ForeignKey("question.question_id"), nullable=True)
+    replaced_by    = Column(String, ForeignKey("question.question_id", ondelete="SET NULL"), nullable=True)
 
 
 class ScanArtifact(Base):
@@ -963,8 +988,8 @@ class ScanArtifact(Base):
     )
 
     id                = Column(String, primary_key=True)       # UUID
-    client_id         = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
-    scan_id           = Column(String, ForeignKey("scans.id"), nullable=True, index=True)
+    client_id         = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    scan_id           = Column(String, ForeignKey("scans.id", ondelete="CASCADE"), nullable=True, index=True)
     artifact_type     = Column(String, nullable=False)          # collect_csv | report
     file_format       = Column(String, nullable=True)           # csv | xlsx | json | pdf
     storage_backend   = Column(String, default="local", nullable=False)  # local | s3
@@ -973,30 +998,8 @@ class ScanArtifact(Base):
     mime_type         = Column(String, nullable=True)
     size_bytes        = Column(BigInteger, nullable=True)
     sha256            = Column(String, nullable=True)
-    metadata_json     = Column(Text, nullable=True)             # JSON for non-query metadata
+    metadata_json     = Column(Text, nullable=True)             # storage-serialized JSON string (kept Text: produced by the storage layer)
     created_at        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-
-class ScanAnalysis(Base):
-    """Structured analysis generated from scan results."""
-    __tablename__ = "scan_analysis"
-    __table_args__ = (
-        Index("ix_scan_analysis_client_scan", "client_id", "scan_id"),
-        Index("ix_scan_analysis_scope", "provider", "group"),
-    )
-
-    id                   = Column(String, primary_key=True)    # UUID
-    client_id            = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
-    scan_id              = Column(String, ForeignKey("scans.id"), nullable=False, index=True)
-    provider             = Column(String, nullable=True)        # null for cross-provider analysis
-    group                = Column(String, nullable=True)        # null for cross-group analysis
-    analysis_type        = Column(String, default="visibility_summary", nullable=False)
-    summary              = Column(Text, nullable=True)
-    strengths_json       = Column(Text, nullable=True)          # JSON array
-    weaknesses_json      = Column(Text, nullable=True)          # JSON array
-    recommendations_json = Column(Text, nullable=True)          # JSON array
-    raw_json             = Column(Text, nullable=True)          # source model/tool output
-    created_at           = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class SourceProfile(Base):
@@ -1011,7 +1014,7 @@ class SourceProfile(Base):
     )
 
     id                         = Column(String, primary_key=True)
-    client_id                  = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
+    client_id                  = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     canonical_url              = Column(Text, nullable=False)
     source_domain              = Column(String, nullable=True)
     source_title               = Column(Text, nullable=True)
@@ -1022,13 +1025,13 @@ class SourceProfile(Base):
     influence_score            = Column(Float, nullable=True)
     relevance_score            = Column(Float, nullable=True)
     client_mentioned           = Column(Boolean, nullable=True)
-    competitors_mentioned_json = Column(Text, nullable=True)
-    topics_json                = Column(Text, nullable=True)
+    competitors_mentioned_json = Column(_json_type(), nullable=True)
+    topics_json                = Column(_json_type(), nullable=True)
     fetch_status               = Column(String, nullable=True)
     last_fetched_at            = Column(DateTime, nullable=True)
     last_enriched_at           = Column(DateTime, nullable=True)
     classification_reason      = Column(Text, nullable=True)
-    metadata_json              = Column(Text, nullable=True)
+    metadata_json              = Column(_json_type(), nullable=True)
     created_at                 = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at                 = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -1043,9 +1046,9 @@ class ScanCitation(Base):
     )
 
     id             = Column(String, primary_key=True)           # UUID
-    client_id      = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
-    scan_id        = Column(String, ForeignKey("scans.id"), nullable=False, index=True)
-    source_profile_id = Column(String, ForeignKey("source_profiles.id"), nullable=True, index=True)
+    client_id      = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    scan_id        = Column(String, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_profile_id = Column(String, ForeignKey("source_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     provider       = Column(String, nullable=False)             # LLM provider id
     group          = Column(String, nullable=True)
     question       = Column(Text, nullable=True)
@@ -1066,7 +1069,7 @@ class ScanCitation(Base):
     relevance_score = Column(Float, nullable=True)
     confidence_score = Column(Float, nullable=True)
     classification_reason = Column(Text, nullable=True)
-    metadata_json  = Column(Text, nullable=True)                # JSON provider citation metadata
+    metadata_json  = Column(_json_type(), nullable=True)        # JSON provider citation metadata
     created_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -1080,8 +1083,8 @@ class Action(Base):
     )
 
     id          = Column(String, primary_key=True)            # UUID
-    client_id   = Column(String, ForeignKey("clients.id"), nullable=False, index=True)
-    scan_id     = Column(String, ForeignKey("scans.id"), nullable=True)
+    client_id   = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    scan_id     = Column(String, ForeignKey("scans.id", ondelete="CASCADE"), nullable=True)
     action_key  = Column(String, nullable=True)               # stable deterministic key per scan
     title       = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -1091,15 +1094,46 @@ class Action(Base):
     effort      = Column(String, nullable=True)               # "30 min" | "1 hour"
     score       = Column(Float, nullable=True)                # ranking score from deterministic engine
     sort_order  = Column(Integer, nullable=True)              # stable UI ordering
-    evidence_json = Column(Text, nullable=True)               # JSON evidence behind the recommendation
+    evidence_json = Column(_json_type(), nullable=True)       # JSON evidence behind the recommendation
     remediation_type      = Column(String, nullable=True)     # blog_post | faq_page | schema_markup | listing_update | review_response | page_optimization | linkedin_post
-    target_questions_json  = Column(Text, nullable=True)      # JSON array of question strings this action addresses
-    target_providers_json  = Column(Text, nullable=True)      # JSON array of provider names (e.g. ["perplexity","openai"])
+    target_questions_json  = Column(_json_type(), nullable=True)  # JSON array of question strings this action addresses
+    target_providers_json  = Column(_json_type(), nullable=True)  # JSON array of provider names (e.g. ["perplexity","openai"])
     evidence_summary       = Column(Text, nullable=True)      # Human-readable paragraph: why this matters, what scan found
     impact_estimate        = Column(Float, nullable=True)     # 0-100 predicted score improvement
     status      = Column(String, default="open")              # "open" | "done" | "dismissed"
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at= Column(DateTime, nullable=True)
+
+
+# ── Relationships (core ownership graph) ─────────────────────────────────────
+# Assigned imperatively after the mapped classes are defined. ``passive_deletes``
+# defers to the database ON DELETE rules from migration 0020 — the ORM does not
+# emit child DELETE/UPDATE on parent delete, it trusts the DB cascade. Only
+# unambiguous single-FK pairs are mapped; tables with multiple FKs to the same
+# parent (e.g. content_drafts → users) are intentionally left unmapped.
+# Collections use cascade="all, delete-orphan" + passive_deletes=True so the ORM
+# defers entirely to the database ON DELETE CASCADE rather than emitting its own
+# child DELETE/UPDATE (which would otherwise try to NULL a NOT NULL FK on a
+# loaded child when the parent is deleted).
+_OWNS = {"cascade": "all, delete-orphan", "passive_deletes": True}
+
+User.clients = relationship("Client", back_populates="user", **_OWNS)
+Client.user = relationship("User", back_populates="clients")
+
+Client.scans = relationship("Scan", back_populates="client", **_OWNS)
+Scan.client = relationship("Client", back_populates="scans")
+
+Client.scan_runs = relationship("ScanRun", back_populates="client", **_OWNS)
+ScanRun.client = relationship("Client", back_populates="scan_runs")
+
+Scan.results = relationship("ScanResult", back_populates="scan", **_OWNS)
+ScanResult.scan = relationship("Scan", back_populates="results")
+
+Scan.citations = relationship("ScanCitation", back_populates="scan", **_OWNS)
+ScanCitation.scan = relationship("Scan", back_populates="citations")
+
+Conversation.messages = relationship("Message", back_populates="conversation", **_OWNS)
+Message.conversation = relationship("Conversation", back_populates="messages")
 
 
 # ── DB helpers ───────────────────────────────────────────────────────────────
@@ -1114,16 +1148,20 @@ def get_db() -> Session:  # type: ignore[return]
 
 
 def init_db():
-    """Create local development tables when auto-create is enabled.
+    """Optionally create tables from models when explicitly opted in.
 
-    Production deployments should apply Alembic migrations instead of relying
-    on implicit table creation at app startup.
+    Alembic migrations are the single source of truth for the schema in EVERY
+    environment — run ``alembic upgrade head``. Implicit ``create_all()`` is OFF
+    by default (in dev and prod alike) because it silently drifts the live
+    schema away from the migrations (it only creates *missing* tables and never
+    alters existing ones). Enable it only for throwaway local experiments by
+    setting ``AISO_AUTO_CREATE_TABLES=1``. Unit tests build their own schema via
+    ``Base.metadata.create_all`` on a dedicated engine and do not use this path.
     """
-    auto_create_default = "0" if os.getenv("ENV") == "production" else "1"
-    auto_create = os.getenv("AISO_AUTO_CREATE_TABLES", auto_create_default)
+    auto_create = os.getenv("AISO_AUTO_CREATE_TABLES", "0")
     if auto_create != "1":
-        print("[AISO DB] Auto table creation disabled; run Alembic migrations.")
+        print("[AISO DB] Auto table creation disabled; run `alembic upgrade head`.")
         return
 
     Base.metadata.create_all(bind=engine)
-    print("[AISO DB] Tables initialised.")
+    print("[AISO DB] Tables initialised via create_all (AISO_AUTO_CREATE_TABLES=1).")

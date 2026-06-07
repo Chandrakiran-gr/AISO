@@ -47,7 +47,7 @@ class PipelineMetricsTests(unittest.TestCase):
                     user_id="user-1",
                     name="Pempsa",
                     url="https://pempsa.example",
-                    competitors=json.dumps(["Bella Boutique Spa", "Christine's Day Spa"]),
+                    competitor_names=["Bella Boutique Spa", "Christine's Day Spa"],
                 )
             )
             session.add(
@@ -55,8 +55,8 @@ class PipelineMetricsTests(unittest.TestCase):
                     id="scan-1",
                     client_id="client-1",
                     status="complete",
-                    providers=json.dumps(["perplexity", "openai"]),
-                    groups=json.dumps(["G2"]),
+                    providers=["perplexity", "openai"],
+                    groups=["G2"],
                 )
             )
             session.add_all(
@@ -69,12 +69,10 @@ class PipelineMetricsTests(unittest.TestCase):
                         group="G2",
                         total_questions=12,
                         mention_count=9,
-                        competitor_data=json.dumps(
-                            {
-                                "Bella Boutique Spa": 0,
-                                "Christine's Day Spa": 0,
-                            }
-                        ),
+                        competitor_data={
+                            "Bella Boutique Spa": 0,
+                            "Christine's Day Spa": 0,
+                        },
                     ),
                     ScanResult(
                         id="result-2",
@@ -84,12 +82,10 @@ class PipelineMetricsTests(unittest.TestCase):
                         group="G2",
                         total_questions=4,
                         mention_count=1,
-                        competitor_data=json.dumps(
-                            {
-                                "Bella Boutique Spa": 2,
-                                "Christine's Day Spa": 0,
-                            }
-                        ),
+                        competitor_data={
+                            "Bella Boutique Spa": 2,
+                            "Christine's Day Spa": 0,
+                        },
                     ),
                     ScanResult(
                         id="manual-result",
@@ -99,7 +95,7 @@ class PipelineMetricsTests(unittest.TestCase):
                         group="MANUAL",
                         total_questions=50,
                         mention_count=0,
-                        competitor_data=json.dumps({"Bella Boutique Spa": 50}),
+                        competitor_data={"Bella Boutique Spa": 50},
                     ),
                 ]
             )
@@ -198,14 +194,14 @@ class PipelineMetricsTests(unittest.TestCase):
                 user_id="user-1",
                 name="Pempsa",
                 url="https://pempsa.example",
-                competitors=json.dumps(["Bella Boutique Spa"]),
+                competitor_names=["Bella Boutique Spa"],
             )
             scan = Scan(
                 id="scan-1",
                 client_id="client-1",
                 status="complete",
-                providers=json.dumps(["openai"]),
-                groups=json.dumps(["G2"]),
+                providers=["openai"],
+                groups=["G2"],
             )
             session.add_all([user, client, scan])
             session.add_all(
@@ -218,7 +214,7 @@ class PipelineMetricsTests(unittest.TestCase):
                         group="G2",
                         total_questions=2,
                         mention_count=1,
-                        competitor_data=json.dumps({"Bella Boutique Spa": 1}),
+                        competitor_data={"Bella Boutique Spa": 1},
                     ),
                     ScanResult(
                         id="manual-result",
@@ -228,7 +224,7 @@ class PipelineMetricsTests(unittest.TestCase):
                         group="MANUAL",
                         total_questions=10,
                         mention_count=0,
-                        competitor_data=json.dumps({"Bella Boutique Spa": 10}),
+                        competitor_data={"Bella Boutique Spa": 10},
                     ),
                 ]
             )
@@ -410,7 +406,7 @@ class PipelineMetricsTests(unittest.TestCase):
                 user_id="user-1",
                 name="Pempsa",
                 url="https://pempsa.example",
-                competitors=json.dumps(["Bella Boutique Spa"]),
+                competitor_names=["Bella Boutique Spa"],
             )
         )
         session.add(

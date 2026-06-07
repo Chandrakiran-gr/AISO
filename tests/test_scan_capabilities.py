@@ -38,7 +38,7 @@ class ScanCapabilityTests(unittest.TestCase):
                 url="https://example.com",
                 industry="Local service",
                 location="Boston, MA",
-                competitors=json.dumps(competitors) if competitors is not None else None,
+                competitor_names=competitors,
             )
         )
         if context_profile is not None:
@@ -46,7 +46,7 @@ class ScanCapabilityTests(unittest.TestCase):
                 ClientContext(
                     client_id="client-1",
                     status="confirmed",
-                    profile_json=json.dumps(context_profile),
+                    profile_json=context_profile,
                 )
             )
         session.commit()

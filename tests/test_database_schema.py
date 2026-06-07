@@ -26,7 +26,6 @@ from api.database import (
     QuestionScore,
     ScanManifest,
     Scan,
-    ScanAnalysis,
     ScanArtifact,
     ScanCitation,
     ScanResult,
@@ -60,7 +59,6 @@ class DatabaseSchemaTests(unittest.TestCase):
             inspector = inspect(connection)
 
             self.assertIn("scan_artifacts", inspector.get_table_names())
-            self.assertIn("scan_analysis", inspector.get_table_names())
             self.assertIn("scan_citations", inspector.get_table_names())
             self.assertIn("source_profiles", inspector.get_table_names())
             self.assertIn("client_contexts", inspector.get_table_names())
@@ -342,9 +340,9 @@ class DatabaseSchemaTests(unittest.TestCase):
                 ClientContext(
                     client_id="client-1",
                     status="confirmed",
-                    profile_json=json.dumps({"business": {"name": "AISO Demo"}}),
-                    evidence_json=json.dumps({"pages": []}),
-                    warnings_json=json.dumps([]),
+                    profile_json={"business": {"name": "AISO Demo"}},
+                    evidence_json={"pages": []},
+                    warnings_json=[],
                 )
             )
             session.flush()
@@ -362,18 +360,6 @@ class DatabaseSchemaTests(unittest.TestCase):
                 )
             )
             session.add(
-                ScanAnalysis(
-                    id="analysis-1",
-                    client_id="client-1",
-                    scan_id="scan-1",
-                    analysis_type="visibility_summary",
-                    summary="AISO is visible in most direct-brand prompts.",
-                    recommendations_json=json.dumps(
-                        ["Improve competitor comparison pages."]
-                    ),
-                )
-            )
-            session.add(
                 ScanCitation(
                     id="citation-1",
                     client_id="client-1",
@@ -387,7 +373,6 @@ class DatabaseSchemaTests(unittest.TestCase):
             session.commit()
 
             self.assertEqual(session.query(ScanArtifact).count(), 1)
-            self.assertEqual(session.query(ScanAnalysis).count(), 1)
             self.assertEqual(session.query(ScanCitation).count(), 1)
             self.assertEqual(session.query(ClientContext).count(), 1)
         finally:

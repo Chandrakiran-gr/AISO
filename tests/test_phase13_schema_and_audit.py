@@ -10,13 +10,13 @@ PHASE13_TABLES = {
     "methodology_version_set",
     "scan_runs",
     "scan_progress",
-    "samples",
+    "execution_samples",
     "scan_steps",
     "idempotency_keys",
     "cost_ledger",
     "scan_raw_response_archive",
     "scan_provenance",
-    "sample",
+    "samples",
     "classification",
     "domain_classification",
     "avs_computation",
@@ -86,11 +86,11 @@ def test_phase13_foundation_schema_tables_and_constraints_exist():
 
             sample_constraints = {
                 constraint["name"]
-                for constraint in inspector.get_unique_constraints("sample")
+                for constraint in inspector.get_unique_constraints("samples")
             }
             assert "uq_sample_scan_question_provider_index" in sample_constraints
             execution_sample_columns = {
-                column["name"]: column for column in inspector.get_columns("samples")
+                column["name"]: column for column in inspector.get_columns("execution_samples")
             }
             assert {
                 "planned_provider_model",
@@ -114,7 +114,7 @@ def test_phase13_foundation_schema_tables_and_constraints_exist():
             assert execution_sample_columns["seed"]["nullable"] is True
 
             canonical_sample_columns = {
-                column["name"]: column for column in inspector.get_columns("sample")
+                column["name"]: column for column in inspector.get_columns("samples")
             }
             assert {
                 "top_p",
@@ -132,11 +132,16 @@ def test_phase13_foundation_schema_tables_and_constraints_exist():
             }
             assert "uq_avs_computation_scan_methodology" in avs_constraints
 
-            classification_constraints = {
-                constraint["name"]
-                for constraint in inspector.get_unique_constraints("classification")
+            # The (sample_id, classifier_type, classifier_version) uniqueness is
+            # enforced by a unique index named ``uq_classification_sample_type_version``
+            # (migration 0017 created it via CREATE UNIQUE INDEX, and the model
+            # declares a matching unique Index), not a table-level unique constraint.
+            classification_unique_indexes = {
+                index["name"]
+                for index in inspector.get_indexes("classification")
+                if index.get("unique")
             }
-            assert "uq_classification_sample_type_version" in classification_constraints
+            assert "uq_classification_sample_type_version" in classification_unique_indexes
 
             domain_cache_columns = {
                 column["name"] for column in inspector.get_columns("domain_classification")

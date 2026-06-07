@@ -61,12 +61,14 @@ def _ensure_client(db: Session, client_id: str, user_id: str) -> Client:
     return client
 
 
-def _safe_json_loads(value: str | None, fallback: Any) -> Any:
+def _safe_json_loads(value: Any, fallback: Any) -> Any:
     if not value:
         return fallback
+    if isinstance(value, (list, dict)):  # JSON-typed column already parsed
+        return value
     try:
         return json.loads(value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return fallback
 
 
@@ -102,7 +104,7 @@ def _save_context_failure(db: Session, context: ClientContext, warnings: list[st
     context.status = "failed"
     context.profile_json = None
     context.evidence_json = None
-    context.warnings_json = json.dumps(warnings, ensure_ascii=False)
+    context.warnings_json = warnings
     context.updated_at = datetime.now(timezone.utc)
     db.commit()
 
@@ -120,9 +122,9 @@ def _run_context_discovery(client_id: str) -> None:
             evidence = discover_website(client.url, config=IngestionConfig())
             profile, warnings, next_status = build_context_profile(client, evidence)
             context.status = next_status
-            context.profile_json = json.dumps(profile, ensure_ascii=False, sort_keys=True)
-            context.evidence_json = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
-            context.warnings_json = json.dumps(warnings, ensure_ascii=False)
+            context.profile_json = profile
+            context.evidence_json = evidence
+            context.warnings_json = warnings
             context.updated_at = datetime.now(timezone.utc)
             db.commit()
         except URLSafetyError as exc:
@@ -175,10 +177,7 @@ async def discover_client_context(
     client = _ensure_client(db, client_id, user_id)
     context = _get_or_create_context(db, client_id)
     context.status = "discovering"
-    context.warnings_json = json.dumps(
-        ["Website discovery is running. AISO is reading public pages only."],
-        ensure_ascii=False,
-    )
+    context.warnings_json = ["Website discovery is running. AISO is reading public pages only."]
     context.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(context)
@@ -203,10 +202,10 @@ async def update_client_context(
 
     context = _get_or_create_context(db, client_id)
     context.status = clean_status
-    context.profile_json = json.dumps(payload.profile_json, ensure_ascii=False, sort_keys=True)
-    context.warnings_json = json.dumps(payload.warnings_json, ensure_ascii=False)
+    context.profile_json = payload.profile_json
+    context.warnings_json = payload.warnings_json
     context.updated_at = datetime.now(timezone.utc)
-    client.competitors = json.dumps(profile_competitor_names(payload.profile_json), ensure_ascii=False)
+    client.competitor_names = profile_competitor_names(payload.profile_json)
     client.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(context)

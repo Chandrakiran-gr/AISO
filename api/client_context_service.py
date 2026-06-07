@@ -181,12 +181,7 @@ def _item(name: str, item_type: str, confidence: float, source_url: str, **extra
 
 
 def _client_competitors(client: Client) -> list[str]:
-    if not client.competitors:
-        return []
-    try:
-        parsed = json.loads(client.competitors)
-    except json.JSONDecodeError:
-        return []
+    parsed = client.competitor_names
     if not isinstance(parsed, list):
         return []
     return [_clean(item) for item in parsed if _clean(item)]

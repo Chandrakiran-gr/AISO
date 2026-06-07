@@ -115,13 +115,18 @@ class EditProfileRequest(BaseModel):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _safe_json_loads(value: str | None, fallback: Any = None) -> Any:
-    if not value:
-        return fallback if fallback is not None else []
+def _safe_json_loads(value: Any, fallback: Any = None) -> Any:
+    default = fallback if fallback is not None else []
+    if value is None or value == "":
+        return default
+    # JSON-typed columns already hand back parsed lists/dicts; only legacy rows
+    # (or other string inputs) still need json.loads.
+    if isinstance(value, (list, dict)):
+        return value
     try:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
-        return fallback if fallback is not None else []
+        return default
 
 
 def _serialize_job(job: CrawlJob) -> CrawlJobResponse:
@@ -192,7 +197,7 @@ async def create_workspace(
         client_id=payload.client_id,
         website_url=validated["safe_url"],
         normalized_domain=validated["normalized_domain"],
-        allowed_domains=json.dumps(validated["allowed_domains"], ensure_ascii=False),
+        allowed_domains=validated["allowed_domains"],
         consent_confirmed=True,
         status="created",
     )
@@ -588,8 +593,8 @@ def _sync_client_context_from_profile(
             existing_profile["locations"] = profile_locations
 
     context.status = status_value
-    context.profile_json = json.dumps(existing_profile, ensure_ascii=False)
-    context.warnings_json = json.dumps(warnings or _safe_json_loads(profile.missing_fields, []), ensure_ascii=False)
+    context.profile_json = existing_profile
+    context.warnings_json = warnings or _safe_json_loads(profile.missing_fields, [])
     context.updated_at = now
 
 
@@ -701,15 +706,15 @@ async def edit_business_profile(
     if payload.industry is not None:
         profile.industry = payload.industry
     if payload.products is not None:
-        profile.products = json.dumps(payload.products, ensure_ascii=False)
+        profile.products = payload.products
     if payload.services is not None:
-        profile.services = json.dumps(payload.services, ensure_ascii=False)
+        profile.services = payload.services
     if payload.locations is not None:
-        profile.locations = json.dumps(payload.locations, ensure_ascii=False)
+        profile.locations = payload.locations
     if payload.contacts is not None:
-        profile.contacts = json.dumps(payload.contacts, ensure_ascii=False)
+        profile.contacts = payload.contacts
     if payload.social_links is not None:
-        profile.social_links = json.dumps(payload.social_links, ensure_ascii=False)
+        profile.social_links = payload.social_links
 
     profile.updated_at = datetime.now(timezone.utc)
     db.commit()

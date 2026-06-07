@@ -25,7 +25,7 @@ class GapReportFallbackTests(unittest.TestCase):
                 user_id="user-1",
                 name="PemSpa Skincare & Wellness",
                 url="https://pempsa.com",
-                competitors='["Bella Boutique Spa"]',
+                competitor_names=["Bella Boutique Spa"],
             )
         )
         session.add(Scan(id="scan-1", client_id="client-1", status="complete"))

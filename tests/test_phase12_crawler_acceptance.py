@@ -79,7 +79,7 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
                     url=SEED_URL,
                     industry=category,
                     location="United States",
-                    competitors=json.dumps(["Alpha", "Beta", "Gamma"]),
+                    competitor_names=["Alpha", "Beta", "Gamma"],
                     created_at=now,
                     updated_at=now,
                 )
@@ -106,7 +106,7 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
                     client_id=client_id,
                     website_url=SEED_URL,
                     normalized_domain="93.184.216.34",
-                    allowed_domains=json.dumps(["93.184.216.34"]),
+                    allowed_domains=["93.184.216.34"],
                     consent_confirmed=True,
                     status="active",
                     created_at=now,
@@ -143,7 +143,7 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
         db = self._SessionLocal()
         try:
             job = db.query(CrawlJob).filter(CrawlJob.id == job_id).one()
-            return job.status, json.loads(job.warnings or "[]")
+            return job.status, (job.warnings or [])
         finally:
             db.close()
 

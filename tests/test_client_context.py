@@ -28,7 +28,7 @@ class ClientContextProfileTests(unittest.TestCase):
             url="https://pempsa.example",
             industry="boutique skincare spa",
             location="Newton Centre, MA",
-            competitors=json.dumps(["Bella Boutique Spa"]),
+            competitor_names=["Bella Boutique Spa"],
         )
         evidence = {
             "pages": [
@@ -69,7 +69,7 @@ class ClientContextProfileTests(unittest.TestCase):
             url="https://www.pemspa.com/",
             industry="boutique skincare spa / facial spa",
             location="Newton Centre, MA",
-            competitors=json.dumps(["Bella Boutique Spa", "Christine's Day Spa"]),
+            competitor_names=["Bella Boutique Spa", "Christine's Day Spa"],
         )
         evidence = {
             "pages": [
@@ -398,7 +398,7 @@ class ClientContextApiTests(unittest.TestCase):
             stored = session.query(ClientContext).one()
             client = session.query(Client).filter(Client.id == "client-1").one()
             self.assertIsNotNone(stored.updated_at)
-            stored_profile = json.loads(stored.profile_json)
+            stored_profile = stored.profile_json
             self.assertEqual(stored_profile["business"]["name"], "AISO Demo")
             self.assertEqual(
                 stored_profile["scan_objective"]["optimization_objectives"],
@@ -408,7 +408,7 @@ class ClientContextApiTests(unittest.TestCase):
                 stored_profile["scan_objective"]["custom_objective"],
                 "Prioritize buyers comparing proof and local availability.",
             )
-            self.assertEqual(json.loads(client.competitors), ["Competitor One", "Competitor Two"])
+            self.assertEqual(client.competitor_names, ["Competitor One", "Competitor Two"])
         finally:
             session.close()
 

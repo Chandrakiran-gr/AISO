@@ -18,7 +18,6 @@ from api.database import (
     Conversation,
     Message,
     Scan,
-    ScanAnalysis,
     ScanResult,
     User,
 )
@@ -86,13 +85,11 @@ class AssistantRouteTests(unittest.TestCase):
             ClientContext(
                 client_id="client-1",
                 status="confirmed",
-                profile_json=json.dumps(
-                    {
-                        "business": {"name": "AISO Demo"},
-                        "offerings": [{"name": "Visibility audit"}],
-                    }
-                ),
-                warnings_json=json.dumps([]),
+                profile_json={
+                    "business": {"name": "AISO Demo"},
+                    "offerings": [{"name": "Visibility audit"}],
+                },
+                warnings_json=[],
             )
         )
         session.add(
@@ -113,16 +110,6 @@ class AssistantRouteTests(unittest.TestCase):
                 group="G2",
                 total_questions=10,
                 mention_count=7,
-            )
-        )
-        session.add(
-            ScanAnalysis(
-                id="analysis-1",
-                client_id="client-1",
-                scan_id="scan-1",
-                provider="openai",
-                group="G2",
-                summary="OpenAI found AISO in 7 of 10 comparison prompts.",
             )
         )
         session.add(
@@ -456,7 +443,7 @@ class AssistantRouteTests(unittest.TestCase):
             _refresh_conversation_summary(session, conversation)
 
             self.assertIsNotNone(conversation.summary_json)
-            summary = json.loads(conversation.summary_json)
+            summary = conversation.summary_json
             self.assertEqual(summary["message_count"], 2)
             self.assertIn("message 0", summary["summary"])
             self.assertEqual(len(_llm_messages(_assistant_context(session, conversation), "current turn")), 20)

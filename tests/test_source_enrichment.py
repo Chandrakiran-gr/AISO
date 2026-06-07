@@ -30,7 +30,7 @@ class SourceEnrichmentTests(unittest.TestCase):
                     user_id="user-1",
                     name="PemSpa",
                     url="https://pempsa.com",
-                    competitors=json.dumps(["Glowbar Chestnut Hill"]),
+                    competitor_names=["Glowbar Chestnut Hill"],
                 )
             )
             session.add(Scan(id="scan-1", client_id="client-1", status="complete"))
@@ -46,7 +46,7 @@ class SourceEnrichmentTests(unittest.TestCase):
                     actionability_score=7.0,
                     influence_score=8.0,
                     relevance_score=7.0,
-                    metadata_json=json.dumps({"citation_count": 4}),
+                    metadata_json={"citation_count": 4},
                 )
             )
             session.add(
@@ -97,8 +97,8 @@ class SourceEnrichmentTests(unittest.TestCase):
             self.assertEqual(profile.fetch_status, "fetched")
             self.assertEqual(profile.source_title, "Best facials in Newton")
             self.assertEqual(profile.client_mentioned, True)
-            self.assertIn("Glowbar Chestnut Hill", json.loads(profile.competitors_mentioned_json))
-            metadata = json.loads(profile.metadata_json)
+            self.assertIn("Glowbar Chestnut Hill", profile.competitors_mentioned_json)
+            metadata = profile.metadata_json
             self.assertEqual(metadata["enrichment"]["source"], "static_http")
             self.assertNotIn("<html", json.dumps(metadata).lower())
         finally:

@@ -238,12 +238,7 @@ def _build_projection_samples(db: Session, *, scan_run_id: str, client_id: str) 
 
 
 def _competitor_names(client: Client) -> list[str]:
-    if not client.competitors:
-        return []
-    try:
-        data = json.loads(client.competitors)
-    except (TypeError, ValueError):
-        return []
+    data = client.competitor_names
     if isinstance(data, list):
         return [str(name).strip() for name in data if str(name).strip()]
     return []

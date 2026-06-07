@@ -587,7 +587,7 @@ async def run_pipeline(
         scan.status = "complete"
         scan.completed_at = datetime.now(timezone.utc)
         # Store which providers were actually run vs skipped
-        scan.providers = json.dumps(active_providers)
+        scan.providers = active_providers
         if skipped_providers:
             scan.error = json.dumps({"skipped_providers": skipped_providers})
         db.commit()
@@ -669,8 +669,8 @@ async def start_scan(
         id=str(uuid.uuid4()),
         client_id=client_id,
         status="pending",
-        providers=json.dumps(payload.providers),
-        groups=json.dumps(payload.groups),
+        providers=payload.providers,
+        groups=payload.groups,
     )
     db.add(scan)
     db.commit()
@@ -820,10 +820,13 @@ async def list_scans(
 def _safe_json_dict(value: Optional[str]) -> Dict[str, int]:
     if not value:
         return {}
-    try:
-        data = json.loads(value)
-    except Exception:
-        return {}
+    if isinstance(value, dict):
+        data = value
+    else:
+        try:
+            data = json.loads(value)
+        except Exception:
+            return {}
     if not isinstance(data, dict):
         return {}
     result: Dict[str, int] = {}
@@ -1018,20 +1021,12 @@ def _confirmed_context_profile(db: Session, client_id: str) -> Optional[dict]:
     ).first()
     if not context or not context.profile_json:
         return None
-    try:
-        data = json.loads(context.profile_json)
-    except json.JSONDecodeError:
-        return None
+    data = context.profile_json
     return data if isinstance(data, dict) else None
 
 
 def _client_competitors(client: Client) -> List[str]:
-    if not client.competitors:
-        return []
-    try:
-        data = json.loads(client.competitors)
-    except Exception:
-        return []
+    data = client.competitor_names
     if not isinstance(data, list):
         return []
     return [str(item) for item in data if str(item).strip()]
@@ -1578,10 +1573,13 @@ def _public_error(error_field: Optional[str]) -> Optional[str]:
 def _json_list(value: Optional[str]) -> Optional[List[str]]:
     if not value:
         return None
-    try:
-        data = json.loads(value)
-    except Exception:
-        return None
+    if isinstance(value, list):
+        data = value
+    else:
+        try:
+            data = json.loads(value)
+        except Exception:
+            return None
     if not isinstance(data, list):
         return None
     return [str(item) for item in data]
@@ -1920,21 +1918,25 @@ async def list_client_sources(
         SourceProfile.source_domain.asc(),
     ).offset(offset).limit(limit).all()
 
-    def _json_list(raw: str | None) -> list:
+    def _json_list(raw) -> list:
         if not raw:
             return []
+        if isinstance(raw, list):
+            return raw
         try:
             data = json.loads(raw)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return []
         return data if isinstance(data, list) else []
 
-    def _json_dict(raw: str | None) -> dict:
+    def _json_dict(raw) -> dict:
         if not raw:
             return {}
+        if isinstance(raw, dict):
+            return raw
         try:
             data = json.loads(raw)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return {}
         return data if isinstance(data, dict) else {}
 

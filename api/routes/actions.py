@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
@@ -44,6 +46,15 @@ class ActionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+    # evidence_json / target_*_json are JSON-typed columns (dict/list) but the
+    # API contract keeps them as JSON strings; re-serialize on the way out.
+    @field_validator("evidence_json", "target_questions_json", "target_providers_json", mode="before")
+    @classmethod
+    def _stringify_json(cls, value):
+        if value is None or isinstance(value, str):
+            return value
+        return json.dumps(value)
 
 
 class ActionUpdate(BaseModel):
