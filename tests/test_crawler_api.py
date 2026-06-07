@@ -363,30 +363,86 @@ class SocialDomainTests(unittest.TestCase):
 # ═════════════════════════════════════════════════════════════════════════════
 
 
+def _bind_isolated_test_db(cls, db_filename: str):
+    """Point api.database.engine + SessionLocal at a dedicated throwaway DB.
+
+    ``api.database.engine`` is created at import time against ``DATABASE_URL``
+    (which defaults to the live ``aiso.db``), so setting the env var in
+    ``setUpClass`` is too late — the engine already exists. Rebinding the module
+    globals here makes ``get_db()`` and every direct ``SessionLocal()`` use the
+    test database instead of writing into ``aiso.db``.
+    """
+    import os
+    import sys
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    import api.database as database_module
+
+    cls._db_filename = db_filename
+    try:
+        os.remove(db_filename)
+    except FileNotFoundError:
+        pass
+
+    cls._orig_engine = database_module.engine
+    cls._orig_session_local = database_module.SessionLocal
+    cls._test_engine = create_engine(
+        f"sqlite:///./{db_filename}",
+        connect_args={"check_same_thread": False},
+    )
+    new_session = sessionmaker(autocommit=False, autoflush=False, bind=cls._test_engine)
+    database_module.engine = cls._test_engine
+    database_module.SessionLocal = new_session
+
+    # Modules like api.crawler.worker do ``from api.database import SessionLocal``
+    # at import time, capturing their own reference. ``get_db()`` reads the module
+    # attribute at call time so it follows the rebind, but those captured names do
+    # not — rebind them too so the worker writes to the test DB, not aiso.db.
+    cls._patched_modules = []
+    for module in list(sys.modules.values()):
+        if module is None or module is database_module:
+            continue
+        if getattr(module, "SessionLocal", None) is cls._orig_session_local:
+            module.SessionLocal = new_session
+            cls._patched_modules.append(module)
+    return database_module
+
+
+def _unbind_isolated_test_db(cls):
+    import os
+    import api.database as database_module
+
+    for module in getattr(cls, "_patched_modules", []):
+        module.SessionLocal = cls._orig_session_local
+    database_module.SessionLocal = cls._orig_session_local
+    cls._test_engine.dispose()
+    database_module.engine = cls._orig_engine
+    try:
+        os.remove(cls._db_filename)
+    except FileNotFoundError:
+        pass
+
+
 class CrawlerAPITests(unittest.TestCase):
     """Tests for the onboarding crawler API endpoints."""
 
     @classmethod
     def setUpClass(cls):
         import os
-        try:
-            os.remove("test_crawler.db")
-        except FileNotFoundError:
-            pass
-        os.environ.setdefault("DATABASE_URL", "sqlite:///./test_crawler.db")
         os.environ["AISO_AUTO_CREATE_TABLES"] = "1"
         # Allow test client through TrustedHostMiddleware.
         os.environ["AISO_ALLOWED_HOSTS"] = "*"
         # Keep API endpoint tests deterministic and network-free.
         os.environ["AISO_CRAWLER_DISABLE_WORKER"] = "1"
 
-        from api.database import Base, engine, SessionLocal
+        database_module = _bind_isolated_test_db(cls, "test_crawler.db")
+        from api.database import Base
         import api.crawler.models  # noqa: F401 — register models
-        Base.metadata.create_all(bind=engine)
-        _ensure_profile_review_columns(engine)
+        Base.metadata.create_all(bind=database_module.engine)
+        _ensure_profile_review_columns(database_module.engine)
 
         # Seed a test user and client.
-        db = SessionLocal()
+        db = database_module.SessionLocal()
         from api.database import User, Client
         from datetime import datetime, timezone
 
@@ -733,10 +789,7 @@ class CrawlerAPITests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # ReviewApprovalTests reuses this DB/engine because FastAPI route
-        # dependencies hold the imported SessionLocal. The final test class
-        # removes the file.
-        pass
+        _unbind_isolated_test_db(cls)
 
 
 class ReviewApprovalTests(unittest.TestCase):
@@ -746,17 +799,17 @@ class ReviewApprovalTests(unittest.TestCase):
     def setUpClass(cls):
         import os
 
-        os.environ.setdefault("DATABASE_URL", "sqlite:///./test_crawler.db")
         os.environ["AISO_AUTO_CREATE_TABLES"] = "1"
         os.environ["AISO_ALLOWED_HOSTS"] = "*"
         os.environ["AISO_CRAWLER_DISABLE_WORKER"] = "1"
 
-        from api.database import Base, engine, SessionLocal
+        database_module = _bind_isolated_test_db(cls, "test_crawler_review.db")
+        from api.database import Base
         import api.crawler.models  # noqa: F401 - register crawler models
-        Base.metadata.create_all(bind=engine)
-        _ensure_profile_review_columns(engine)
+        Base.metadata.create_all(bind=database_module.engine)
+        _ensure_profile_review_columns(database_module.engine)
 
-        db = SessionLocal()
+        db = database_module.SessionLocal()
         from api.database import User, Client
         from datetime import datetime, timezone
 
@@ -942,11 +995,7 @@ class ReviewApprovalTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        import os
-        try:
-            os.remove("test_crawler.db")
-        except FileNotFoundError:
-            pass
+        _unbind_isolated_test_db(cls)
 
 
 if __name__ == "__main__":

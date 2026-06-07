@@ -42,7 +42,7 @@ class OnboardingWorkspace(Base):
     )
 
     id                = Column(String, primary_key=True)
-    client_id         = Column(String, ForeignKey("clients.id"), nullable=False)
+    client_id         = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     website_url       = Column(Text, nullable=False)
     normalized_domain = Column(String, nullable=False)
     allowed_domains   = Column(Text, nullable=False)       # JSON array
@@ -66,7 +66,7 @@ class CrawlJob(Base):
     )
 
     id                       = Column(String, primary_key=True)
-    workspace_id             = Column(String, ForeignKey("onboarding_workspaces.id"), nullable=False)
+    workspace_id             = Column(String, ForeignKey("onboarding_workspaces.id", ondelete="CASCADE"), nullable=False)
     status                   = Column(String, nullable=False, default="queued")
     crawl_mode               = Column(String, nullable=False, default="standard")  # homepage_preview | standard | selected_urls
     max_pages                = Column(Integer, nullable=False, default=100)
@@ -99,7 +99,7 @@ class CrawlPage(Base):
     )
 
     id                 = Column(String, primary_key=True)
-    job_id             = Column(String, ForeignKey("crawl_jobs.id"), nullable=False)
+    job_id             = Column(String, ForeignKey("crawl_jobs.id", ondelete="CASCADE"), nullable=False)
     url                = Column(Text, nullable=False)
     normalized_url     = Column(Text, nullable=False)
     final_url          = Column(Text, nullable=True)
@@ -131,9 +131,9 @@ class CrawlBusinessProfile(Base):
     )
 
     id               = Column(String, primary_key=True)
-    workspace_id     = Column(String, ForeignKey("onboarding_workspaces.id"), nullable=False)
-    job_id           = Column(String, ForeignKey("crawl_jobs.id"), nullable=False)
-    client_id        = Column(String, ForeignKey("clients.id"), nullable=False)
+    workspace_id     = Column(String, ForeignKey("onboarding_workspaces.id", ondelete="CASCADE"), nullable=False)
+    job_id           = Column(String, ForeignKey("crawl_jobs.id", ondelete="CASCADE"), nullable=False)
+    client_id        = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     company_name     = Column(Text, nullable=True)
     website          = Column(Text, nullable=True)
     domain           = Column(String, nullable=True)
@@ -149,7 +149,7 @@ class CrawlBusinessProfile(Base):
     confidence_score     = Column(Float, nullable=True)
     profile_status       = Column(String, nullable=False, default="draft_extracted")  # draft_extracted | approved
     approved_at          = Column(DateTime, nullable=True)
-    approved_by_user_id  = Column(String, ForeignKey("users.id"), nullable=True)
+    approved_by_user_id  = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at           = Column(DateTime, nullable=False, default=_utcnow)
     updated_at           = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
@@ -165,8 +165,8 @@ class ExtractionEvidence(Base):
     )
 
     id                = Column(String, primary_key=True)
-    job_id            = Column(String, ForeignKey("crawl_jobs.id"), nullable=False)
-    page_id           = Column(String, ForeignKey("crawl_pages.id"), nullable=True)
+    job_id            = Column(String, ForeignKey("crawl_jobs.id", ondelete="CASCADE"), nullable=False)
+    page_id           = Column(String, ForeignKey("crawl_pages.id", ondelete="CASCADE"), nullable=True)
     field_name        = Column(String, nullable=False)
     field_value       = Column(Text, nullable=True)
     source_url        = Column(Text, nullable=False)
@@ -191,8 +191,8 @@ class KBChunk(Base):
     )
 
     id                  = Column(String, primary_key=True)
-    job_id              = Column(String, ForeignKey("crawl_jobs.id"), nullable=False)
-    page_id             = Column(String, ForeignKey("crawl_pages.id"), nullable=False)
+    job_id              = Column(String, ForeignKey("crawl_jobs.id", ondelete="CASCADE"), nullable=False)
+    page_id             = Column(String, ForeignKey("crawl_pages.id", ondelete="CASCADE"), nullable=False)
     source_url          = Column(Text, nullable=False)
     title               = Column(Text, nullable=True)
     page_type           = Column(String, nullable=True)
