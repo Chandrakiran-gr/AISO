@@ -1094,10 +1094,10 @@ class Action(Base):
     effort      = Column(String, nullable=True)               # "30 min" | "1 hour"
     score       = Column(Float, nullable=True)                # ranking score from deterministic engine
     sort_order  = Column(Integer, nullable=True)              # stable UI ordering
-    evidence_json = Column(Text, nullable=True)               # JSON evidence behind the recommendation
+    evidence_json = Column(_json_type(), nullable=True)       # JSON evidence behind the recommendation
     remediation_type      = Column(String, nullable=True)     # blog_post | faq_page | schema_markup | listing_update | review_response | page_optimization | linkedin_post
-    target_questions_json  = Column(Text, nullable=True)      # JSON array of question strings this action addresses
-    target_providers_json  = Column(Text, nullable=True)      # JSON array of provider names (e.g. ["perplexity","openai"])
+    target_questions_json  = Column(_json_type(), nullable=True)  # JSON array of question strings this action addresses
+    target_providers_json  = Column(_json_type(), nullable=True)  # JSON array of provider names (e.g. ["perplexity","openai"])
     evidence_summary       = Column(Text, nullable=True)      # Human-readable paragraph: why this matters, what scan found
     impact_estimate        = Column(Float, nullable=True)     # 0-100 predicted score improvement
     status      = Column(String, default="open")              # "open" | "done" | "dismissed"

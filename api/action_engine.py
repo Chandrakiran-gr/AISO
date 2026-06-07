@@ -93,6 +93,20 @@ def _safe_json(value: Any) -> Any:
         return {}
 
 
+def _json_or_none(value: Any) -> Any:
+    """Normalize an action-data value for a JSON column: pass through list/dict,
+    parse a legacy JSON string, and use None for empty. (The action-data dict
+    still carries JSON strings from json.dumps; this stores them as structures.)"""
+    if not value:
+        return None
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def _provider_name(provider_id: str) -> str:
     return PROVIDER_DISPLAY.get(provider_id, provider_id.title())
 
@@ -517,10 +531,10 @@ def generate_actions(
             category=data["category"],
             impact_estimate=data.get("impact_estimate"),
             remediation_type=data.get("remediation_type"),
-            target_questions_json=data.get("target_questions_json"),
-            target_providers_json=data.get("target_providers_json"),
+            target_questions_json=_json_or_none(data.get("target_questions_json")),
+            target_providers_json=_json_or_none(data.get("target_providers_json")),
             evidence_summary=data.get("evidence_summary"),
-            evidence_json=data.get("evidence_json"),
+            evidence_json=_json_or_none(data.get("evidence_json")),
             score=data.get("impact_estimate"),
             sort_order=idx,
             status="open",

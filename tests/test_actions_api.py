@@ -63,7 +63,7 @@ class ActionsApiTests(unittest.TestCase):
                         status="open",
                         score=80,
                         sort_order=1,
-                        evidence_json=json.dumps({"kind": "test"}),
+                        evidence_json={"kind": "test"},
                     ),
                 ]
             )
