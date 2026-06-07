@@ -1026,12 +1026,7 @@ def _confirmed_context_profile(db: Session, client_id: str) -> Optional[dict]:
 
 
 def _client_competitors(client: Client) -> List[str]:
-    if not client.competitor_names:
-        return []
-    try:
-        data = json.loads(client.competitor_names)
-    except Exception:
-        return []
+    data = client.competitor_names
     if not isinstance(data, list):
         return []
     return [str(item) for item in data if str(item).strip()]

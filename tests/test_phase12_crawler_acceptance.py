@@ -79,7 +79,7 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
                     url=SEED_URL,
                     industry=category,
                     location="United States",
-                    competitor_names=json.dumps(["Alpha", "Beta", "Gamma"]),
+                    competitor_names=["Alpha", "Beta", "Gamma"],
                     created_at=now,
                     updated_at=now,
                 )

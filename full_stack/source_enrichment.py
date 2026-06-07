@@ -117,7 +117,7 @@ def _json_loads(value: str | None, fallback: object) -> object:
 
 
 def _competitors_from_client(client: database_module.Client) -> list[str]:
-    value = _json_loads(client.competitor_names, [])
+    value = client.competitor_names or []
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     if isinstance(value, str):

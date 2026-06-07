@@ -84,16 +84,13 @@ def scan_workspace_slugs(client: Client) -> tuple[str, str]:
     return f"{public_slug}__{suffix}", public_slug
 
 
-def _split_competitors(value: str | None) -> list[str]:
+def _split_competitors(value) -> list[str]:
+    """Accept a JSON list (the competitor_names column) or a legacy comma string."""
     if not value:
         return []
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError:
-        parsed = None
-    if isinstance(parsed, list):
-        return [str(item).strip() for item in parsed if str(item).strip()]
-    return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value).split(",") if item.strip()]
 
 
 def _first_non_empty(values: Iterable[str | None], fallback: str) -> str:

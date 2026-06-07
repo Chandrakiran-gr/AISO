@@ -113,7 +113,7 @@ class ScanWorkspaceTests(unittest.TestCase):
             url="https://acme.example",
             industry="Industrial widgets",
             location="Boston, MA",
-            competitor_names=json.dumps(["WidgetCo", "Parts Plus"]),
+            competitor_names=["WidgetCo", "Parts Plus"],
         )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -144,7 +144,7 @@ class ScanWorkspaceTests(unittest.TestCase):
             url="https://aisoglobal.com",
             industry="AI visibility software",
             location="United States",
-            competitor_names=json.dumps(["Profound", "Scrunch"]),
+            competitor_names=["Profound", "Scrunch"],
         )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -240,7 +240,7 @@ class ScanWorkspaceTests(unittest.TestCase):
             url="https://acme.example",
             industry="Home repair service",
             location="Boston, MA",
-            competitor_names=json.dumps(["Rival Home Co"]),
+            competitor_names=["Rival Home Co"],
         )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -280,7 +280,7 @@ class ScanWorkspaceTests(unittest.TestCase):
             url="https://pempsa.example",
             industry="Spa",
             location="Greater Boston",
-            competitor_names=json.dumps(["Bella Boutique Spa"]),
+            competitor_names=["Bella Boutique Spa"],
         )
         context_profile = {
             "business": {"name": "Pempsa"},

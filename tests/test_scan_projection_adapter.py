@@ -49,7 +49,7 @@ class MaterializationAdapterTests(unittest.TestCase):
     def _seed(self):
         self.db.add(User(id="user-1", email="f@example.com"))
         self.db.add(Client(id="client-1", user_id="user-1", name="Acme CRM", url="https://acme.com",
-                           competitor_names='["Salesforce", "HubSpot"]', cost_budget_default_usd=Decimal("5.00")))
+                           competitor_names=["Salesforce", "HubSpot"], cost_budget_default_usd=Decimal("5.00")))
         self.db.add(ScanRun(id=self.SCAN_ID, client_id="client-1", idempotency_key="idem-1",
                             methodology_version="AVS-1.0.0", methodology_version_set_id=None,
                             status="running", cost_budget_usd=Decimal("5.00"), latency_class="standard",

@@ -100,7 +100,7 @@ class Client(Base):
     url          = Column(String, nullable=False)             # "https://bostonbrew.com"
     industry     = Column(String, nullable=True)
     location     = Column(String, nullable=True)
-    competitor_names = Column(Text, nullable=True)            # JSON array of competitor names (clients.competitor_domains holds domains)
+    competitor_names = Column(_json_type(), nullable=True)    # competitor names; clients.competitor_domains holds domains
     tier          = Column(String, default="free", nullable=False)  # free | pro | growth | scale | enterprise
     cost_budget_default_usd = Column(Numeric(10, 2), default=5, nullable=False)
     byok          = Column(Boolean, default=False, nullable=False)

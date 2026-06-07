@@ -30,7 +30,7 @@ class SourceEnrichmentTests(unittest.TestCase):
                     user_id="user-1",
                     name="PemSpa",
                     url="https://pempsa.com",
-                    competitor_names=json.dumps(["Glowbar Chestnut Hill"]),
+                    competitor_names=["Glowbar Chestnut Hill"],
                 )
             )
             session.add(Scan(id="scan-1", client_id="client-1", status="complete"))

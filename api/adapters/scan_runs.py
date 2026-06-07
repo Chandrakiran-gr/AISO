@@ -594,12 +594,7 @@ def _mention_stats(
 
 
 def _competitor_names(client: Client) -> list[str]:
-    if not client.competitor_names:
-        return []
-    try:
-        data = json.loads(client.competitor_names)
-    except Exception:
-        return []
+    data = client.competitor_names
     if not isinstance(data, list):
         return []
     return [str(item).strip() for item in data if str(item).strip()]

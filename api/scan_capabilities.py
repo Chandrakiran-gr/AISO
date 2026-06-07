@@ -37,12 +37,7 @@ def _dedupe(values: Iterable[str]) -> list[str]:
 
 
 def _client_competitors(client: Client) -> list[str]:
-    if not client.competitor_names:
-        return []
-    try:
-        parsed = json.loads(client.competitor_names)
-    except json.JSONDecodeError:
-        return []
+    parsed = client.competitor_names
     if not isinstance(parsed, list):
         return []
     return _dedupe(str(item) for item in parsed)
