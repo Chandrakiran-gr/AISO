@@ -20,7 +20,7 @@ from sqlalchemy import (
     Text,
 )
 
-from api.database import Base
+from api.database import Base, _json_type
 
 
 def _utcnow() -> datetime:
@@ -45,7 +45,7 @@ class OnboardingWorkspace(Base):
     client_id         = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     website_url       = Column(Text, nullable=False)
     normalized_domain = Column(String, nullable=False)
-    allowed_domains   = Column(Text, nullable=False)       # JSON array
+    allowed_domains   = Column(_json_type(), nullable=False)  # JSON array
     consent_confirmed = Column(Boolean, nullable=False, default=False)
     status            = Column(String, nullable=False, default="created")  # created | active | archived
     created_at        = Column(DateTime, nullable=False, default=_utcnow)
@@ -77,7 +77,7 @@ class CrawlJob(Base):
     pages_crawled            = Column(Integer, nullable=False, default=0)
     pages_skipped            = Column(Integer, nullable=False, default=0)
     pages_failed             = Column(Integer, nullable=False, default=0)
-    warnings                 = Column(Text, nullable=True)        # JSON array
+    warnings                 = Column(_json_type(), nullable=True)  # JSON array
     error_message            = Column(Text, nullable=True)
     started_at               = Column(DateTime, nullable=True)
     completed_at             = Column(DateTime, nullable=True)
@@ -114,7 +114,7 @@ class CrawlPage(Base):
     content_hash       = Column(String, nullable=True)        # sha256 of raw HTML
     raw_html_path      = Column(Text, nullable=True)          # local path or S3 key
     error_message      = Column(Text, nullable=True)
-    extraction_summary = Column(Text, nullable=True)          # JSON summary
+    extraction_summary = Column(_json_type(), nullable=True)  # JSON summary
     fetched_at         = Column(DateTime, nullable=True)
     created_at         = Column(DateTime, nullable=False, default=_utcnow)
     updated_at         = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
@@ -139,13 +139,13 @@ class CrawlBusinessProfile(Base):
     domain           = Column(String, nullable=True)
     description      = Column(Text, nullable=True)
     industry         = Column(String, nullable=True)
-    products         = Column(Text, nullable=True)            # JSON array
-    services         = Column(Text, nullable=True)            # JSON array
-    locations        = Column(Text, nullable=True)            # JSON array
-    contacts         = Column(Text, nullable=True)            # JSON object
-    social_links     = Column(Text, nullable=True)            # JSON array
-    important_pages  = Column(Text, nullable=True)            # JSON array
-    missing_fields   = Column(Text, nullable=True)            # JSON array
+    products         = Column(_json_type(), nullable=True)    # JSON array
+    services         = Column(_json_type(), nullable=True)    # JSON array
+    locations        = Column(_json_type(), nullable=True)    # JSON array
+    contacts         = Column(_json_type(), nullable=True)    # JSON object
+    social_links     = Column(_json_type(), nullable=True)    # JSON array
+    important_pages  = Column(_json_type(), nullable=True)    # JSON array
+    missing_fields   = Column(_json_type(), nullable=True)    # JSON array
     confidence_score     = Column(Float, nullable=True)
     profile_status       = Column(String, nullable=False, default="draft_extracted")  # draft_extracted | approved
     approved_at          = Column(DateTime, nullable=True)
@@ -199,6 +199,6 @@ class KBChunk(Base):
     chunk_index         = Column(Integer, nullable=False)
     chunk_text          = Column(Text, nullable=False)
     token_estimate      = Column(Integer, nullable=True)
-    metadata_json       = Column(Text, nullable=True)         # JSON for extra metadata
+    metadata_json       = Column(_json_type(), nullable=True)  # JSON for extra metadata
     embedding_vector_id = Column(String, nullable=True)       # Phase 2
     created_at          = Column(DateTime, nullable=False, default=_utcnow)

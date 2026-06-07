@@ -462,15 +462,13 @@ def run_crawl_job(
                 depth=min(depth, job.max_depth),
                 content_hash=_content_hash(page),
                 error_message=str(page.get("stop_reason") or "") or None,
-                extraction_summary=_dump_json(
-                    {
-                        "heading_count": len(page.get("headings", [])) if isinstance(page.get("headings"), list) else 0,
-                        "text_block_count": len(page.get("text_blocks", [])) if isinstance(page.get("text_blocks"), list) else 0,
-                        "link_count": len(page.get("links", [])) if isinstance(page.get("links"), list) else 0,
-                        "button_count": len(page.get("buttons", [])) if isinstance(page.get("buttons"), list) else 0,
-                        "stop_reason": page.get("stop_reason"),
-                    }
-                ),
+                extraction_summary={
+                    "heading_count": len(page.get("headings", [])) if isinstance(page.get("headings"), list) else 0,
+                    "text_block_count": len(page.get("text_blocks", [])) if isinstance(page.get("text_blocks"), list) else 0,
+                    "link_count": len(page.get("links", [])) if isinstance(page.get("links"), list) else 0,
+                    "button_count": len(page.get("buttons", [])) if isinstance(page.get("buttons"), list) else 0,
+                    "stop_reason": page.get("stop_reason"),
+                },
                 fetched_at=_utcnow(),
             )
             db.add(page_row)
@@ -487,7 +485,7 @@ def run_crawl_job(
                         chunk_index=index,
                         chunk_text=chunk,
                         token_estimate=max(1, len(chunk) // 4),
-                        metadata_json=_dump_json({"source": "website_ingestion"}),
+                        metadata_json={"source": "website_ingestion"},
                     )
                 )
 
@@ -516,13 +514,13 @@ def run_crawl_job(
             domain=workspace.normalized_domain,
             description=_build_description(profile),
             industry=category_names[0] if category_names else client.industry,
-            products=_dump_json(_safe_name_list(product_brands, limit=30)),
-            services=_dump_json(_safe_name_list(offerings, limit=60)),
-            locations=_dump_json(_flatten_locations(profile)),
-            contacts=_dump_json({}),
-            social_links=_dump_json(_collect_social_links(evidence)),
-            important_pages=_dump_json(_important_pages(evidence)),
-            missing_fields=_dump_json(warnings),
+            products=_safe_name_list(product_brands, limit=30),
+            services=_safe_name_list(offerings, limit=60),
+            locations=_flatten_locations(profile),
+            contacts={},
+            social_links=_collect_social_links(evidence),
+            important_pages=_important_pages(evidence),
+            missing_fields=warnings,
             confidence_score=float(business.get("confidence") or 0.5) if isinstance(business, dict) else 0.5,
             profile_status="draft_extracted",
             created_at=_utcnow(),
@@ -553,7 +551,7 @@ def run_crawl_job(
         job.pages_skipped = sum(1 for page in pages if isinstance(page, dict) and page.get("stop_reason"))
         job.pages_failed = 0
         job.status = "completed_with_warnings" if warnings else "completed"
-        job.warnings = _dump_json(warnings)
+        job.warnings = warnings
         job.error_message = None
         job.completed_at = _utcnow()
         job.updated_at = _utcnow()

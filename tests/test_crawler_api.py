@@ -955,9 +955,9 @@ class ReviewApprovalTests(unittest.TestCase):
         workspace_id, _ = self._create_workspace_with_profile(
             company_name="Enriched Name",
             industry="Finance",
-            services='["Fractional CTO advisory", "AI visibility audit"]',
-            products='["AISO"]',
-            locations='["Boston, MA"]',
+            services=["Fractional CTO advisory", "AI visibility audit"],
+            products=["AISO"],
+            locations=["Boston, MA"],
         )
         self.client.post(f"/api/v1/onboarding-workspaces/{workspace_id}/approve")
 
