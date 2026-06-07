@@ -1018,10 +1018,7 @@ def _confirmed_context_profile(db: Session, client_id: str) -> Optional[dict]:
     ).first()
     if not context or not context.profile_json:
         return None
-    try:
-        data = json.loads(context.profile_json)
-    except json.JSONDecodeError:
-        return None
+    data = context.profile_json
     return data if isinstance(data, dict) else None
 
 

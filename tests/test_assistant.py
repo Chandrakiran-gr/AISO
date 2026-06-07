@@ -85,13 +85,11 @@ class AssistantRouteTests(unittest.TestCase):
             ClientContext(
                 client_id="client-1",
                 status="confirmed",
-                profile_json=json.dumps(
-                    {
-                        "business": {"name": "AISO Demo"},
-                        "offerings": [{"name": "Visibility audit"}],
-                    }
-                ),
-                warnings_json=json.dumps([]),
+                profile_json={
+                    "business": {"name": "AISO Demo"},
+                    "offerings": [{"name": "Visibility audit"}],
+                },
+                warnings_json=[],
             )
         )
         session.add(

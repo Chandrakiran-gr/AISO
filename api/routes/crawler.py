@@ -593,8 +593,8 @@ def _sync_client_context_from_profile(
             existing_profile["locations"] = profile_locations
 
     context.status = status_value
-    context.profile_json = json.dumps(existing_profile, ensure_ascii=False)
-    context.warnings_json = json.dumps(warnings or _safe_json_loads(profile.missing_fields, []), ensure_ascii=False)
+    context.profile_json = existing_profile
+    context.warnings_json = warnings or _safe_json_loads(profile.missing_fields, [])
     context.updated_at = now
 
 

@@ -340,9 +340,9 @@ class DatabaseSchemaTests(unittest.TestCase):
                 ClientContext(
                     client_id="client-1",
                     status="confirmed",
-                    profile_json=json.dumps({"business": {"name": "AISO Demo"}}),
-                    evidence_json=json.dumps({"pages": []}),
-                    warnings_json=json.dumps([]),
+                    profile_json={"business": {"name": "AISO Demo"}},
+                    evidence_json={"pages": []},
+                    warnings_json=[],
                 )
             )
             session.flush()

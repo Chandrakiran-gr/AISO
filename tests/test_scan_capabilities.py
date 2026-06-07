@@ -46,7 +46,7 @@ class ScanCapabilityTests(unittest.TestCase):
                 ClientContext(
                     client_id="client-1",
                     status="confirmed",
-                    profile_json=json.dumps(context_profile),
+                    profile_json=context_profile,
                 )
             )
         session.commit()

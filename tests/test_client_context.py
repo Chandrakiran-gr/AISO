@@ -398,7 +398,7 @@ class ClientContextApiTests(unittest.TestCase):
             stored = session.query(ClientContext).one()
             client = session.query(Client).filter(Client.id == "client-1").one()
             self.assertIsNotNone(stored.updated_at)
-            stored_profile = json.loads(stored.profile_json)
+            stored_profile = stored.profile_json
             self.assertEqual(stored_profile["business"]["name"], "AISO Demo")
             self.assertEqual(
                 stored_profile["scan_objective"]["optimization_objectives"],

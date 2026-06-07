@@ -783,7 +783,7 @@ class CrawlerAPITests(unittest.TestCase):
             self.assertEqual(job.pages_queued, 2)
             self.assertEqual(job.pages_crawled, 2)
             self.assertIsNotNone(context)
-            self.assertEqual(json.loads(context.evidence_json)["page_count"], 2)
+            self.assertEqual(context.evidence_json["page_count"], 2)
         finally:
             db.close()
 
@@ -975,7 +975,7 @@ class ReviewApprovalTests(unittest.TestCase):
             context = db.query(ClientContext).filter(ClientContext.client_id == "test-client-1").first()
             self.assertIsNotNone(context)
             self.assertEqual(context.status, "confirmed")
-            profile = json.loads(context.profile_json)
+            profile = context.profile_json
             self.assertEqual(profile["business"]["name"], "Enriched Name")
             self.assertEqual(profile["categories"][0]["name"], "Finance")
             self.assertEqual(profile["offerings"][0]["name"], "Fractional CTO advisory")

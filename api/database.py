@@ -686,9 +686,9 @@ class ClientContext(Base):
 
     client_id     = Column(String, ForeignKey("clients.id", ondelete="CASCADE"), primary_key=True)
     status        = Column(String, default="not_started", nullable=False)  # not_started | discovering | draft | confirmed | needs_review | failed
-    profile_json  = Column(Text, nullable=True)                            # structured draft/confirmed profile
-    evidence_json = Column(Text, nullable=True)                            # website evidence + source URLs
-    warnings_json = Column(Text, nullable=True)                            # uncertainty/safety/classification warnings
+    profile_json  = Column(_json_type(), nullable=True)                    # structured draft/confirmed profile
+    evidence_json = Column(_json_type(), nullable=True)                    # website evidence + source URLs
+    warnings_json = Column(_json_type(), nullable=True)                    # uncertainty/safety/classification warnings
     created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

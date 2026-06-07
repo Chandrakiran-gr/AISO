@@ -342,9 +342,9 @@ def _upsert_client_context(
         context = ClientContext(client_id=client_id, created_at=now)
         db.add(context)
     context.status = status
-    context.profile_json = _dump_json(profile) if profile is not None else context.profile_json
-    context.evidence_json = _dump_json(evidence) if evidence is not None else context.evidence_json
-    context.warnings_json = _dump_json(warnings)
+    context.profile_json = profile if profile is not None else context.profile_json
+    context.evidence_json = evidence if evidence is not None else context.evidence_json
+    context.warnings_json = warnings
     context.updated_at = now
 
 
