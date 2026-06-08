@@ -54,13 +54,18 @@ class OpenAIChatAdapterTests(unittest.TestCase):
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer sk-test")
 
     def test_complete_without_key_raises(self):
-        adapter = OpenAIChatAdapter(purpose="profile drafting", max_tokens=10, api_key="")
-        with self.assertRaises(RuntimeError):
-            adapter.complete(prompt="hi", seed=1, temperature=0.0, idempotency_key="k")
+        # Pin env: api_key="" otherwise falls back to an ambient OPENAI_API_KEY.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OPENAI_API_KEY", None)
+            adapter = OpenAIChatAdapter(purpose="profile drafting", max_tokens=10, api_key="")
+            with self.assertRaises(RuntimeError):
+                adapter.complete(prompt="hi", seed=1, temperature=0.0, idempotency_key="k")
 
     def test_available_reflects_key(self):
-        self.assertTrue(OpenAIChatAdapter(purpose="x", max_tokens=1, api_key="sk").available())
-        self.assertFalse(OpenAIChatAdapter(purpose="x", max_tokens=1, api_key="").available())
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OPENAI_API_KEY", None)
+            self.assertTrue(OpenAIChatAdapter(purpose="x", max_tokens=1, api_key="sk").available())
+            self.assertFalse(OpenAIChatAdapter(purpose="x", max_tokens=1, api_key="").available())
 
 
 class ManagedProviderFactoryTests(unittest.TestCase):

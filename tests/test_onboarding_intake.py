@@ -24,7 +24,9 @@ class OnboardingIntakeAPITests(unittest.TestCase):
 
         seed = self.Session()
         try:
-            seed.add(User(id="user-1", email="founder@example.com"))
+            # custom tier: these tests onboard many businesses under one user,
+            # which only the unlimited (custom) tier permits.
+            seed.add(User(id="user-1", email="founder@example.com", plan_tier="custom"))
             seed.commit()
         finally:
             seed.close()
