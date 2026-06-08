@@ -30,9 +30,9 @@ from api.adapters.scan_execution import (
     default_scan_executor,
     ensure_scan_run_enqueued,
 )
-from api.feature_flags import is_phase13_engine, phase13_enabled_for_tier
+from api.feature_flags import is_phase13_engine
 from api.scan_bridge import ScanBridgeError, build_phase13_manifest_from_groups
-from api.entitlements import entitlements_for_user
+from api.entitlements import entitlements_for_user, phase13_enabled_for_user
 from api.scan_workspace import MANUAL_GROUP, prepare_scan_workspace
 from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
 from api.storage import (
@@ -420,6 +420,64 @@ def _env_positive_int(name: str, default: int) -> int:
     return value
 
 
+PROVIDER_ENV_VARS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
+    "perplexity": "PERPLEXITY_API_KEY",
+    "gemini": "GOOGLE_AI_API_KEY",
+}
+
+
+def _server_provider_keys() -> dict[str, str]:
+    """Server-managed provider keys read from the process environment."""
+    return {provider: os.environ.get(var, "").strip() for provider, var in PROVIDER_ENV_VARS.items()}
+
+
+def resolve_active_providers(
+    providers: List[str],
+    byok_keys: Optional[dict],
+    *,
+    use_managed_keys: bool,
+) -> tuple[List[str], List[str]]:
+    """Split requested providers into (active, skipped) by key availability.
+
+    Managed (pro/custom) scans use server keys, with BYOK filling any gap. Free
+    scans are **BYOK-only**: server keys are never consulted, so a free user can
+    never spend the company's API budget.
+    """
+    env_key_map = _server_provider_keys() if use_managed_keys else {}
+    byok = byok_keys or {}
+    active: List[str] = []
+    skipped: List[str] = []
+    for provider in providers:
+        key = env_key_map.get(provider) or str(byok.get(provider, "") or "").strip()
+        (active if key else skipped).append(provider)
+    return active, skipped
+
+
+def build_subprocess_env(
+    base_env: dict,
+    byok_keys: Optional[dict],
+    *,
+    use_managed_keys: bool,
+) -> dict:
+    """Build the ``collect.py`` subprocess environment.
+
+    Free (BYOK-only) scans have the server provider keys **scrubbed** from the
+    inherited environment so the subprocess cannot fall back to them; the user's
+    BYOK keys are then layered in. Managed scans keep the inherited server keys.
+    """
+    sub_env = dict(base_env)
+    if not use_managed_keys:
+        for var in PROVIDER_ENV_VARS.values():
+            sub_env.pop(var, None)
+    for provider, key in (byok_keys or {}).items():
+        var = PROVIDER_ENV_VARS.get(provider)
+        if var and key:
+            sub_env[var] = key
+    return sub_env
+
+
 async def run_pipeline(
     scan_id: str,
     client_id: str,
@@ -427,13 +485,15 @@ async def run_pipeline(
     groups: List[str],
     custom_questions: Optional[List[str]] = None,
     byok_keys: Optional[dict] = None,
+    use_managed_keys: bool = True,
 ):
     """
-    Background task — runs the full AISO pipeline.
+    Background task — runs the full AISO legacy pipeline.
 
-    BYOK: Resolves which API keys to use per provider.
-    Priority: server env key (Pro) > BYOK user key (Free) > skip provider.
-    Keys are used in memory only and never persisted.
+    Key resolution depends on ``use_managed_keys`` (set by the caller from the
+    user's tier): managed (pro/custom) scans use server keys with BYOK filling
+    gaps; free scans are BYOK-only and never read server keys. Keys are used in
+    memory only and never persisted.
     """
     from api.database import SessionLocal, Scan
     db = SessionLocal()
@@ -445,27 +505,14 @@ async def run_pipeline(
         scan.started_at = datetime.now(timezone.utc)
         db.commit()
 
-        # ── Resolve active providers via BYOK key merging ─────────────────────
-        # Server env keys (Pro users). BYOK fills gaps for Free tier.
-        env_key_map = {
-            "openai":     os.environ.get("OPENAI_API_KEY",      "").strip(),
-            "claude":     os.environ.get("ANTHROPIC_API_KEY",   "").strip(),
-            "perplexity": os.environ.get("PERPLEXITY_API_KEY",  "").strip(),
-            "gemini":     os.environ.get("GOOGLE_AI_API_KEY",   "").strip(),
-        }
-        byok = byok_keys or {}
-
-        active_providers: List[str] = []
-        skipped_providers: List[str] = []
-
-        for p in providers:
-            # Server key takes priority; fall back to user's BYOK key
-            key = env_key_map.get(p) or byok.get(p, "").strip()
-            if key:
-                active_providers.append(p)
-            else:
-                skipped_providers.append(p)
-                print(f"[AISO Pipeline] Scan {scan_id}: skipping '{p}' — no API key available.")
+        # ── Resolve active providers ──────────────────────────────────────────
+        # Managed (pro/custom) scans use server keys; free scans are BYOK-only
+        # so they never spend the company's API budget.
+        active_providers, skipped_providers = resolve_active_providers(
+            providers, byok_keys, use_managed_keys=use_managed_keys
+        )
+        for p in skipped_providers:
+            print(f"[AISO Pipeline] Scan {scan_id}: skipping '{p}' — no API key available.")
 
         if skipped_providers:
             print(f"[AISO Pipeline] Providers skipped (no key): {skipped_providers}")
@@ -514,19 +561,10 @@ async def run_pipeline(
         collect_script  = repo_root / "full_stack" / "collect.py"
         analysis_script = repo_root / "full_stack" / "analysis1.py"
 
-        # Build subprocess environment: inherit current env + add resolved keys
-        sub_env = os.environ.copy()
-        if byok_keys:
-            for provider, key in (byok_keys or {}).items():
-                if key:
-                    env_var = {
-                        "openai":     "OPENAI_API_KEY",
-                        "claude":     "ANTHROPIC_API_KEY",
-                        "perplexity": "PERPLEXITY_API_KEY",
-                        "gemini":     "GOOGLE_AI_API_KEY",
-                    }.get(provider)
-                    if env_var:
-                        sub_env[env_var] = key
+        # Build subprocess environment. Managed scans inherit server keys; free
+        # (BYOK-only) scans have the server provider keys scrubbed so collect.py
+        # cannot fall back to them, with the user's BYOK keys layered in.
+        sub_env = build_subprocess_env(os.environ, byok_keys, use_managed_keys=use_managed_keys)
 
         # Pass which providers to actually run
         sub_env["AISO_PROVIDERS"] = ",".join(active_providers)
@@ -649,10 +687,13 @@ async def start_scan(
     if not groups_ok:
         raise HTTPException(status_code=400, detail=group_message)
 
-    # Route by tier: paid clients run on the Phase 13 engine (server keys);
-    # free/BYOK clients run on the legacy engine with their own keys, so a free
-    # user never consumes the company's API budget.
-    if phase13_enabled_for_tier(getattr(client, "tier", None)):
+    # Route by USER tier: pro/custom run on the Phase 13 engine (managed server
+    # keys); free users run on the legacy engine with their own BYOK keys, so a
+    # free user never consumes the company's API budget.
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if phase13_enabled_for_user(user):
         return await _start_phase13_scan(
             request,
             db,
@@ -687,6 +728,7 @@ async def start_scan(
         payload.groups,
         payload.custom_questions,
         byok_dict,
+        False,  # use_managed_keys: free users run BYOK-only on the legacy engine
     )
 
     return _scan_response(scan)

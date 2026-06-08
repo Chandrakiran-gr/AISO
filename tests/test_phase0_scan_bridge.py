@@ -59,14 +59,13 @@ class ScanBridgeTests(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.db = self.Session()
-        self.db.add(User(id="user-1", email="founder@example.com"))
+        self.db.add(User(id="user-1", email="founder@example.com", plan_tier="pro"))  # pro user → Phase 13
         self.db.add(
             Client(
                 id="client-1",
                 user_id="user-1",
                 name="VectorCRM",
                 url="https://vector.example",
-                tier="pro",  # paid tier → Phase 13 engine
                 cost_budget_default_usd=Decimal("5.00"),
             )
         )
@@ -279,14 +278,16 @@ class ScanBridgeTests(unittest.TestCase):
         self.assertEqual(self.db.query(Scan).count(), 0)
         self.assertEqual(self.db.query(ScanManifest).filter(ScanManifest.scan_id == scan_run_id).count(), 2)
 
-    def test_start_scan_free_tier_routes_to_legacy(self):
-        # A free-tier client must NOT hit Phase 13 (would use server keys) even
-        # when AISO_SCAN_ENGINE=phase13 — it falls back to the legacy engine.
+    def test_start_scan_free_user_routes_to_legacy(self):
+        # Routing is by USER tier: a free user must NOT hit Phase 13 (would use
+        # server keys) even when AISO_SCAN_ENGINE=phase13 — they fall back to the
+        # legacy/BYOK engine. The client's own (legacy) tier column is irrelevant.
         from api.database import Scan
         from api.routes.pipeline import ScanCreate, start_scan
 
-        self.db.add(Client(id="client-free", user_id="user-1", name="FreeCo",
-                           url="https://free.example", tier="free",
+        self.db.add(User(id="user-free", email="free@example.com", plan_tier="free"))
+        self.db.add(Client(id="client-free", user_id="user-free", name="FreeCo",
+                           url="https://free.example",
                            cost_budget_default_usd=Decimal("5.00")))
         self.db.commit()
         executor = _RecordingExecutor()
@@ -297,7 +298,7 @@ class ScanBridgeTests(unittest.TestCase):
                 start_scan(
                     "client-free",
                     ScanCreate(client_id="client-free", providers=["claude"], groups=["G1"]),
-                    BackgroundTasks(), request, db=self.db, user_id="user-1",
+                    BackgroundTasks(), request, db=self.db, user_id="user-free",
                 )
             )
 
