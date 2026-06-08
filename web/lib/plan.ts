@@ -1,43 +1,38 @@
-export type PlanId = "free" | "pro" | "agency";
+// Static reference map of plan capabilities (labels + limits) for display
+// surfaces like the upgrade page. The AUTHORITATIVE, per-user source of truth is
+// the live backend (see lib/entitlements.ts + lib/useEntitlements.ts) — do not
+// gate behaviour off a global/build-time value here.
+
+export type PlanId = "free" | "pro" | "custom";
 
 type PlanEntitlements = {
   label: string;
-  maxClients: number | null;
+  maxClients: number | null; // null = unlimited (custom, per-seat billed)
+  usesManagedKeys: boolean;
   rawArtifactExport: boolean;
+  perSeat?: boolean;
 };
 
 export const PLAN_ENTITLEMENTS: Record<PlanId, PlanEntitlements> = {
   free: {
     label: "Free",
     maxClients: 1,
+    usesManagedKeys: false,
     rawArtifactExport: false,
   },
   pro: {
     label: "Pro",
-    maxClients: 5,
+    maxClients: 1,
+    usesManagedKeys: true,
     rawArtifactExport: true,
   },
-  agency: {
-    label: "Agency",
+  custom: {
+    label: "Custom",
     maxClients: null,
+    usesManagedKeys: true,
     rawArtifactExport: true,
+    perSeat: true,
   },
 };
 
 export const PRO_UPGRADE_HREF = "/dashboard/upgrade?feature=exports";
-const PRIVATE_BETA_FULL_ACCESS = true;
-
-function normalizePlan(value: string | undefined): PlanId {
-  const plan = value?.toLowerCase();
-  if (plan === "pro" || plan === "agency") return plan;
-  return "free";
-}
-
-export const CURRENT_PLAN = normalizePlan(process.env.NEXT_PUBLIC_AISO_PLAN ?? "pro");
-
-export function canAccessRawArtifacts(plan: PlanId, email?: string | null): boolean {
-  void email;
-  if (PRIVATE_BETA_FULL_ACCESS) return true;
-  if (PLAN_ENTITLEMENTS[plan].rawArtifactExport) return true;
-  return false;
-}

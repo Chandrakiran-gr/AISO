@@ -9,7 +9,7 @@ const PRO_FEATURES = [
 ];
 
 const PLAN_ROWS = [
-  { label: "Clients", free: "1 business", pro: "5 businesses" },
+  { label: "Businesses", free: "1 business", pro: "1 business" },
   { label: "Scans", free: "1 per month", pro: "Unlimited" },
   { label: "Provider keys", free: "Bring your own", pro: "Managed for you" },
   { label: "Exports", free: "Email report", pro: "CSV and PDF" },
@@ -79,6 +79,12 @@ export default function UpgradePage() {
             </div>
           ))}
         </section>
+
+        <p className={styles.pageSub} style={{ marginTop: 16 }}>
+          Running multiple businesses? <strong>Custom</strong> plans include managed
+          provider keys for every business and are billed per business (seat) — contact{" "}
+          <a href="mailto:hello@sapienic.com?subject=AISO%20Custom%20plan">hello@sapienic.com</a>.
+        </p>
       </main>
     </div>
   );
