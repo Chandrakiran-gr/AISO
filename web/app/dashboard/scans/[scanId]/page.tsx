@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CURRENT_PLAN, PRO_UPGRADE_HREF, canAccessRawArtifacts } from "@/lib/plan";
+import { PRO_UPGRADE_HREF } from "@/lib/plan";
+import { canAccessRawArtifacts } from "@/lib/entitlements";
+import { useEntitlements } from "@/lib/useEntitlements";
 import {
   DashboardOverview,
   type ActionData,
@@ -139,9 +140,9 @@ function sourceLabel(citation: CustomCitation): string {
 
 export default function ScanDetailPage() {
   const params = useParams<{ scanId: string }>();
-  const { data: session } = useSession();
+  const { entitlements } = useEntitlements();
   const scanId = params.scanId;
-  const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN, session?.user?.email);
+  const rawArtifactsUnlocked = canAccessRawArtifacts(entitlements);
   const [client, setClient] = useState<ClientData | null>(null);
   const [scan, setScan] = useState<ScanDetail | null>(null);
   const [customQuestions, setCustomQuestions] = useState<CustomQuestionsData | null>(null);

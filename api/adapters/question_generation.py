@@ -10,6 +10,7 @@ import os
 import requests
 
 from api.domain.ports import UpstreamProviderResponse
+from api.adapters.openai_chat import OpenAIChatAdapter
 from api.domain.question_generation import (
     QUESTION_GENERATION_SEED,
     context_from_runtime_payload,
@@ -125,6 +126,17 @@ class HeuristicQuestionGenerationAdapter:
                 "idempotency_hash": hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest(),
             },
         )
+
+
+def managed_question_generation_provider():
+    """Managed (pro/custom) provider: OpenAI, falling back to heuristic if unkeyed."""
+    openai = OpenAIChatAdapter(purpose="question generation", max_tokens=12000)
+    return openai if openai.available() else HeuristicQuestionGenerationAdapter()
+
+
+def heuristic_question_generation_provider():
+    """Free-tier provider: deterministic local generation, no server LLM spend."""
+    return HeuristicQuestionGenerationAdapter()
 
 
 def default_question_generation_provider():

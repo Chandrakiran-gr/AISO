@@ -10,8 +10,15 @@ from typing import Optional, List
 from uuid import UUID, uuid4
 import json
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from api.database import get_db, Client
 from api.auth import get_current_user_id
+from api.client_limits import (
+    business_limit_403,
+    enforce_client_creation_limit,
+    is_client_limit_violation,
+)
 
 router = APIRouter(tags=["clients"])
 
@@ -138,6 +145,8 @@ async def create_client(
         response.status_code = status.HTTP_200_OK
         return _serialize_client(existing)
 
+    # New business: enforce the per-user plan limit (free/pro = 1, custom = unlimited).
+    enforce_client_creation_limit(db, user_id)
     client = Client(
         id=client_id,
         user_id=user_id,
@@ -148,7 +157,13 @@ async def create_client(
         competitor_names=_clean_competitors(payload.competitors),
     )
     db.add(client)
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:  # Postgres trigger backstop (race-safe)
+        db.rollback()
+        if is_client_limit_violation(exc):
+            raise business_limit_403() from exc
+        raise
     db.refresh(client)
     return _serialize_client(client)
 

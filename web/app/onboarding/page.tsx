@@ -7,6 +7,7 @@ import styles from "./onboarding.module.css";
 import { setKey, getKey, getAllKeys, hadKeyPreviousSession, clearKey, type Provider } from "@/lib/byok";
 import { INTENT_GROUPS } from "@/lib/intent-groups";
 import OptimizationObjectiveSelector from "@/components/OptimizationObjectiveSelector";
+import { useEntitlements } from "@/lib/useEntitlements";
 
 const PROVIDERS: { id: Provider; name: string; color: string }[] = [
   { id: "openai",     name: "ChatGPT",    color: "#10a37f" },
@@ -1780,6 +1781,7 @@ function Step4({
   skipped,
   externalError,
   onClearExternalError,
+  usesManagedKeys,
 }: {
   form: FormState;
   profile: ContextProfile;
@@ -1792,6 +1794,7 @@ function Step4({
   skipped: string[];
   externalError: string | null;
   onClearExternalError: () => void;
+  usesManagedKeys: boolean;
 }) {
   const [keysOpen, setKeysOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -1853,7 +1856,7 @@ function Step4({
   const selectedProviderKeysSet = form.providers.filter((id) => keySet[id as Provider]).length;
   const missingKeys = form.providers.filter((id) => !keySet[id as Provider]);
   const visibleValidationError = validationError ?? externalError;
-  const byokPanelOpen = keysOpen || missingKeys.length > 0 || Boolean(visibleValidationError);
+  const byokPanelOpen = !usesManagedKeys && (keysOpen || missingKeys.length > 0 || Boolean(visibleValidationError));
   const providerNames = form.providers.map(providerName).join(", ");
   const customQuestionCount = validateCustomQuestions(form.customQuestions).questions.length;
 
@@ -1879,12 +1882,14 @@ function Step4({
       setValidationError("G3 needs at least one competitor. Add competitors in Confirm context or deselect G3.");
       return;
     }
-    const currentState = refreshKeyState();
-    const missing = form.providers.filter((id) => !currentState[id as Provider]);
-    if (missing.length > 0) {
-      setKeysOpen(true);
-      setValidationError(`Add API keys for selected providers: ${missing.map(providerName).join(", ")}.`);
-      return;
+    if (!usesManagedKeys) {
+      const currentState = refreshKeyState();
+      const missing = form.providers.filter((id) => !currentState[id as Provider]);
+      if (missing.length > 0) {
+        setKeysOpen(true);
+        setValidationError(`Add API keys for selected providers: ${missing.map(providerName).join(", ")}.`);
+        return;
+      }
     }
     const customValidation = validateCustomQuestions(form.customQuestions);
     if (customValidation.error) {
@@ -2011,18 +2016,24 @@ function Step4({
           </div>
         </div>
         <div className={styles.fieldGroup}>
-          <button
-            type="button"
-            className={styles.byokToggle}
-            onClick={() => setKeysOpen((o) => !o)}
-            aria-expanded={byokPanelOpen}
-            id="ob-byok-toggle"
-          >
-            <span className={`${styles.byokArrow} ${byokPanelOpen ? styles.byokArrowOpen : ""}`}>▶</span>
-            {missingKeys.length
-              ? `Add API keys for ${missingKeys.length} selected platform${missingKeys.length === 1 ? "" : "s"}`
-              : `API keys ready (${selectedProviderKeysSet}/${form.providers.length} selected)`}
-          </button>
+          {usesManagedKeys ? (
+            <p className={styles.byokTrust}>
+              <strong>Scans run on AISO-managed keys.</strong> No API key needed — your plan includes managed provider access.
+            </p>
+          ) : (
+            <button
+              type="button"
+              className={styles.byokToggle}
+              onClick={() => setKeysOpen((o) => !o)}
+              aria-expanded={byokPanelOpen}
+              id="ob-byok-toggle"
+            >
+              <span className={`${styles.byokArrow} ${byokPanelOpen ? styles.byokArrowOpen : ""}`}>▶</span>
+              {missingKeys.length
+                ? `Add API keys for ${missingKeys.length} selected platform${missingKeys.length === 1 ? "" : "s"}`
+                : `API keys ready (${selectedProviderKeysSet}/${form.providers.length} selected)`}
+            </button>
+          )}
           {byokPanelOpen && (
             <div className={styles.byokPanel}>
               <p className={styles.byokTrust}>
@@ -2104,6 +2115,9 @@ function Step4({
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { entitlements } = useEntitlements();
+  // Free tier brings its own keys; pro/custom run on managed server keys.
+  const usesManagedKeys = entitlements?.uses_managed_keys ?? false;
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(DEFAULT);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -2399,12 +2413,14 @@ export default function OnboardingPage() {
 
   async function handleLaunch(customQuestions: string[] = []) {
     setError(null);
-    const missingKeys = missingSelectedProviderKeys(form.providers);
-    if (missingKeys.length > 0) {
-      const message = `Add API keys for selected providers: ${missingKeys.map(providerName).join(", ")}.`;
-      setKeyError(message);
-      setError(message);
-      return;
+    if (!usesManagedKeys) {
+      const missingKeys = missingSelectedProviderKeys(form.providers);
+      if (missingKeys.length > 0) {
+        const message = `Add API keys for selected providers: ${missingKeys.map(providerName).join(", ")}.`;
+        setKeyError(message);
+        setError(message);
+        return;
+      }
     }
     if (!clientId) {
       setError("Business profile is missing. Go back and save business basics.");
@@ -2419,7 +2435,7 @@ export default function OnboardingPage() {
     setScanning(true);
 
     try {
-      const byokKeys = getAllKeys();
+      const byokKeys = usesManagedKeys ? {} : getAllKeys();
       const scanId = await createScan(clientId, form.providers, form.groups, customQuestions, byokKeys);
       setForm((prev) => ({ ...prev, customQuestions: [] }));
       pollRef.current = setInterval(async () => {
@@ -2532,6 +2548,7 @@ export default function OnboardingPage() {
             error={error}
             skipped={skipped}
             externalError={keyError}
+            usesManagedKeys={usesManagedKeys}
             onClearExternalError={() => {
               setKeyError(null);
               setError(null);

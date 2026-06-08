@@ -13,17 +13,36 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 import yaml
 
 from api.adapters.scan_executor import default_scan_executor
-from api.adapters.profile_draft import default_profile_draft_provider
-from api.adapters.question_scorer import default_question_scorer_provider
-from api.adapters.question_generation import default_question_generation_provider
-from api.adapters.realism_filter import default_realism_filter_provider
+from api.adapters.profile_draft import (
+    heuristic_profile_draft_provider,
+    managed_profile_draft_provider,
+)
+from api.adapters.question_scorer import (
+    heuristic_question_scorer_provider,
+    managed_question_scorer_provider,
+)
+from api.adapters.question_generation import (
+    heuristic_question_generation_provider,
+    managed_question_generation_provider,
+)
+from api.adapters.realism_filter import (
+    heuristic_realism_filter_provider,
+    managed_realism_filter_provider,
+)
 from api.adapters.prompt_registry import ensure_prompt_version
 from api.auth import get_current_user_id
-from api.database import BusinessProfile, Client, get_db
+from api.database import BusinessProfile, Client, User, get_db
+from api.entitlements import uses_managed_keys_for_user
+from api.client_limits import (
+    business_limit_403,
+    enforce_client_creation_limit,
+    is_client_limit_violation,
+)
 from api.domain.onboarding import (
     VERTICAL_DISPLAY_ORDER,
     context_floor_met,
@@ -427,24 +446,65 @@ def _profile_draft_response(
     )
 
 
-def get_profile_draft_provider() -> UpstreamLLMProvider:
-    return default_profile_draft_provider()
+def _onboarding_provider_for_user(db, user_id, *, managed, heuristic) -> UpstreamLLMProvider:
+    """Pick the onboarding LLM provider by the requesting user's tier.
+
+    Free tier → deterministic heuristic (no server LLM spend). Pro/custom → the
+    managed (OpenAI) provider. An unknown user falls back to managed (the route
+    is authed upstream; only an existing *free* user is downgraded to heuristic).
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is not None and not uses_managed_keys_for_user(user):
+        return heuristic()
+    return managed()
+
+
+def get_profile_draft_provider(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> UpstreamLLMProvider:
+    return _onboarding_provider_for_user(
+        db, user_id,
+        managed=managed_profile_draft_provider,
+        heuristic=heuristic_profile_draft_provider,
+    )
 
 
 def get_scan_executor() -> UpstreamScanExecutor:
     return default_scan_executor()
 
 
-def get_question_scorer_provider() -> UpstreamLLMProvider:
-    return default_question_scorer_provider()
+def get_question_scorer_provider(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> UpstreamLLMProvider:
+    return _onboarding_provider_for_user(
+        db, user_id,
+        managed=managed_question_scorer_provider,
+        heuristic=heuristic_question_scorer_provider,
+    )
 
 
-def get_question_generation_provider() -> UpstreamLLMProvider:
-    return default_question_generation_provider()
+def get_question_generation_provider(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> UpstreamLLMProvider:
+    return _onboarding_provider_for_user(
+        db, user_id,
+        managed=managed_question_generation_provider,
+        heuristic=heuristic_question_generation_provider,
+    )
 
 
-def get_realism_filter_provider() -> UpstreamLLMProvider:
-    return default_realism_filter_provider()
+def get_realism_filter_provider(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> UpstreamLLMProvider:
+    return _onboarding_provider_for_user(
+        db, user_id,
+        managed=managed_realism_filter_provider,
+        heuristic=heuristic_realism_filter_provider,
+    )
 
 
 def _load_intake_schema(vertical: str) -> IntakeSchemaResponse:
@@ -547,6 +607,8 @@ async def start_onboarding(
         client.updated_at = now
         response.status_code = status.HTTP_200_OK
     else:
+        # New business: enforce the per-user plan limit (free/pro = 1, custom = unlimited).
+        enforce_client_creation_limit(db, user_id)
         client = Client(
             id=client_id,
             user_id=user_id,
@@ -556,7 +618,13 @@ async def start_onboarding(
             updated_at=now,
         )
         db.add(client)
-        db.flush()
+        try:
+            db.flush()
+        except SQLAlchemyError as exc:  # Postgres trigger backstop (race-safe)
+            db.rollback()
+            if is_client_limit_violation(exc):
+                raise business_limit_403() from exc
+            raise
 
     profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client_id).first()
     if profile:

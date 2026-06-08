@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { CURRENT_PLAN, PRO_UPGRADE_HREF, canAccessRawArtifacts } from "@/lib/plan";
+import { PRO_UPGRADE_HREF } from "@/lib/plan";
+import { canAccessRawArtifacts } from "@/lib/entitlements";
+import { useEntitlements } from "@/lib/useEntitlements";
 import styles from "../dashboard.module.css";
 
 const API = "/api/proxy";
@@ -427,8 +428,8 @@ function groupRecommendedFixes(fixes: GapFix[], clientName: string, missedQuerie
 }
 
 export default function ResponsesPage() {
-  const { data: session } = useSession();
-  const rawArtifactsUnlocked = canAccessRawArtifacts(CURRENT_PLAN, session?.user?.email);
+  const { entitlements } = useEntitlements();
+  const rawArtifactsUnlocked = canAccessRawArtifacts(entitlements);
   const searchParams = useSearchParams();
   const scanIdParam = searchParams.get("scan_id");
   const [client, setClient] = useState<ClientData | null>(null);

@@ -10,6 +10,7 @@ import os
 import requests
 
 from api.domain.ports import UpstreamProviderResponse
+from api.adapters.openai_chat import OpenAIChatAdapter
 
 
 DEFAULT_PROFILE_DRAFT_MODEL = "claude-sonnet-4-20250514"
@@ -142,6 +143,17 @@ class HeuristicProfileDraftAdapter:
                 "idempotency_hash": hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest(),
             },
         )
+
+
+def managed_profile_draft_provider():
+    """Managed (pro/custom) provider: OpenAI, falling back to heuristic if unkeyed."""
+    openai = OpenAIChatAdapter(purpose="profile drafting", max_tokens=1800)
+    return openai if openai.available() else HeuristicProfileDraftAdapter()
+
+
+def heuristic_profile_draft_provider():
+    """Free-tier provider: deterministic local drafting, no server LLM spend."""
+    return HeuristicProfileDraftAdapter()
 
 
 def default_profile_draft_provider():

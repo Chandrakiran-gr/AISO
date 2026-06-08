@@ -11,19 +11,20 @@ from datetime import datetime
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.auth import (
+    get_current_user_id,
     hash_password,
     normalize_email,
     verify_internal_request,
     verify_password,
 )
 from api.database import Client, User, get_db
-from api.entitlements import apply_account_entitlements
+from api.entitlements import apply_account_entitlements, entitlements_for_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -96,6 +97,55 @@ class AuthUserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class EntitlementsResponse(BaseModel):
+    """Per-user tier + entitlements for the frontend (live, never cached)."""
+
+    user_id: str
+    email: str
+    plan_tier: str
+    account_role: str
+    max_clients: Optional[int]
+    uses_managed_keys: bool
+    business_count: int
+    billing_model: str
+    can_download_artifacts: bool
+    can_view_full_citations: bool
+    can_view_source_graph: bool
+
+
+@router.get("/me", response_model=EntitlementsResponse)
+def get_me(
+    response: Response,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> EntitlementsResponse:
+    """Return the current user's tier + entitlements + live business count.
+
+    Drives the frontend's tier-aware UI (BYOK vs managed keys, business limit,
+    feature gates). Tier can change via admin/billing, so it must never be
+    cached at the HTTP layer.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Unknown user")
+    ent = entitlements_for_user(user)
+    business_count = db.query(Client).filter(Client.user_id == user_id).count()
+    response.headers["Cache-Control"] = "no-store"
+    return EntitlementsResponse(
+        user_id=user.id,
+        email=user.email,
+        plan_tier=ent.plan_tier,
+        account_role=ent.account_role,
+        max_clients=ent.max_clients,
+        uses_managed_keys=ent.uses_managed_keys,
+        business_count=business_count,
+        billing_model=ent.billing_model,
+        can_download_artifacts=ent.can_download_artifacts,
+        can_view_full_citations=ent.can_view_full_citations,
+        can_view_source_graph=ent.can_view_source_graph,
+    )
 
 
 def _find_user_by_email(db: Session, email: str) -> User | None:
