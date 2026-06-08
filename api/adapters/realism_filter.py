@@ -11,6 +11,7 @@ import re
 import requests
 
 from api.domain.ports import UpstreamProviderResponse
+from api.adapters.openai_chat import OpenAIChatAdapter
 from api.domain.realism_filter import length_penalty, token_count
 
 
@@ -106,6 +107,17 @@ class HeuristicRealismFilterAdapter:
                 "idempotency_hash": hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest(),
             },
         )
+
+
+def managed_realism_filter_provider():
+    """Managed (pro/custom) provider: OpenAI, falling back to heuristic if unkeyed."""
+    openai = OpenAIChatAdapter(purpose="realism filtering", max_tokens=300)
+    return openai if openai.available() else HeuristicRealismFilterAdapter()
+
+
+def heuristic_realism_filter_provider():
+    """Free-tier provider: deterministic local realism judge, no server LLM spend."""
+    return HeuristicRealismFilterAdapter()
 
 
 def default_realism_filter_provider():

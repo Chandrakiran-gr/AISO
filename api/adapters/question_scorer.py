@@ -11,6 +11,7 @@ import re
 import requests
 
 from api.domain.ports import UpstreamProviderResponse
+from api.adapters.openai_chat import OpenAIChatAdapter
 from api.domain.question_scorer import weighted_score
 
 
@@ -122,6 +123,17 @@ class HeuristicQuestionScorerAdapter:
                 "idempotency_hash": hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest(),
             },
         )
+
+
+def managed_question_scorer_provider():
+    """Managed (pro/custom) provider: OpenAI, falling back to heuristic if unkeyed."""
+    openai = OpenAIChatAdapter(purpose="question scoring", max_tokens=900)
+    return openai if openai.available() else HeuristicQuestionScorerAdapter()
+
+
+def heuristic_question_scorer_provider():
+    """Free-tier provider: deterministic local scorer, no server LLM spend."""
+    return HeuristicQuestionScorerAdapter()
 
 
 def default_question_scorer_provider():
