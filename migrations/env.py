@@ -42,6 +42,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
+        transaction_per_migration=True,
     )
 
     with context.begin_transaction():
@@ -64,6 +65,13 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             render_as_batch=True,
+            # Commit after each migration instead of wrapping the whole 0019->head
+            # chain in one transaction. Several migrations rewrite whole tables
+            # (Text->JSONB type changes); committing per migration lets Postgres
+            # free each old table copy + its WAL before the next rewrite, so the
+            # transient disk footprint stays ~one table instead of accumulating
+            # across every conversion (which exhausted the small prod volume).
+            transaction_per_migration=True,
         )
 
         with context.begin_transaction():
