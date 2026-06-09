@@ -184,6 +184,12 @@ def create_or_replay_scan_run(
         enqueued_at=_utcnow(),
     )
     db.add(run)
+    # ScanProgress / ScanStep / the audit row all FK to scan_runs.id but have no
+    # ORM relationship to ScanRun, so the unit of work won't guarantee the parent
+    # INSERT precedes them in a single flush (and the body/audit helpers below can
+    # trigger an autoflush). Persist the run first so its children reference an
+    # existing row; this stays in the caller's transaction.
+    db.flush()
     db.add(
         ScanProgress(
             scan_run_id=run.id,

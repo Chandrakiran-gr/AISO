@@ -124,6 +124,16 @@ def build_phase13_manifest_from_groups(
     selected_at = datetime.now(timezone.utc)
     n_total = len(deduped)
     bank_version_id = str(uuid.uuid4())
+
+    # These four models carry only bare ``ForeignKey`` columns and no ORM
+    # ``relationship()``s, so SQLAlchemy's unit of work does NOT order the parent
+    # (``question_bank_version`` / ``question``) INSERTs before the child
+    # (``question_bank_membership`` / ``scan_manifest``) rows that reference them
+    # within a single flush. The FK constraints are enforced at statement time,
+    # so we must persist each parent layer before adding its children — flush the
+    # version, then all questions, then the memberships + manifest. All of this
+    # stays inside the caller's transaction, so a later failure still rolls back
+    # the whole manifest.
     db.add(
         QuestionBankVersion(
             bank_version_id=bank_version_id,
@@ -136,7 +146,9 @@ def build_phase13_manifest_from_groups(
             rotation_reason="phase0_bridge_import",
         )
     )
+    db.flush()  # version must exist before any membership/manifest references it
 
+    questions: list[QuestionBankQuestion] = []
     for text, group in deduped:
         journey_stage, brand_frame = GROUP_TO_JOURNEY.get(group, _DEFAULT_JOURNEY)
         text_hash = question_text_hash(text)
@@ -162,6 +174,10 @@ def build_phase13_manifest_from_groups(
                 source="manual" if group == MANUAL_GROUP else "generated",
             )
             db.add(question)
+        questions.append(question)
+    db.flush()  # every question must exist before its membership/manifest rows
+
+    for question in questions:
         db.add(
             QuestionBankMembership(
                 bank_version_id=bank_version_id,
