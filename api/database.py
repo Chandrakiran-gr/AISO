@@ -93,6 +93,11 @@ class User(Base):
 class Client(Base):
     """A business being tracked by a user."""
     __tablename__ = "clients"
+    __table_args__ = (
+        # One business per user per URL — permanent backstop against the
+        # duplicate-business bug (added by migration 20260609_0031).
+        Index("uq_clients_user_url", "user_id", "url", unique=True),
+    )
 
     id           = Column(String, primary_key=True)           # UUID
     user_id      = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)

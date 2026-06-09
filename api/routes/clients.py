@@ -12,8 +12,9 @@ import json
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from api.database import get_db, Client
+from api.database import get_db, Client, User
 from api.auth import get_current_user_id
+from api.client_identity import canonical_business_url, resolve_user_business
 from api.client_limits import (
     business_limit_403,
     enforce_client_creation_limit,
@@ -101,7 +102,7 @@ def _apply_client_payload(
     fields_set = payload.model_fields_set
     client.name = resolved_name
     if not preserve_omitted or "url" in fields_set:
-        client.url = payload.resolved_url or client.url
+        client.url = canonical_business_url(payload.resolved_url) if payload.resolved_url else client.url
     if not preserve_omitted or "industry" in fields_set:
         client.industry = payload.industry
     if not preserve_omitted or "location" in fields_set:
@@ -115,8 +116,13 @@ async def list_clients(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id)
 ):
-    """List all clients for the current user."""
-    clients = db.query(Client).filter(Client.user_id == user_id).all()
+    """List all clients for the current user (most-recently-updated first)."""
+    clients = (
+        db.query(Client)
+        .filter(Client.user_id == user_id)
+        .order_by(Client.updated_at.desc())
+        .all()
+    )
     return [_serialize_client(client) for client in clients]
 
 
@@ -132,13 +138,15 @@ async def create_client(
     if not resolved_name:
         raise HTTPException(status_code=422, detail="name or display_name is required")
 
-    client_id = _canonical_uuid4(payload.id, field_name="id") or str(uuid4())
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    requested_id = _canonical_uuid4(payload.id, field_name="id")
 
-    existing = db.query(Client).filter(Client.id == client_id).first()
+    # Reuse the user's existing business when one resolves — never mint a
+    # duplicate. Only a genuinely new business reaches the create path.
+    existing = resolve_user_business(db, user, client_id=requested_id, url=payload.resolved_url)
     if existing:
-        if existing.user_id != user_id:
-            raise HTTPException(status_code=409, detail="Client id already exists")
-
         _apply_client_payload(existing, payload, resolved_name, preserve_omitted=True)
         db.commit()
         db.refresh(existing)
@@ -147,11 +155,12 @@ async def create_client(
 
     # New business: enforce the per-user plan limit (free/pro = 1, custom = unlimited).
     enforce_client_creation_limit(db, user_id)
+    new_id = str(uuid4())
     client = Client(
-        id=client_id,
+        id=new_id,
         user_id=user_id,
         name=resolved_name,
-        url=payload.resolved_url or f"https://example.com/{client_id}",
+        url=canonical_business_url(payload.resolved_url) if payload.resolved_url else f"https://example.com/{new_id}",
         industry=payload.industry,
         location=payload.location,
         competitor_names=_clean_competitors(payload.competitors),

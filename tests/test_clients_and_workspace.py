@@ -47,7 +47,7 @@ class ClientProfileTests(unittest.TestCase):
             )
 
             self.assertEqual(UUID(created.id, version=4).version, 4)
-            self.assertEqual(created.url, "https://acme.example")
+            self.assertEqual(created.url, "https://acme.example/")  # canonicalized on write
             self.assertEqual(created.industry, "Industrial widgets")
             self.assertEqual(created.location, "Boston, MA")
             self.assertEqual(created.competitors, ["WidgetCo", "Parts Plus"])
@@ -69,7 +69,7 @@ class ClientProfileTests(unittest.TestCase):
             )
 
             self.assertEqual(updated.name, "Acme Widgets Updated")
-            self.assertEqual(updated.url, "https://new.example")
+            self.assertEqual(updated.url, "https://new.example/")  # canonicalized on write
             self.assertEqual(updated.competitors, ["New Rival"])
 
             listed = asyncio.run(list_clients(db=session, user_id="user-1"))

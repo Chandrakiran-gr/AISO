@@ -819,11 +819,18 @@ async function getIntakeSchema(vertical: string): Promise<IntakeSchema> {
   return res.json();
 }
 
-async function startPipelineOnboarding(form: FormState, schema: IntakeSchema): Promise<ExistingClient> {
+async function startPipelineOnboarding(
+  form: FormState,
+  schema: IntakeSchema,
+  clientId: string | null,
+): Promise<ExistingClient> {
   const res = await fetch(`${API}/v1/onboarding/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      // Bind to the existing business so a re-scan updates it in place and never
+      // creates a duplicate profile. Null only for a brand-new first business.
+      client_id: clientId,
       display_name: form.businessName,
       url: form.websiteUrl,
       vertical: form.vertical,
@@ -2341,7 +2348,9 @@ export default function OnboardingPage() {
         return;
       }
       const nextForm = legacyFormFromIntake(form, intakeSchema);
-      const client = await startPipelineOnboarding(nextForm, intakeSchema);
+      // Pass the loaded business id so the backend reuses it (no duplicate);
+      // it returns that same id, so this never points at a new profile.
+      const client = await startPipelineOnboarding(nextForm, intakeSchema, clientId);
       setForm(nextForm);
       setClientId(client.id);
       setWorkspaceId(null);
