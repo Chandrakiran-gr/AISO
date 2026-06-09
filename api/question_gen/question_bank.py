@@ -106,6 +106,12 @@ def import_selected_questions_to_question_bank(
             rotation_reason="phase12_initial_import",
         )
     )
+    # These models carry only bare ForeignKey columns (no ORM relationship()), so
+    # the unit of work does not guarantee this version is INSERTed before the
+    # membership/manifest rows that FK to it within a single flush. Persist it
+    # now (and each new question below) so children always reference an existing
+    # parent; all of this stays inside the caller's transaction.
+    db.flush()
 
     core_question_ids = _core_question_ids(rows, n_core=n_core)
     strategic_question_ids = strategic_question_ids or set()
@@ -211,6 +217,7 @@ def _get_or_create_question(
         created_at=candidate.created_at,
     )
     db.add(question)
+    db.flush()  # question must exist before its score/membership/manifest rows FK to it
     return question
 
 
