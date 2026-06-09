@@ -38,6 +38,7 @@ from api.adapters.prompt_registry import ensure_prompt_version
 from api.auth import get_current_user_id
 from api.database import BusinessProfile, Client, User, get_db
 from api.entitlements import uses_managed_keys_for_user
+from api.client_identity import canonical_business_url, resolve_user_business
 from api.client_limits import (
     business_limit_403,
     enforce_client_creation_limit,
@@ -595,25 +596,28 @@ async def start_onboarding(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    client_id = _canonical_uuid4(payload.client_id, field_name="client_id") or str(uuid.uuid4())
-    client = db.query(Client).filter(Client.id == client_id).first()
-    if client and client.user_id != user_id:
-        raise HTTPException(status_code=409, detail="Client id already exists")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    requested_id = _canonical_uuid4(payload.client_id, field_name="client_id")
 
     now = datetime.now(timezone.utc)
-    if client:
+    # Reuse the user's existing business when one resolves — a re-scan must never
+    # create a new profile. Only a genuinely new business reaches the create path.
+    client = resolve_user_business(db, user, client_id=requested_id, url=payload.resolved_url)
+    if client is not None:
         client.name = name
-        client.url = payload.resolved_url
+        client.url = canonical_business_url(payload.resolved_url)  # edits update in place
         client.updated_at = now
         response.status_code = status.HTTP_200_OK
     else:
         # New business: enforce the per-user plan limit (free/pro = 1, custom = unlimited).
         enforce_client_creation_limit(db, user_id)
         client = Client(
-            id=client_id,
+            id=str(uuid.uuid4()),
             user_id=user_id,
             name=name,
-            url=payload.resolved_url,
+            url=canonical_business_url(payload.resolved_url),
             created_at=now,
             updated_at=now,
         )
@@ -626,7 +630,7 @@ async def start_onboarding(
                 raise business_limit_403() from exc
             raise
 
-    profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client_id).first()
+    profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client.id).first()
     if profile:
         profile.vertical = vertical
         profile.objective = objective
@@ -636,7 +640,7 @@ async def start_onboarding(
         profile.updated_at = now
     else:
         profile = BusinessProfile(
-            client_id=client_id,
+            client_id=client.id,
             vertical=vertical,
             objective=objective,
             category=payload.category or "",

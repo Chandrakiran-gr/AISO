@@ -7,7 +7,7 @@ counted as creating a new one.
 import asyncio
 import unittest
 
-from fastapi import HTTPException, Response
+from fastapi import Response
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -34,22 +34,26 @@ class ClientLimitTests(unittest.TestCase):
     def _count(self, user_id):
         return self.db.query(Client).filter(Client.user_id == user_id).count()
 
-    def test_free_user_second_business_blocked(self):
+    def test_free_user_second_create_reuses_single_business(self):
+        # Free/pro have exactly one business: a second create (no id) reuses it
+        # in place rather than spawning a duplicate or 403-ing the user. The
+        # one-business limit is now enforced by reuse, not rejection.
         self.db.add(User(id="free-u", email="f@e.com", plan_tier="free"))
         self.db.commit()
         self._create("free-u", "Biz One")
-        with self.assertRaises(HTTPException) as ctx:
-            self._create("free-u", "Biz Two")
-        self.assertEqual(ctx.exception.status_code, 403)
+        first_id = self.db.query(Client).filter(Client.user_id == "free-u").one().id
+        self._create("free-u", "Biz Two")
         self.assertEqual(self._count("free-u"), 1)
+        only = self.db.query(Client).filter(Client.user_id == "free-u").one()
+        self.assertEqual(only.id, first_id)
+        self.assertEqual(only.name, "Biz Two")
 
-    def test_pro_user_second_business_blocked(self):
+    def test_pro_user_second_create_reuses_single_business(self):
         self.db.add(User(id="pro-u", email="p@e.com", plan_tier="pro"))
         self.db.commit()
         self._create("pro-u", "Biz One")
-        with self.assertRaises(HTTPException) as ctx:
-            self._create("pro-u", "Biz Two")
-        self.assertEqual(ctx.exception.status_code, 403)
+        self._create("pro-u", "Biz Two")
+        self.assertEqual(self._count("pro-u"), 1)
 
     def test_custom_user_unlimited(self):
         self.db.add(User(id="cust-u", email="c@e.com", plan_tier="custom"))
