@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from fastapi import BackgroundTasks
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -56,6 +56,14 @@ class ScanBridgeTests(unittest.TestCase):
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+        # Enforce foreign keys so the SQLite test mirrors production Postgres.
+        # Without this, SQLite silently accepts out-of-order INSERTs and hides
+        # FK-ordering bugs (the prod question_bank_membership 500 was invisible
+        # here until this pragma was turned on).
+        @event.listens_for(self.engine, "connect")
+        def _enable_sqlite_fks(dbapi_conn, _record):  # pragma: no cover - trivial
+            dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.db = self.Session()
@@ -148,6 +156,37 @@ class ScanBridgeTests(unittest.TestCase):
                 profile={},
                 custom_questions=["Only question?"],
             )
+
+    def test_rescan_reuses_questions_and_persists_parents_before_children(self):
+        """A re-scan reuses existing questions under a fresh bank version, and
+        every parent row (question_bank_version / question) is persisted before
+        the membership + manifest rows that FK to it.
+
+        Regression for the prod 500: ``question_bank_membership`` violates its FK
+        to ``question_bank_version`` because, with no ORM relationship between the
+        models, the unit of work emitted the child INSERTs before the parent in a
+        single flush. Only catchable with foreign keys enforced (see setUp).
+        """
+        cq = ["Is VectorCRM good for startups?", "Does VectorCRM integrate with Slack?"]
+        n1 = build_phase13_manifest_from_groups(
+            self.db, client_id="client-1",
+            scan_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            groups=[], profile={}, custom_questions=cq,
+        )
+        self.db.commit()
+        # Re-scan: same client, same questions, new scan id.
+        n2 = build_phase13_manifest_from_groups(
+            self.db, client_id="client-1",
+            scan_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            groups=[], profile={}, custom_questions=cq,
+        )
+        self.db.commit()
+
+        self.assertEqual((n1, n2), (2, 2))
+        self.assertEqual(self.db.query(QuestionBankQuestion).count(), 2)    # reused, not duplicated
+        self.assertEqual(self.db.query(QuestionBankVersion).count(), 2)     # one bank version per scan
+        self.assertEqual(self.db.query(QuestionBankMembership).count(), 4)  # 2 questions × 2 versions
+        self.assertEqual(self.db.query(ScanManifest).count(), 4)
 
     def test_sparse_profile_with_template_groups_raises(self):
         # Template groups requested but no profile signal and no custom questions.
