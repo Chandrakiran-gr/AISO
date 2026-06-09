@@ -110,6 +110,19 @@ class CreateClientReuseTests(_DB):
         self._create("u1", "Pemspa", url="https://pemspa.com")
         self.assertEqual(self._count("u1"), 1)
 
+    def test_rescan_with_legacy_nonuuid_id_reuses_business(self):
+        # Regression for the prod 422: a business kept with a legacy non-UUID id
+        # (e.g. "pemspa_skincare_wellness") must be reusable by that id, not
+        # rejected as "client_id must be a UUIDv4".
+        self.db.add(User(id="u1", email="u1@e.com", plan_tier="custom"))
+        self.db.add(Client(id="pemspa_skincare_wellness", user_id="u1",
+                           name="PemSpa", url="https://pemspa.com/"))
+        self.db.commit()
+        res = self._create("u1", "PemSpa", url="https://pemspa.com/",
+                           client_id="pemspa_skincare_wellness")
+        self.assertEqual(res.id, "pemspa_skincare_wellness")  # reused, not 422, no new row
+        self.assertEqual(self._count("u1"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

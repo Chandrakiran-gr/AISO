@@ -141,11 +141,10 @@ async def create_client(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    requested_id = _canonical_uuid4(payload.id, field_name="id")
-
-    # Reuse the user's existing business when one resolves — never mint a
-    # duplicate. Only a genuinely new business reaches the create path.
-    existing = resolve_user_business(db, user, client_id=requested_id, url=payload.resolved_url)
+    # The incoming id only identifies an existing business to reuse (any format,
+    # incl. legacy non-UUID ids); a genuinely new business gets a server-minted
+    # UUID below — callers never set the id.
+    existing = resolve_user_business(db, user, client_id=payload.id, url=payload.resolved_url)
     if existing:
         _apply_client_payload(existing, payload, resolved_name, preserve_omitted=True)
         db.commit()

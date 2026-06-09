@@ -599,12 +599,11 @@ async def start_onboarding(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    requested_id = _canonical_uuid4(payload.client_id, field_name="client_id")
-
     now = datetime.now(timezone.utc)
-    # Reuse the user's existing business when one resolves — a re-scan must never
-    # create a new profile. Only a genuinely new business reaches the create path.
-    client = resolve_user_business(db, user, client_id=requested_id, url=payload.resolved_url)
+    # The incoming client_id only identifies an existing business to reuse — it may
+    # be a legacy non-UUID id, so it is NOT validated as a UUID. A re-scan must
+    # never create a new profile; a genuinely new business gets a server id below.
+    client = resolve_user_business(db, user, client_id=payload.client_id, url=payload.resolved_url)
     if client is not None:
         client.name = name
         client.url = canonical_business_url(payload.resolved_url)  # edits update in place

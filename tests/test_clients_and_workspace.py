@@ -78,28 +78,31 @@ class ClientProfileTests(unittest.TestCase):
         finally:
             session.close()
 
-    def test_create_client_rejects_non_uuid_client_id(self):
+    def test_create_client_ignores_caller_supplied_id_and_mints_uuid(self):
+        # A caller-supplied id is never honored for a NEW business (no id injection);
+        # the server mints a UUIDv4. Non-UUID ids are no longer 422'd — legacy
+        # clients have non-UUID ids and must stay reusable (see the reuse test in
+        # tests/test_client_identity.py).
         session = self.Session()
         try:
             session.add(User(id="user-1", email="founder@example.com"))
             session.commit()
 
-            with self.assertRaises(HTTPException) as raised:
-                asyncio.run(
-                    create_client(
-                        ClientCreate(
-                            id="second_business",
-                            display_name="Second Business",
-                            url="https://second.example",
-                        ),
-                        response=Response(),
-                        db=session,
-                        user_id="user-1",
-                    )
+            created = asyncio.run(
+                create_client(
+                    ClientCreate(
+                        id="second_business",
+                        display_name="Second Business",
+                        url="https://second.example",
+                    ),
+                    response=Response(),
+                    db=session,
+                    user_id="user-1",
                 )
-            self.assertEqual(raised.exception.status_code, 422)
-            self.assertEqual(raised.exception.detail, "id must be a UUIDv4")
-            self.assertEqual(session.query(Client).filter(Client.user_id == "user-1").count(), 0)
+            )
+            self.assertEqual(UUID(created.id, version=4).version, 4)  # server-minted UUID
+            self.assertNotEqual(created.id, "second_business")        # caller id not honored
+            self.assertEqual(session.query(Client).filter(Client.user_id == "user-1").count(), 1)
         finally:
             session.close()
 
