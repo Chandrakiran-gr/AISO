@@ -108,10 +108,14 @@ def on_startup():
 
 
 @app.on_event("shutdown")
-def on_shutdown():
+async def on_shutdown():
     executor = getattr(app.state, "scan_executor", None)
-    if executor and hasattr(executor, "close"):
-        executor.close()
+    if executor is not None:
+        close_async = getattr(executor, "close_async", None)
+        if close_async is not None:
+            await close_async()  # close the async pool opened lazily during enqueue
+        if hasattr(executor, "close"):
+            executor.close()
     from api.adapters.scan_execution import reset_default_scan_executor
     reset_default_scan_executor()
 
