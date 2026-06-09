@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import unittest
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from api.database import Base, Client, QuestionCandidate, QuestionScore, ScanManifest, User
@@ -25,8 +25,16 @@ from api.question_gen.question_bank import QuestionBankImportError, import_selec
 class Phase13QuestionBankImportTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
+        # Enforce foreign keys so SQLite mirrors production Postgres; otherwise
+        # SQLite silently accepts out-of-order INSERTs and hides FK-ordering bugs.
+        @event.listens_for(self.engine, "connect")
+        def _enable_sqlite_fks(dbapi_conn, _record):  # pragma: no cover - trivial
+            dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
         Base.metadata.create_all(self.engine)
-        self.Session = sessionmaker(bind=self.engine)
+        # autoflush=False to match production SessionLocal: with autoflush on,
+        # in-loop queries flush parents early and mask FK-insert-ordering bugs.
+        self.Session = sessionmaker(bind=self.engine, autoflush=False)
 
     def tearDown(self):
         self.engine.dispose()
@@ -142,6 +150,7 @@ class Phase13QuestionBankImportTests(unittest.TestCase):
     ) -> list[tuple[QuestionCandidate, QuestionScore]]:
         session.add(User(id="user-1", email="founder@example.com"))
         session.add(Client(id="client-1", user_id="user-1", name="VectorCRM", url="https://vector.example"))
+        session.flush()  # client must exist before candidates/questions FK to it (prod creates it in an earlier txn)
         rows: list[tuple[QuestionCandidate, QuestionScore]] = []
         scored_at = datetime.now(timezone.utc)
         for index in range(count):

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from api.crawler.models import CrawlJob, OnboardingWorkspace
@@ -48,6 +48,13 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
         cls._db_file = tempfile.NamedTemporaryFile(prefix="aiso_phase12_crawler_", suffix=".db", delete=False)
         cls._db_file.close()
         cls._engine = create_engine(f"sqlite:///{cls._db_file.name}", connect_args={"check_same_thread": False})
+        # Enforce foreign keys so the crawl-persistence path is exercised exactly
+        # as production Postgres does (parent rows must be INSERTed before the
+        # children that FK to them); without this, SQLite hides FK-ordering bugs.
+        @event.listens_for(cls._engine, "connect")
+        def _enable_sqlite_fks(dbapi_conn, _record):  # pragma: no cover - trivial
+            dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
         cls._SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=cls._engine)
         Base.metadata.create_all(bind=cls._engine)
         cls._original_session_local = worker_module.SessionLocal
@@ -84,6 +91,7 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
                     updated_at=now,
                 )
             )
+            db.flush()  # client exists before profile/workspace FK to it (prod creates it in an earlier txn)
             db.add(
                 BusinessProfile(
                     client_id=client_id,
@@ -113,6 +121,7 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
                     updated_at=now,
                 )
             )
+            db.flush()  # workspace exists before the crawl job FK to it (prod creates it in an earlier txn)
             db.add(
                 CrawlJob(
                     id=job_id,
