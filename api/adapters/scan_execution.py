@@ -7,6 +7,7 @@ thin task entrypoint that starts the orchestrated scan saga.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -66,6 +67,8 @@ class ProcrastinateScanExecutor(ScanExecutor):
         self.orchestrator_task = orchestrator_task
         self.already_enqueued_exception = already_enqueued_exception
         self._opened = False
+        self._opened_async = False
+        self._open_async_lock = asyncio.Lock()
 
     async def enqueue(
         self,
@@ -77,6 +80,11 @@ class ProcrastinateScanExecutor(ScanExecutor):
         cost_budget_usd: float,
         priority: int = 0,
     ) -> ScanHandle:
+        # defer_async needs the connector's *async* pool open. The sync open()
+        # in default_scan_executor() only opens the sync pool, so open the async
+        # one lazily here (once) — otherwise Procrastinate raises "App was not
+        # open" and the enqueue 503s.
+        await self._ensure_open_async()
         configured_task = self.orchestrator_task.configure(
             queueing_lock=f"scan:{client_id}",
             lock=f"client:{client_id}",
@@ -111,6 +119,25 @@ class ProcrastinateScanExecutor(ScanExecutor):
         if self.already_enqueued_exception and isinstance(exc, self.already_enqueued_exception):
             return True
         return exc.__class__.__name__ == "AlreadyEnqueued"
+
+    async def _ensure_open_async(self) -> None:
+        if self._opened_async:
+            return
+        async with self._open_async_lock:
+            if self._opened_async:  # re-check inside the lock (concurrent first enqueues)
+                return
+            open_async = getattr(self.app, "open_async", None)
+            if open_async is not None:
+                await open_async()
+            self._opened_async = True
+
+    async def close_async(self) -> None:
+        if not self._opened_async:
+            return
+        close_async = getattr(self.app, "close_async", None)
+        if close_async is not None:
+            await close_async()
+        self._opened_async = False
 
     def open(self) -> None:
         if self._opened:
