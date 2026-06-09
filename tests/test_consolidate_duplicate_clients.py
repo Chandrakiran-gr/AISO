@@ -2,7 +2,7 @@
 
 import unittest
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -21,6 +21,10 @@ class ConsolidateDuplicateClientsTests(unittest.TestCase):
             dbapi_con.execute("PRAGMA foreign_keys=ON")
 
         Base.metadata.create_all(self.engine)
+        # Consolidation runs on the PRE-fix database (before P4's unique index
+        # exists), so drop it here to seed the duplicate rows it must clean up.
+        with self.engine.begin() as conn:
+            conn.execute(text("DROP INDEX IF EXISTS uq_clients_user_url"))
         self.Session = sessionmaker(bind=self.engine)
         self.db = self.Session()
         self.db.add(User(id="u1", email="u1@e.com", plan_tier="custom"))
