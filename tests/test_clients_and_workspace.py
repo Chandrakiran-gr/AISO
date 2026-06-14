@@ -8,9 +8,9 @@ from unittest.mock import patch
 from uuid import UUID
 
 from fastapi import HTTPException, Response
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from tests._pgharness import make_test_engine, reset_schema
 from api.database import Base, Client, User
 from api.routes.clients import ClientCreate, create_client, list_clients
 from api.scan_workspace import prepare_scan_workspace
@@ -18,8 +18,8 @@ from api.scan_workspace import prepare_scan_workspace
 
 class ClientProfileTests(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(self.engine)
+        self.engine = make_test_engine()  # Postgres when TEST_DATABASE_URL set, else SQLite
+        reset_schema(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
     def tearDown(self):

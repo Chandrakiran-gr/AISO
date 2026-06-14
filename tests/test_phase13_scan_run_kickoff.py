@@ -3,10 +3,9 @@ from decimal import Decimal
 import unittest
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
+from tests._pgharness import make_test_engine, reset_schema
 from api.auth import get_current_user_id
 from api.database import (
     AuditEvent,
@@ -79,12 +78,8 @@ class ConflictingScanExecutor:
 
 class Phase13ScanRunKickoffTests(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-        Base.metadata.create_all(self.engine)
+        self.engine = make_test_engine()  # Postgres when TEST_DATABASE_URL set, else SQLite
+        reset_schema(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.source_scan_id = "33333333-3333-4333-8333-333333333333"
         self.idempotency_key = "11111111-1111-4111-8111-111111111111"
@@ -327,6 +322,7 @@ class Phase13ScanRunKickoffTests(unittest.TestCase):
                 cost_budget_default_usd=Decimal("5.00"),
             )
         )
+        session.flush()  # client must exist before its question-bank rows FK to it
         bank_version = QuestionBankVersion(
             bank_version_id="bank-1",
             client_id="client-1",
@@ -365,6 +361,7 @@ class Phase13ScanRunKickoffTests(unittest.TestCase):
     def _seed_foreign_manifest(self, session, *, scan_id: str) -> None:
         session.add(User(id="user-2", email="other@example.com"))
         session.add(Client(id="client-2", user_id="user-2", name="OtherCo", url="https://other.example"))
+        session.flush()  # client must exist before its question-bank rows FK to it
         session.add(
             QuestionBankVersion(
                 bank_version_id="bank-2",

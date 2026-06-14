@@ -4,13 +4,12 @@ import asyncio
 import unittest
 
 from fastapi import Response
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from api.client_identity import business_url_key, canonical_business_url, resolve_user_business
-from api.database import Base, Client, User
+from api.database import Client, User
 from api.routes.clients import ClientCreate, create_client
+from tests._pgharness import make_test_engine, reset_schema
 
 
 class BusinessUrlKeyTests(unittest.TestCase):
@@ -34,10 +33,12 @@ class BusinessUrlKeyTests(unittest.TestCase):
 
 
 class _DB(unittest.TestCase):
+    """SQLite by default; real Postgres (FK-enforced) when TEST_DATABASE_URL is set."""
+
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        Base.metadata.create_all(self.engine)
-        self.Session = sessionmaker(bind=self.engine)
+        self.engine = make_test_engine()
+        reset_schema(self.engine)
+        self.Session = sessionmaker(bind=self.engine, autoflush=False)
         self.db = self.Session()
 
     def tearDown(self):
