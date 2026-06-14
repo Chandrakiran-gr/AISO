@@ -798,6 +798,13 @@ def persist_collect_csv_results(
             profile.updated_at = now
             profile_ids_by_url[canonical_url] = profile.id
 
+        # source_profiles must be INSERTed before the scan_citations that FK to
+        # them (scan_citations.source_profile_id -> source_profiles). These models
+        # have no ORM relationship on that column, so within a single flush the
+        # unit of work orders inserts by table name — emitting scan_citations
+        # before source_profiles and tripping the FK. Persist the parents first.
+        db.flush()
+
         for citation in citations:
             canonical = citation.canonical_url or canonicalize_url(citation.citation_url)
             db.add(
