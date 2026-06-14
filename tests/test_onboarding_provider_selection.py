@@ -9,8 +9,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from tests._pgharness import make_test_engine, reset_schema
 
 from api.adapters.openai_chat import OpenAIChatAdapter
 from api.adapters.profile_draft import (
@@ -91,8 +92,8 @@ class ManagedProviderFactoryTests(unittest.TestCase):
 
 class TierSelectionTests(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
-        Base.metadata.create_all(self.engine)
+        self.engine = make_test_engine()  # Postgres when TEST_DATABASE_URL set, else SQLite
+        reset_schema(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.db = self.Session()
         self.db.add(User(id="free-u", email="free@example.com", plan_tier="free"))

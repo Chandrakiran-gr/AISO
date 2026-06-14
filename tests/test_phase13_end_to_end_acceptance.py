@@ -2,6 +2,7 @@ import asyncio
 import csv
 import json
 import math
+import os
 import re
 import tempfile
 from datetime import datetime, timezone
@@ -171,11 +172,18 @@ class ConsistentClassifierJudge:
 
 
 def test_phase_13_12_end_to_end_acceptance_from_selected_questions_to_dashboard(monkeypatch):
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    # Run against real Postgres (FK-enforced, prod-faithful) when TEST_DATABASE_URL
+    # is set; otherwise the legacy in-memory SQLite path. SQLite does not enforce
+    # foreign keys, which is exactly why prod-only integrity bugs slipped through.
+    _test_db_url = os.environ.get("TEST_DATABASE_URL")
+    if _test_db_url:
+        engine = create_engine(_test_db_url)
+    else:
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     storage_dir = tempfile.TemporaryDirectory()
@@ -439,6 +447,7 @@ def test_phase_13_12_end_to_end_acceptance_from_selected_questions_to_dashboard(
 def _seed_phase12_and_methodology_fixture(session) -> None:
     session.add(User(id="user-1", email="founder@example.com"))
     session.add(Client(id="client-1", user_id="user-1", name="VectorCRM", url="https://vector.example"))
+    session.flush()  # client must exist before business_profile/candidates FK to it (prod creates it in an earlier txn)
     session.add(
         MethodologyVersionSet(
             id="mvs-1",

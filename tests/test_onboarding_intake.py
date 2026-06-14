@@ -2,24 +2,21 @@ import unittest
 from uuid import UUID
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from api.auth import get_current_user_id
 from api.database import Base, BusinessProfile, Client, MethodologyPromptVersion, User, get_db
 from api.domain.onboarding import VERTICAL_CODES, VERTICAL_DISPLAY_ORDER
 from api.main import app
+from tests._pgharness import make_test_engine, reset_schema
 
 
 class OnboardingIntakeAPITests(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-        Base.metadata.create_all(self.engine)
+        # SQLite by default; real Postgres (FK-enforced) when TEST_DATABASE_URL is set.
+        self.engine = make_test_engine()
+        reset_schema(self.engine)
         self.Session = sessionmaker(bind=self.engine, autoflush=False)
 
         seed = self.Session()
