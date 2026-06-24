@@ -1,44 +1,54 @@
-# Project Instructions for Codex (AISO Platform)
+# AISO - Agent Instructions
 
-## Role
-You are Codex, an autonomous coding agent working in parallel with a human developer (Chandrakiran) who is acting as the sole founder and primary developer using the Cursor IDE.
+Common instructions for any agent (Claude Code, Codex, Cursor) working on AISO,
+a B2B platform that measures brand visibility across AI answer engines
+(ChatGPT, Claude, Perplexity, Gemini).
 
-## Workflow Boundaries
-- **The human handles:** Quick edits, inline code completions, minor UI tweaks, design adjustments, and small bug fixes via Cursor.
-- **You (Codex) handle:** Multi-file refactors, complex feature implementations, backend architectural wiring, API integration, background task orchestration, and CI/CD/Deployment tasks.
+## Working Agreement
+- Read the relevant code before you write. Treat AISO_Codex_Handoff.md as architectural truth.
+- Do not commit or push unless asked. First summarize the diff and what you validated, then wait for explicit approval.
+- Commit messages never list the AI agent as co-author.
+- Branch per BRANCHING.md. Never push to main (see CONTRIBUTING.md).
+- Ask before irreversible actions: deleting files, dropping tables, purging env or config.
+- After any change: self-review the diff, run validation, then report what changed, what you validated, and commit status.
 
-## General Rules
-- **Read before you write:** Always read the existing codebase and relevant context before making changes. Rely heavily on the `AISO_Codex_Handoff.md` file for architectural truth.
-- **Respect human edits:** Never overwrite files the human is actively editing. If you suspect a collision, check the git status first or ask for confirmation.
-- **Do not commit without approval:** After development or file changes, do not commit automatically. First provide a short summary of what changed, what was reviewed, and what was validated. Commit only when Chandrakiran explicitly tells you to commit.
-- **Test and validate every change:** After any code change, run the relevant validation for correctness, performance/optimization, best practices, and security. Use targeted checks for small changes and broader tests/builds for larger changes.
-- **Review your own changes:** Every time you write or modify files, perform a code review of the diff before reporting completion. Look for regressions, security issues, missing validation, unnecessary complexity, and conflicts with the AISO architecture.
-- **Ask before destruction:** Explicitly ask for clarification and approval before making irreversible changes (e.g., deleting major files, dropping database tables, or purging environment configurations).
-- **Branching discipline:** Follow the branching discipline outlined in `BRANCHING.md`.
+## Conventions
+- Never use the em dash. Use a plain dash instead.
+- Never hand-edit CHANGELOG.md or any file marked as auto-generated.
+- When writing or substantially editing long Markdown, put each full sentence on its own line.
+  Preserve normal Markdown structure, but do not wrap multiple sentences onto one physical line.
 
-## Completion Protocol
-After changing files, always report:
-- **What changed:** A short, plain-English summary.
-- **Self-review:** The result of reviewing the diff for correctness, maintainability, security, and alignment with AISO architecture.
-- **Validation:** The commands/checks run, or a clear explanation if a check was not applicable.
-- **Commit status:** Whether changes are uncommitted, staged, or committed. Default should be uncommitted unless Chandrakiran requested a commit.
+## Engineering Standards
+- When making technical decisions, do not give much weight to development cost or speed.
+  Instead, prefer quality, simplicity, robustness, scalability, and long-term maintainability.
+- Fix bugs by reproducing them end-to-end first, as close as possible to how a real user hits them (onboarding -> scan -> dashboard), before changing code.
+- Cover the real user flow with end-to-end tests, not just unit tests.
+  A unit test that mocks the database, executor, or provider can pass while the integrated onboarding -> scan -> dashboard path 500s in production, which is exactly how the FK-insert-ordering bugs shipped.
+- Hold the line: if you see a lint error, test failure, or flaky test, fix it even when it is unrelated to your task.
+- Be picky about the UI. The aesthetic is premium dark-mode glassmorphism driven by globals.css variables. If something looks off, get it fixed.
 
-## Technology Stack
-- **Frontend:** Next.js 16 (App Router, Turbopack), React 19.
-- **Styling:** Vanilla CSS Modules (`*.module.css`) and global CSS variables. **STRICT RULE: Do NOT install or use TailwindCSS.**
-- **Backend:** FastAPI (Python 3.14).
-- **Database:** SQLAlchemy ORM with SQLite (Local Dev) / PostgreSQL (Production).
-- **Authentication:** NextAuth.js (Auth.js v5) with Edge-compatible Middleware (`proxy.ts`).
+## AISO House Rules (hard-won - do not relearn these in production)
+- Postgres is the source of truth. Validate migrations and tests on Postgres, not SQLite. SQLite silently hides DROP CONSTRAINT, JSON-vs-JSONB, FK-name, and FK-insert-ordering failures. Tests default to SQLite; set TEST_DATABASE_URL to run them prod-faithfully (FKs enforced) via the harness in tests/_pgharness.py.
+- FK insert ordering. Models carry bare ForeignKey columns with few relationship()s, and prod sessions use autoflush=False, so the unit of work can INSERT a child row before its parent in one flush and 500 on Postgres. Flush the parent before adding child rows. New tests must run with FK enforcement ON and autoflush=False.
+- Migrations must be idempotent and must never raise. Prod auto-runs `alembic upgrade head` on deploy, so a raising migration fails the deploy. Guard seed inserts with an existence check.
+- Scans run for minutes. Use background tasks (Procrastinate) plus client-side polling, never a synchronous request that waits for the scan.
+- Never persist or log user API keys. BYOK keys are in-memory only, passed to subprocesses as env vars, then destroyed.
+- Free tier never spends server keys. Free -> legacy engine plus BYOK. Pro and custom -> Phase 13 engine plus managed keys.
+- One business per user. A re-scan reuses the existing profile and never creates a new one.
+- The frontend never calls FastAPI directly. Always go through the Next.js proxy (/api/proxy/[...path]), which attaches X-User-Id.
 
-## Project-Specific Constraints & Security
-1. **BYOK (Bring Your Own Key):** The platform uses a zero-persistence model for LLM API keys. Keys are collected in the frontend, sent to the backend in-memory, passed to Python subprocesses as environment variables, and destroyed. **NEVER persist user API keys to the database or logs.**
-2. **Backend Authentication:** The frontend must never call FastAPI directly to prevent CORS/Auth leakage. Always use the Next.js secure proxy (`/api/proxy/[...path]`), which attaches the `X-User-Id` header.
-3. **Data Polling:** AI pipeline generation takes several minutes. Rely on background tasks in FastAPI and client-side polling in Next.js.
-4. **Design Aesthetic:** Maintain the established premium, dark-mode, glassmorphism UI. Rely on the existing CSS variables in `globals.css` for consistency.
+## Stack
+- Frontend: Next.js 16 (App Router, Turbopack), React 19, vanilla CSS Modules. Do NOT install TailwindCSS.
+- Backend: FastAPI (Python 3.14), SQLAlchemy ORM, Alembic migrations.
+- Database: Postgres in prod (source of truth); SQLite locally for convenience only.
+- Async: Procrastinate worker queue. Deploy: Railway (API plus Worker plus Postgres). Auth: NextAuth v5 via proxy.ts.
 
-## First Steps
-When beginning a new task:
-1. Check `git status` and confirm the current branch follows `BRANCHING.md`.
-2. Read the relevant code and `AISO_Codex_Handoff.md` before editing.
-3. Identify the validation needed before making changes.
-4. After changing files, self-review the diff, run validation, summarize results, and wait for explicit commit approval unless Chandrakiran has already asked you to commit.
+## Repo Map
+- api/ - Phase 13 scan engine (paid tiers, managed provider keys): scan_runs, scan_bridge, scan_execution, adapters, routes.
+- full_stack/ - legacy Gen-1 scan engine (free tier, BYOK): collect.py, scan_metrics.py. Permanent, never retired. Do not cross-wire the two engines.
+- web/ - Next.js frontend. migrations/ - Alembic migrations. tests/ - unittest suite (FK-faithful harness in tests/_pgharness.py).
+
+## Read for depth (keep this file small)
+- Architecture and current state -> AISO_Codex_Handoff.md
+- Branch and PR rules -> BRANCHING.md, CONTRIBUTING.md
+- Open known gaps -> KNOWN_ISSUES.md
