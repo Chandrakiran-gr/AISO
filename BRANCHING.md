@@ -162,3 +162,62 @@ hotfix/metrics-endpoint-500
 
 After a hotfix merge, backport or reconcile the fix into any active feature
 branches that touch the same area.
+
+---
+
+# Pull Requests & the Merge Gate
+
+*Phase 0 SDLC hardening. The branch naming/lifecycle policy above is unchanged;
+this section adds how changes are reviewed, gated, and merged. Full engineering
+design lives in the team's Phase 0 PLAN + PRD + QA Evidence Standard; this file
+is the committed summary developers follow.*
+
+## Pull Requests
+
+- **Every change lands via a PR into `main` — no direct pushes to `main`.**
+- One branch = one PR (per Branch Lifecycle above).
+- Use the PR template (`.github/pull_request_template.md`): What / Why / How tested /
+  Evidence / Scope / Guardrail checklist / Rollback.
+- Squash-merge to keep `main` history linear and revertable.
+
+## Branch Protection on `main`
+
+Protection is applied in two passes (a status check can't be marked *required*
+until the CI workflow exists and has run):
+
+1. **Pass 1 (now):** require a PR before merge; block force-pushes; block branch
+   deletions. Apply protection to **administrators** too (no bypass), with a
+   documented break-glass for emergencies. *(On a private personal repo, the
+   admin-include / branch-protection features may require GitHub Pro — confirm
+   with the repo owner.)*
+2. **Pass 2 (after CI lands):** add **required status checks** that block merge
+   on red — backend `pytest` (incl. `phase12`/`phase13`) on Postgres via
+   `TEST_DATABASE_URL`; frontend build + typecheck; guardrail checks
+   (proxy-only, BYOK zero-persistence — static + behavioral); Alembic
+   `upgrade`+`downgrade` on SQLite **and** Postgres; secret scan — **and
+   "require branches up to date before merge"** (this setting is nested under
+   required status checks, so it only becomes available once CI exists).
+
+## The QA Merge Gate
+
+A change is **"released for merge"** only after QA verifies it with **posted
+evidence** (per the QA Evidence Standard) and the **repo owner approves**.
+
+> Identity note: under a single shared GitHub identity, "author ≠ approver"
+> can't be platform-enforced — so be precise about what's enforced vs convention:
+> - **Mechanically enforced** (once the CI checks are made *required* in pass-2):
+>   the automated guardrail checks — pytest/Postgres incl. phase12/13, frontend
+>   build/typecheck, proxy-only + BYOK guardrails, Alembic up/down, secret scan.
+> - **Convention, not platform-enforced:** QA's evidence-backed ✅ ("released for
+>   merge") and the **owner's explicit approval**. Every merge to `main` requires
+>   both — carried by people + the PR checklist, not a GitHub author≠approver rule.
+
+## Release Ordering & Rollback (summary)
+
+- **Migrations run as a release-phase step the deploy waits on** (`alembic
+  upgrade`), and are **backward-compatible (expand/contract)** so the brief
+  old-code/new-schema rollout overlap is safe — code never serves against an
+  un-migrated schema.
+- **Rollback:** revert-the-merge PR + platform redeploy (Vercel / Railway);
+  for schema changes, expand/contract keeps a revert safe (use a tested
+  `downgrade` only when safe, never on real data without explicit approval).
