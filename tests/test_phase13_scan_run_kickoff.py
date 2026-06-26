@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+import os
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
@@ -78,6 +80,10 @@ class ConflictingScanExecutor:
 
 class Phase13ScanRunKickoffTests(unittest.TestCase):
     def setUp(self):
+        # Phase 13 routes are gated by AISO_SCAN_ENGINE; enable it for the engine tests.
+        self._engine_env = patch.dict(os.environ, {"AISO_SCAN_ENGINE": "phase13"})
+        self._engine_env.start()
+        self.addCleanup(self._engine_env.stop)
         self.engine = make_test_engine()  # Postgres when TEST_DATABASE_URL set, else SQLite
         reset_schema(self.engine)
         self.Session = sessionmaker(bind=self.engine)

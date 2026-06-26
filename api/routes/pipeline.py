@@ -720,6 +720,11 @@ async def start_scan(
     # Extract BYOK keys as plain dict (never stored — passed only to background task)
     byok_dict = payload.byok_keys.model_dump(exclude_none=True) if payload.byok_keys else {}
 
+    # Provider keys by tier on the legacy engine: pro/custom use managed (server)
+    # keys with BYOK filling gaps; free runs BYOK-only and never consumes the
+    # company's API budget. Source of truth is the entitlements capability table.
+    use_managed_keys = entitlements_for_user(user).uses_managed_keys
+
     background_tasks.add_task(
         run_pipeline,
         scan.id,
@@ -728,7 +733,7 @@ async def start_scan(
         payload.groups,
         payload.custom_questions,
         byok_dict,
-        False,  # use_managed_keys: free users run BYOK-only on the legacy engine
+        use_managed_keys,
     )
 
     return _scan_response(scan)
