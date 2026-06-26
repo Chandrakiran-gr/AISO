@@ -26,6 +26,7 @@ from api.auth import get_current_user_id
 from api.database import get_db
 from api.domain.ports import ScanExecutor
 from api.domain.scan_runs import DEFAULT_SCAN_PROVIDERS
+from api.feature_flags import is_phase13_engine
 
 
 router = APIRouter(tags=["scan-runs"])
@@ -55,6 +56,10 @@ async def create_scan_run(
     user_id: str = Depends(get_current_user_id),
     executor: ScanExecutor = Depends(get_scan_executor),
 ):
+    # Phase 13 (Gen-2) is parked behind AISO_SCAN_ENGINE. While the engine is the
+    # legacy default, this direct kickoff route refuses so no path can run Gen-2.
+    if not is_phase13_engine():
+        raise HTTPException(status_code=404, detail="Phase 13 scan engine is disabled")
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
     try:

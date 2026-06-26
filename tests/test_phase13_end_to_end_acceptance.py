@@ -216,6 +216,7 @@ def test_phase_13_12_end_to_end_acceptance_from_selected_questions_to_dashboard(
     env_patch = patch.dict(
         "os.environ",
         {
+            "AISO_SCAN_ENGINE": "phase13",
             "AISO_STORAGE_BACKEND": "onedrive",
             "AISO_ONEDRIVE_BASE_PATH": "/AISO",
             "AISO_STORAGE_ROOT": storage_dir.name,
