@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import event
 
 from tests._pgharness import make_test_engine, reset_schema, using_postgres
-from api.database import Client, EmailAuthCode, User, get_db
+from api.database import Client, PendingSignup, User, get_db
 from api.main import app
 
 CODE = "123456"
@@ -63,35 +63,41 @@ class AuthOtpTests(unittest.TestCase):
             s.close()
 
     # tests
-    def test_signup_creates_unverified_and_sends_code(self):
+    def test_signup_creates_pending_not_user(self):
         r = self._signup()
         self.assertEqual(r.status_code, 201, r.text)
-        self.assertFalse(self._user("new@example.com").email_verified)
+        self.assertIsNone(self._user("new@example.com"))  # no users row until verified
         self.mock_send.assert_called_once()
         s = self.Session()
         try:
-            codes = s.query(EmailAuthCode).filter_by(purpose="signup_verify").all()
-            self.assertEqual(len(codes), 1)
-            self.assertIsNone(codes[0].consumed_at)
+            pending = s.query(PendingSignup).filter_by(email="new@example.com").all()
+            self.assertEqual(len(pending), 1)
         finally:
             s.close()
 
-    def test_login_blocked_until_verified(self):
+    def test_login_unknown_until_verified(self):
         self._signup()
         r = self.client.post(
             "/api/v1/auth/credentials/verify",
             json={"email": "new@example.com", "password": PW},
         )
-        self.assertEqual(r.status_code, 403)
-        self.assertEqual(r.json()["detail"], "email_not_verified")
+        self.assertEqual(r.status_code, 401)  # the account does not exist until verified
 
-    def test_verify_then_login_works(self):
+    def test_verify_creates_user_and_login_works(self):
         self._signup()
         r = self.client.post(
             "/api/v1/auth/verify-otp", json={"email": "new@example.com", "code": CODE}
         )
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertTrue(self._user("new@example.com").email_verified)
+        user = self._user("new@example.com")
+        self.assertIsNotNone(user)
+        self.assertTrue(user.email_verified)
+        self.assertEqual(user.provider, "credentials")
+        s = self.Session()
+        try:
+            self.assertEqual(s.query(PendingSignup).count(), 0)  # pending row consumed
+        finally:
+            s.close()
         # login now succeeds
         r2 = self.client.post(
             "/api/v1/auth/credentials/verify",
@@ -99,7 +105,7 @@ class AuthOtpTests(unittest.TestCase):
         )
         self.assertEqual(r2.status_code, 200, r2.text)
 
-    def test_wrong_code_then_lockout(self):
+    def test_wrong_code_then_lockout_creates_no_user(self):
         self._signup()
         for _ in range(4):
             r = self.client.post(
@@ -113,15 +119,43 @@ class AuthOtpTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 429)
         self.assertEqual(r.json()["detail"], "too_many_attempts")
-        # even the correct code is rejected once locked
+        # even the correct code is rejected once locked, and no account was created
         r = self.client.post(
             "/api/v1/auth/verify-otp", json={"email": "new@example.com", "code": CODE}
         )
         self.assertEqual(r.status_code, 429)
-        self.assertFalse(self._user("new@example.com").email_verified)
+        self.assertIsNone(self._user("new@example.com"))
+
+    def test_signup_blocked_when_verified_account_exists(self):
+        self._signup()
+        self.client.post(
+            "/api/v1/auth/verify-otp", json={"email": "new@example.com", "code": CODE}
+        )
+        # a real account now owns the email → a fresh signup is rejected
+        r = self._signup()
+        self.assertEqual(r.status_code, 409)
+
+    def test_resignup_resumes_without_duplicate(self):
+        self._signup()
+        # immediate re-signup is within the cooldown: no new email, no dup row, no user
+        r = self._signup()
+        self.assertEqual(r.status_code, 201, r.text)
+        self.mock_send.assert_called_once()
+        self.assertIsNone(self._user("new@example.com"))
+        s = self.Session()
+        try:
+            self.assertEqual(
+                s.query(PendingSignup).filter_by(email="new@example.com").count(), 1
+            )
+        finally:
+            s.close()
 
     def test_forgot_then_reset_password(self):
+        # forgot/reset operate on a real (verified) account, so create one first
         self._signup()
+        self.client.post(
+            "/api/v1/auth/verify-otp", json={"email": "new@example.com", "code": CODE}
+        )
         r = self.client.post("/api/v1/auth/forgot-password", json={"email": "new@example.com"})
         self.assertEqual(r.status_code, 200)
         r = self.client.post(
@@ -129,7 +163,7 @@ class AuthOtpTests(unittest.TestCase):
             json={"email": "new@example.com", "code": CODE, "new_password": NEW_PW},
         )
         self.assertEqual(r.status_code, 200, r.text)
-        # reset also verified the email; new password works, old does not
+        # new password works, old does not
         ok = self.client.post(
             "/api/v1/auth/credentials/verify",
             json={"email": "new@example.com", "password": NEW_PW},
@@ -147,7 +181,7 @@ class AuthOtpTests(unittest.TestCase):
         self.mock_send.assert_not_called()
 
     def test_resend_cooldown(self):
-        self._signup()  # issues one code immediately
+        self._signup()  # sends one code immediately
         r = self.client.post("/api/v1/auth/resend-otp", json={"email": "new@example.com"})
         self.assertEqual(r.status_code, 429)  # within 60s cooldown
         self.assertEqual(r.json()["detail"], "rate_limited")

@@ -34,6 +34,11 @@ from api.auth_otp import (
     issue_code,
     verify_code,
 )
+from api.pending_signup import (
+    resend_pending_code,
+    start_pending_signup,
+    verify_pending_signup,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -196,16 +201,6 @@ def _find_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
 
 
-def _issue_and_send_otp(db: Session, user: User, purpose: str) -> None:
-    """Issue + email an OTP; swallow rate-limit/send errors so the caller stays
-    successful (the account exists and the user can resend)."""
-    try:
-        code = issue_code(db, user=user, purpose=purpose)
-        send_otp_email(to=user.email, code=code, purpose=purpose)
-    except (OtpRateLimited, EmailSendError):
-        pass
-
-
 def _otp_failure_http(reason: str) -> HTTPException:
     if reason == "locked":
         return HTTPException(status_code=429, detail="too_many_attempts")
@@ -230,37 +225,37 @@ def _migrate_legacy_client_owner(
 
 @router.post(
     "/signup",
-    response_model=AuthUserResponse,
+    response_model=OkResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def signup_with_credentials(
     payload: CredentialsSignup,
     db: Session = Depends(get_db),
-) -> User:
-    """Create an email/password account and persist it in the users table."""
+) -> OkResponse:
+    """Begin an email/password signup: stash a pending record and email an OTP.
+
+    No ``users`` row is created here -- the account is only persisted once the OTP
+    is verified (see ``verify-otp``), so the users table holds only verified
+    accounts. A re-signup with the same email resumes the same pending record.
+    """
     email = normalize_email(payload.email)
     existing = _find_user_by_email(db, email)
-    if existing:
+    if existing:  # the email already belongs to a real (verified) account
         raise HTTPException(status_code=409, detail="Email already exists")
 
-    user = User(
-        id=str(uuid.uuid4()),
-        email=email,
-        name=payload.name,
-        password_hash=hash_password(payload.password),
-        provider="credentials",
-        is_active=True,
-    )
-    apply_account_entitlements(user)
-    db.add(user)
     try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Email already exists")
-    db.refresh(user)
-    _issue_and_send_otp(db, user, PURPOSE_SIGNUP)
-    return user
+        code = start_pending_signup(
+            db,
+            email=email,
+            name=payload.name,
+            password_hash=hash_password(payload.password),
+        )
+        send_otp_email(to=email, code=code, purpose=PURPOSE_SIGNUP)
+    except OtpRateLimited:
+        db.rollback()  # a code was sent moments ago; the existing one still works
+    except EmailSendError:
+        pass  # code stored; the user can resend after the cooldown
+    return OkResponse(ok=True, status="verification_sent")
 
 
 @router.post("/credentials/verify", response_model=AuthUserResponse)
@@ -336,33 +331,54 @@ def upsert_oauth_user(
 
 @router.post("/verify-otp", response_model=OkResponse)
 def verify_email_otp(payload: VerifyOtp, db: Session = Depends(get_db)) -> OkResponse:
-    """Confirm a signup email with its OTP, marking the account verified."""
+    """Confirm a signup OTP and create the real, verified account.
+
+    The pending signup (hashed password + name) is promoted to a ``users`` row
+    only here, after the code checks out. The pending record is then deleted.
+    """
     email = normalize_email(payload.email)
-    user = _find_user_by_email(db, email)
-    if not user:
-        raise HTTPException(status_code=400, detail="invalid_code")
-    if user.email_verified:
+    existing = _find_user_by_email(db, email)
+    if existing and existing.email_verified:  # already promoted (e.g. double submit)
         return OkResponse(ok=True, status="already_verified")
-    ok, reason = verify_code(db, user=user, purpose=PURPOSE_SIGNUP, code=payload.code)
-    if not ok:
+
+    ok, reason, pending = verify_pending_signup(db, email=email, code=payload.code)
+    if not ok or pending is None:
         raise _otp_failure_http(reason)
-    user.email_verified = True
-    user.verified_at = datetime.now(timezone.utc)
-    db.commit()
+
+    user = User(
+        id=str(uuid.uuid4()),
+        email=pending.email,
+        name=pending.name,
+        password_hash=pending.password_hash,
+        provider="credentials",
+        is_active=True,
+        email_verified=True,
+        verified_at=datetime.now(timezone.utc),
+    )
+    apply_account_entitlements(user)
+    db.add(user)
+    db.delete(pending)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()  # raced with a concurrent verify; treat as success if the user now exists
+        if _find_user_by_email(db, email):
+            return OkResponse(ok=True, status="already_verified")
+        raise HTTPException(status_code=400, detail="invalid_code")
     return OkResponse(ok=True)
 
 
 @router.post("/resend-otp", response_model=OkResponse)
 def resend_email_otp(payload: ResendOtp, db: Session = Depends(get_db)) -> OkResponse:
-    """Resend the signup OTP (rate-limited)."""
+    """Resend the signup OTP for a pending signup (rate-limited)."""
     email = normalize_email(payload.email)
-    user = _find_user_by_email(db, email)
-    if user and not user.email_verified:
+    try:
+        code = resend_pending_code(db, email=email)
+    except OtpRateLimited as exc:
+        raise HTTPException(status_code=429, detail="rate_limited") from exc
+    if code is not None:
         try:
-            code = issue_code(db, user=user, purpose=PURPOSE_SIGNUP)
-            send_otp_email(to=user.email, code=code, purpose=PURPOSE_SIGNUP)
-        except OtpRateLimited as exc:
-            raise HTTPException(status_code=429, detail="rate_limited") from exc
+            send_otp_email(to=email, code=code, purpose=PURPOSE_SIGNUP)
         except EmailSendError as exc:
             raise HTTPException(status_code=502, detail="email_send_failed") from exc
     return OkResponse(ok=True)

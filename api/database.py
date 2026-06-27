@@ -109,6 +109,31 @@ class EmailAuthCode(Base):
     created_at  = Column(DateTime, default=_utcnow, nullable=False)
 
 
+class PendingSignup(Base):
+    """A credentials signup awaiting email-OTP verification.
+
+    No ``users`` row exists until the code is verified: signup stashes the hashed
+    password and the hashed OTP here; on successful verification the real (verified)
+    User is created from this row and the row is deleted. One row per email, so a
+    re-signup resumes the same pending record. This keeps the ``users`` table
+    holding only verified accounts (OAuth accounts are pre-verified and never land here).
+    """
+    __tablename__ = "pending_signups"
+
+    id            = Column(String, primary_key=True)          # UUID
+    email         = Column(String, unique=True, nullable=False, index=True)
+    name          = Column(String, nullable=True)
+    password_hash = Column(String, nullable=False)            # bcrypt hash; never plaintext
+    code_hash     = Column(Text, nullable=False)              # HMAC-SHA256 of the 6-digit OTP
+    expires_at    = Column(DateTime, nullable=False)          # current code's TTL
+    attempts      = Column(Integer, default=0, nullable=False)        # wrong-code attempts on current code
+    send_count    = Column(Integer, default=0, nullable=False)        # OTP sends in the current hour window
+    window_started_at = Column(DateTime, default=_utcnow, nullable=False)  # start of the hourly send window
+    last_sent_at  = Column(DateTime, default=_utcnow, nullable=False)      # for the resend cooldown
+    created_at    = Column(DateTime, default=_utcnow, nullable=False)
+    updated_at    = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
 class Client(Base):
     """A business being tracked by a user."""
     __tablename__ = "clients"

@@ -94,7 +94,8 @@ export async function signUpWithCredentials(
     redirect(authErrorUrl("/signup", "invalid"));
   }
 
-  // Account created but unverified — send to OTP verification instead of signing in.
+  // No account exists yet — a verification code was emailed. Send the user to the
+  // OTP step; the account is created only once the code is verified.
   redirect(`/verify?email=${encodeURIComponent(email)}`);
 }
 

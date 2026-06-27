@@ -7,15 +7,19 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from api.auth import hash_password, verify_password
-from api.database import Base, Client, User
+from api.database import Base, Client, PendingSignup, User
 from api.routes.auth import (
     CredentialsSignup,
     CredentialsVerify,
     OAuthUserUpsert,
+    VerifyOtp,
     signup_with_credentials,
     upsert_oauth_user,
     verify_credentials,
+    verify_email_otp,
 )
+
+CODE = "123456"
 
 
 class AuthPersistenceTests(unittest.TestCase):
@@ -23,10 +27,14 @@ class AuthPersistenceTests(unittest.TestCase):
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
-        # Signup issues an OTP email; stub the sender so tests never hit the network.
+        # Signup issues an OTP email; stub the sender so tests never hit the network
+        # and pin the code so verification is deterministic.
         send_patch = patch("api.routes.auth.send_otp_email")
         send_patch.start()
         self.addCleanup(send_patch.stop)
+        code_patch = patch("api.auth_otp.generate_code", return_value=CODE)
+        code_patch.start()
+        self.addCleanup(code_patch.stop)
 
     def tearDown(self):
         self.engine.dispose()
@@ -41,40 +49,45 @@ class AuthPersistenceTests(unittest.TestCase):
     def test_credentials_signup_persists_user_and_login_verifies(self):
         session = self.Session()
         try:
-            with patch.dict("os.environ", {"AISO_DEFAULT_PLAN_TIER": "pro"}):
-                created = signup_with_credentials(
-                    CredentialsSignup(
-                        name="Jane Founder",
-                        email="JANE@Example.COM",
-                        password="Secure-password1!",
-                    ),
-                    db=session,
-                )
+            signup_with_credentials(
+                CredentialsSignup(
+                    name="Jane Founder",
+                    email="JANE@Example.COM",
+                    password="Secure-password1!",
+                ),
+                db=session,
+            )
 
-            self.assertEqual(created.email, "jane@example.com")
-            self.assertEqual(created.provider, "credentials")
-            self.assertEqual(created.plan_tier, "pro")
-            self.assertEqual(created.account_role, "user")
-            self.assertNotEqual(created.password_hash, "Secure-password1!")
-            self.assertEqual(session.query(User).count(), 1)
-            self.assertFalse(created.email_verified)  # signup starts unverified
+            # No account yet — only a pending signup awaiting verification.
+            self.assertEqual(session.query(User).count(), 0)
+            self.assertEqual(session.query(PendingSignup).count(), 1)
 
-            # Login is blocked until the email is verified.
+            # Login is impossible until verification creates the account.
             with self.assertRaises(HTTPException) as blocked:
                 verify_credentials(
                     CredentialsVerify(email="jane@example.com", password="Secure-password1!"),
                     db=session,
                 )
-            self.assertEqual(blocked.exception.status_code, 403)
+            self.assertEqual(blocked.exception.status_code, 401)
 
-            # After verification, login succeeds.
-            created.email_verified = True
-            session.commit()
+            # Verifying the OTP promotes the pending signup to a real, verified account.
+            with patch.dict("os.environ", {"AISO_DEFAULT_PLAN_TIER": "pro"}):
+                verify_email_otp(
+                    VerifyOtp(email="jane@example.com", code=CODE), db=session
+                )
+
+            created = session.query(User).one()
+            self.assertEqual(created.email, "jane@example.com")
+            self.assertEqual(created.provider, "credentials")
+            self.assertEqual(created.plan_tier, "pro")
+            self.assertEqual(created.account_role, "user")
+            self.assertTrue(created.email_verified)
+            self.assertNotEqual(created.password_hash, "Secure-password1!")
+            self.assertEqual(session.query(PendingSignup).count(), 0)
+
+            # Login now succeeds.
             verified = verify_credentials(
-                CredentialsVerify(
-                    email="jane@example.com",
-                    password="Secure-password1!",
-                ),
+                CredentialsVerify(email="jane@example.com", password="Secure-password1!"),
                 db=session,
             )
             self.assertEqual(verified.id, created.id)
@@ -85,7 +98,7 @@ class AuthPersistenceTests(unittest.TestCase):
         session = self.Session()
         try:
             with patch.dict("os.environ", {"AISO_ADMIN_EMAILS": "admin@aisoglobal.com"}):
-                created = signup_with_credentials(
+                signup_with_credentials(
                     CredentialsSignup(
                         name="Admin",
                         email="ADMIN@AISOGlobal.com",
@@ -93,14 +106,17 @@ class AuthPersistenceTests(unittest.TestCase):
                     ),
                     db=session,
                 )
+                verify_email_otp(
+                    VerifyOtp(email="admin@aisoglobal.com", code=CODE), db=session
+                )
 
-                self.assertEqual(created.email, "admin@aisoglobal.com")
-                self.assertEqual(created.plan_tier, "custom")
-                self.assertEqual(created.account_role, "admin")
+                user = session.query(User).filter(User.email == "admin@aisoglobal.com").one()
+                self.assertEqual(user.plan_tier, "custom")
+                self.assertEqual(user.account_role, "admin")
 
-                created.plan_tier = "pro"
-                created.account_role = "user"
-                created.email_verified = True  # simulate completed email verification
+                # Even if downgraded, login re-applies admin entitlements.
+                user.plan_tier = "pro"
+                user.account_role = "user"
                 session.commit()
 
                 verified = verify_credentials(
@@ -124,7 +140,7 @@ class AuthPersistenceTests(unittest.TestCase):
                 password="secure-password",
             )
 
-    def test_credentials_signup_rejects_duplicate_email(self):
+    def test_credentials_signup_rejects_duplicate_verified_email(self):
         session = self.Session()
         try:
             payload = CredentialsSignup(
@@ -133,7 +149,9 @@ class AuthPersistenceTests(unittest.TestCase):
                 password="Secure-password1!",
             )
             signup_with_credentials(payload, db=session)
+            verify_email_otp(VerifyOtp(email="jane@example.com", code=CODE), db=session)
 
+            # The email now belongs to a real account → a second signup is rejected.
             with self.assertRaises(HTTPException) as error:
                 signup_with_credentials(payload, db=session)
 
