@@ -106,10 +106,7 @@ class Client(Base):
     industry     = Column(String, nullable=True)
     location     = Column(String, nullable=True)
     competitor_names = Column(_json_type(), nullable=True)    # competitor names; clients.competitor_domains holds domains
-    tier          = Column(String, default="free", nullable=False)  # free | pro | growth | scale | enterprise
     cost_budget_default_usd = Column(Numeric(10, 2), default=5, nullable=False)
-    byok          = Column(Boolean, default=False, nullable=False)
-    byok_keys     = Column(_json_type(), nullable=True)        # Secret references/metadata only; never raw keys.
     owned_domains = Column(_text_array_type(), nullable=True)
     competitor_domains = Column(_text_array_type(), nullable=True)
     created_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -752,9 +749,7 @@ class ContentDraft(Base):
     reviewed_at     = Column(DateTime, nullable=True)
     review_notes    = Column(Text, nullable=True)
     source_action_id     = Column(String, ForeignKey("actions.id", ondelete="SET NULL"), nullable=True)   # Action that triggered this content
-    target_questions_json = Column(_json_type(), nullable=True)  # JSON array of scan questions this content targets
     export_format   = Column(String, nullable=True)           # pdf | docx | null
-    export_path     = Column(Text, nullable=True)             # Local path to exported file
     created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
