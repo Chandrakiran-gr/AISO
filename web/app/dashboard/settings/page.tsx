@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import styles from "./settings.module.css";
+import { signOut } from "next-auth/react";
 import {
   setKey, getKey, clearKey, hadKeyPreviousSession,
   type Provider,
@@ -182,6 +183,177 @@ function KeyGuide() {
   );
 }
 
+// ── Danger zone: delete account ─────────────────────────────────────────────────
+const DELETE_PHRASE = "I confirm to delete my account";
+
+function DeleteAccountSection() {
+  const [open, setOpen]         = useState(false);
+  const [phrase, setPhrase]     = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+
+  const canDelete = phrase.trim() === DELETE_PHRASE && !deleting;
+
+  async function handleDelete() {
+    if (!canDelete) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/proxy/auth/delete-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: phrase.trim() }),
+      });
+      if (!res.ok) {
+        setError("We couldn't delete your account. Please try again.");
+        setDeleting(false);
+        return;
+      }
+      // Account + all data gone — end the session and return home.
+      await signOut({ callbackUrl: "/" });
+    } catch {
+      setError("Network error. Please try again.");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <section className={styles.section} aria-labelledby="danger-heading">
+      <h2 id="danger-heading" className={styles.sectionTitle}>Danger Zone</h2>
+
+      <div
+        style={{
+          border: "1px solid rgba(229,72,77,0.4)",
+          borderRadius: 12,
+          padding: "16px 18px",
+          background: "rgba(229,72,77,0.06)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        <strong style={{ color: "#e5484d" }}>Delete account</strong>
+        <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-muted, #9aa)", lineHeight: 1.5 }}>
+          Permanently delete your account and all associated data — businesses, scans,
+          reports, conversations, and history. This cannot be undone.
+        </p>
+        <div>
+          <button
+            type="button"
+            onClick={() => { setPhrase(""); setError(null); setOpen(true); }}
+            style={{
+              marginTop: 6,
+              padding: "9px 16px",
+              borderRadius: 8,
+              cursor: "pointer",
+              border: "1px solid #e5484d",
+              background: "transparent",
+              color: "#e5484d",
+              fontWeight: 600,
+              fontSize: "0.9rem",
+            }}
+          >
+            Delete my account
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) setOpen(false); }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 460,
+              background: "var(--bg-card, #16181d)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 14,
+              padding: 24,
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+            }}
+          >
+            <h3 id="delete-modal-title" style={{ margin: 0, fontSize: "1.1rem" }}>
+              Delete your account?
+            </h3>
+            <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-muted, #9aa)", lineHeight: 1.5 }}>
+              This permanently deletes your profile and <strong>all related data</strong>.
+              This action cannot be undone.
+            </p>
+            <label htmlFor="delete-confirm" style={{ fontSize: "0.85rem" }}>
+              Type <strong style={{ color: "#e5484d" }}>{DELETE_PHRASE}</strong> to confirm
+            </label>
+            <input
+              id="delete-confirm"
+              className="input"
+              type="text"
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+              placeholder={DELETE_PHRASE}
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+            />
+            {error && (
+              <div role="alert" style={{ color: "#e5484d", fontSize: "0.85rem" }}>{error}</div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                disabled={deleting}
+                style={{
+                  padding: "9px 16px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "transparent",
+                  color: "var(--text, #eee)",
+                  fontSize: "0.9rem",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={!canDelete}
+                style={{
+                  padding: "9px 16px",
+                  borderRadius: 8,
+                  cursor: canDelete ? "pointer" : "not-allowed",
+                  border: "none",
+                  background: canDelete ? "#e5484d" : "rgba(229,72,77,0.4)",
+                  color: "#fff",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                }}
+              >
+                {deleting ? "Deleting…" : "Delete account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Settings Page ──────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   return (
@@ -226,6 +398,8 @@ export default function SettingsPage() {
 
           <KeyGuide />
         </section>
+
+        <DeleteAccountSection />
       </div>
     </div>
   );
