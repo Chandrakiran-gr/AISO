@@ -7,7 +7,7 @@ the AISO database for OAuth and credentials accounts.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 from typing import Optional
 
@@ -25,6 +25,14 @@ from api.auth import (
 )
 from api.database import Client, User, get_db
 from api.entitlements import apply_account_entitlements, entitlements_for_user
+from api.email import EmailSendError, send_otp_email
+from api.auth_otp import (
+    OtpRateLimited,
+    PURPOSE_RESET,
+    PURPOSE_SIGNUP,
+    issue_code,
+    verify_code,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -115,6 +123,37 @@ class EntitlementsResponse(BaseModel):
     can_view_source_graph: bool
 
 
+class VerifyOtp(BaseModel):
+    email: str
+    code: str
+
+
+class ResendOtp(BaseModel):
+    email: str
+
+
+class ForgotPassword(BaseModel):
+    email: str
+
+
+class ResetPassword(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_must_be_strong(cls, value: str) -> str:
+        if not PASSWORD_POLICY_PATTERN.match(value or ""):
+            raise ValueError(PASSWORD_POLICY_MESSAGE)
+        return value
+
+
+class OkResponse(BaseModel):
+    ok: bool = True
+    status: Optional[str] = None
+
+
 @router.get("/me", response_model=EntitlementsResponse)
 def get_me(
     response: Response,
@@ -150,6 +189,24 @@ def get_me(
 
 def _find_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
+
+
+def _issue_and_send_otp(db: Session, user: User, purpose: str) -> None:
+    """Issue + email an OTP; swallow rate-limit/send errors so the caller stays
+    successful (the account exists and the user can resend)."""
+    try:
+        code = issue_code(db, user=user, purpose=purpose)
+        send_otp_email(to=user.email, code=code, purpose=purpose)
+    except (OtpRateLimited, EmailSendError):
+        pass
+
+
+def _otp_failure_http(reason: str) -> HTTPException:
+    if reason == "locked":
+        return HTTPException(status_code=429, detail="too_many_attempts")
+    if reason == "expired":
+        return HTTPException(status_code=400, detail="code_expired")
+    return HTTPException(status_code=400, detail="invalid_code")
 
 
 def _migrate_legacy_client_owner(
@@ -197,6 +254,7 @@ def signup_with_credentials(
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already exists")
     db.refresh(user)
+    _issue_and_send_otp(db, user, PURPOSE_SIGNUP)
     return user
 
 
@@ -215,6 +273,9 @@ def verify_credentials(
         or not verify_password(payload.password, user.password_hash)
     ):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if not user.email_verified:
+        raise HTTPException(status_code=403, detail="email_not_verified")
 
     apply_account_entitlements(user)
     db.commit()
@@ -250,6 +311,10 @@ def upsert_oauth_user(
         db.add(user)
         db.flush()
     apply_account_entitlements(user)
+    # OAuth providers verify the email, so these accounts are pre-verified.
+    if not user.email_verified:
+        user.email_verified = True
+        user.verified_at = datetime.now(timezone.utc)
 
     _migrate_legacy_client_owner(db, legacy_user_id=email, user_id=user.id)
     try:
@@ -262,3 +327,69 @@ def upsert_oauth_user(
         raise
     db.refresh(user)
     return user
+
+
+@router.post("/verify-otp", response_model=OkResponse)
+def verify_email_otp(payload: VerifyOtp, db: Session = Depends(get_db)) -> OkResponse:
+    """Confirm a signup email with its OTP, marking the account verified."""
+    email = normalize_email(payload.email)
+    user = _find_user_by_email(db, email)
+    if not user:
+        raise HTTPException(status_code=400, detail="invalid_code")
+    if user.email_verified:
+        return OkResponse(ok=True, status="already_verified")
+    ok, reason = verify_code(db, user=user, purpose=PURPOSE_SIGNUP, code=payload.code)
+    if not ok:
+        raise _otp_failure_http(reason)
+    user.email_verified = True
+    user.verified_at = datetime.now(timezone.utc)
+    db.commit()
+    return OkResponse(ok=True)
+
+
+@router.post("/resend-otp", response_model=OkResponse)
+def resend_email_otp(payload: ResendOtp, db: Session = Depends(get_db)) -> OkResponse:
+    """Resend the signup OTP (rate-limited)."""
+    email = normalize_email(payload.email)
+    user = _find_user_by_email(db, email)
+    if user and not user.email_verified:
+        try:
+            code = issue_code(db, user=user, purpose=PURPOSE_SIGNUP)
+            send_otp_email(to=user.email, code=code, purpose=PURPOSE_SIGNUP)
+        except OtpRateLimited as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except EmailSendError as exc:
+            raise HTTPException(status_code=502, detail="email_send_failed") from exc
+    return OkResponse(ok=True)
+
+
+@router.post("/forgot-password", response_model=OkResponse)
+def forgot_password(payload: ForgotPassword, db: Session = Depends(get_db)) -> OkResponse:
+    """Email a password-reset OTP. Always 200 (no account enumeration)."""
+    email = normalize_email(payload.email)
+    user = _find_user_by_email(db, email)
+    if user and user.password_hash:  # only credentials accounts have a password to reset
+        try:
+            code = issue_code(db, user=user, purpose=PURPOSE_RESET)
+            send_otp_email(to=user.email, code=code, purpose=PURPOSE_RESET)
+        except (OtpRateLimited, EmailSendError):
+            pass  # never reveal account state or rate-limit on the reset path
+    return OkResponse(ok=True)
+
+
+@router.post("/reset-password", response_model=OkResponse)
+def reset_password(payload: ResetPassword, db: Session = Depends(get_db)) -> OkResponse:
+    """Set a new password using the reset OTP. Proving inbox control also verifies the email."""
+    email = normalize_email(payload.email)
+    user = _find_user_by_email(db, email)
+    if not user or not user.password_hash:
+        raise HTTPException(status_code=400, detail="invalid_code")
+    ok, reason = verify_code(db, user=user, purpose=PURPOSE_RESET, code=payload.code)
+    if not ok:
+        raise _otp_failure_http(reason)
+    user.password_hash = hash_password(payload.new_password)
+    if not user.email_verified:
+        user.email_verified = True
+        user.verified_at = datetime.now(timezone.utc)
+    db.commit()
+    return OkResponse(ok=True)

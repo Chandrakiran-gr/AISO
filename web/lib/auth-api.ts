@@ -98,3 +98,53 @@ export async function upsertOAuthUser(input: {
 }): Promise<AuthUser> {
   return postAuth("/oauth/upsert", input);
 }
+
+type OkResult = { ok: boolean; status?: string | null };
+
+// OTP / reset endpoints return { ok, status } rather than a user. On failure the
+// backend's machine-readable detail (e.g. "invalid_code", "email_not_verified",
+// "too_many_attempts") becomes both the error message and code.
+async function postAuthOk(path: string, body: AuthPayload): Promise<OkResult> {
+  const response = await fetch(`${BACKEND_URL}/api/v1/auth${path}`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let detail = "request_failed";
+    try {
+      const payload = await response.json();
+      if (typeof payload?.detail === "string") detail = payload.detail;
+    } catch {
+      // Keep the generic detail.
+    }
+    throw new AuthApiError(detail, response.status, detail);
+  }
+
+  return response.json() as Promise<OkResult>;
+}
+
+export async function verifyOtp(input: {
+  email: string;
+  code: string;
+}): Promise<OkResult> {
+  return postAuthOk("/verify-otp", input);
+}
+
+export async function resendOtp(input: { email: string }): Promise<OkResult> {
+  return postAuthOk("/resend-otp", input);
+}
+
+export async function forgotPassword(input: { email: string }): Promise<OkResult> {
+  return postAuthOk("/forgot-password", input);
+}
+
+export async function resetPassword(input: {
+  email: string;
+  code: string;
+  new_password: string;
+}): Promise<OkResult> {
+  return postAuthOk("/reset-password", input);
+}

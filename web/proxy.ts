@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 
 // ── Auth guard constants ──────────────────────────────────────────────────────
 const PROTECTED_PREFIXES = ["/dashboard"];
-const AUTH_PAGES        = ["/login", "/signup"];
+const AUTH_PAGES        = ["/login", "/signup", "/verify", "/forgot-password", "/reset-password"];
 // NextAuth v5 session cookie names (one for dev, one for prod)
 const SESSION_COOKIES   = ["authjs.session-token", "__Secure-authjs.session-token"];
 const RATE_LIMITING_DISABLED = true;
