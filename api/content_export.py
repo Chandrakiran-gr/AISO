@@ -8,7 +8,6 @@ Design choices:
 - reportlab for PDF: battle-tested, no external font loading required
 - python-docx for DOCX: de-facto standard, clean API
 - Files are generated on-demand and not persisted between requests
-  (export_path on ContentDraft is reserved for future CDN/S3 use)
 - No user-supplied filenames reach the filesystem; UUIDs are used internally
 """
 
