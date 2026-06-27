@@ -362,7 +362,7 @@ def resend_email_otp(payload: ResendOtp, db: Session = Depends(get_db)) -> OkRes
             code = issue_code(db, user=user, purpose=PURPOSE_SIGNUP)
             send_otp_email(to=user.email, code=code, purpose=PURPOSE_SIGNUP)
         except OtpRateLimited as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
+            raise HTTPException(status_code=429, detail="rate_limited") from exc
         except EmailSendError as exc:
             raise HTTPException(status_code=502, detail="email_send_failed") from exc
     return OkResponse(ok=True)

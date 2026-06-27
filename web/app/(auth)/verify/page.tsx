@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import styles from "../auth.module.css";
-import { verifyOtpAction, resendOtpAction } from "../actions";
+import { verifyOtpAction } from "../actions";
+import { ResendButton } from "../ResendButton";
 
 export const metadata: Metadata = {
   title: "Verify your email — AISO by Sapienic",
@@ -90,10 +91,7 @@ async function VerifyContent({
             <button type="submit" className={styles.submitBtn}>Verify &amp; continue →</button>
           </form>
 
-          <form action={resendOtpAction} style={{ marginTop: 12 }}>
-            <input type="hidden" name="email" defaultValue={email} />
-            <button type="submit" className={styles.oauthBtn}>Resend code</button>
-          </form>
+          <ResendButton email={email} />
 
           <p className={styles.switchText}>
             Wrong email? <Link href="/signup">Sign up again</Link>
@@ -113,6 +111,7 @@ function getOtpErrorMessage(error?: string): string | null {
     no_code: "No active code found. Request a new one.",
     email_send_failed: "We couldn't send the email. Please try again shortly.",
     resend_failed: "Couldn't resend just yet. Please wait a moment and try again.",
+    rate_limited: "Please wait a moment before requesting another code.",
   };
   return messages[error] ?? "Verification failed. Please try again.";
 }

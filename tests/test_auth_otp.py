@@ -150,6 +150,7 @@ class AuthOtpTests(unittest.TestCase):
         self._signup()  # issues one code immediately
         r = self.client.post("/api/v1/auth/resend-otp", json={"email": "new@example.com"})
         self.assertEqual(r.status_code, 429)  # within 60s cooldown
+        self.assertEqual(r.json()["detail"], "rate_limited")
 
 
 class AccountDeletionTests(unittest.TestCase):
