@@ -88,6 +88,25 @@ class User(Base):
     account_role  = Column(String, default="user", nullable=False) # user | admin
     created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_active     = Column(Boolean, default=True)
+    email_verified = Column(Boolean, default=False, nullable=False)  # email confirmed via OTP; OAuth accounts are pre-verified
+    verified_at   = Column(DateTime, nullable=True)
+
+
+class EmailAuthCode(Base):
+    """One-time codes for email verification and password reset (hashed at rest)."""
+    __tablename__ = "email_auth_codes"
+    __table_args__ = (
+        Index("ix_email_auth_codes_user_purpose", "user_id", "purpose"),
+    )
+
+    id          = Column(String, primary_key=True)
+    user_id     = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    purpose     = Column(Text, nullable=False)            # signup_verify | password_reset
+    code_hash   = Column(Text, nullable=False)            # HMAC-SHA256 of the 6-digit code; never plaintext
+    expires_at  = Column(DateTime, nullable=False)
+    attempts    = Column(Integer, default=0, nullable=False)
+    consumed_at = Column(DateTime, nullable=True)
+    created_at  = Column(DateTime, default=_utcnow, nullable=False)
 
 
 class Client(Base):

@@ -28,7 +28,7 @@ const GoogleIcon = () => (
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; verified?: string; reset?: string }>;
 }) {
   return <LoginContent searchParams={searchParams} />;
 }
@@ -36,10 +36,16 @@ export default function LoginPage({
 async function LoginContent({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; verified?: string; reset?: string }>;
 }) {
   const params = await searchParams;
   const errorMessage = getLoginErrorMessage(params.error);
+  const successMessage =
+    params.verified === "1"
+      ? "Email verified — please log in."
+      : params.reset === "1"
+        ? "Password updated — please log in with your new password."
+        : null;
 
   return (
     <div className={styles.page}>
@@ -87,6 +93,24 @@ async function LoginContent({
             </div>
           )}
 
+          {successMessage && !errorMessage && (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 8,
+                marginBottom: 12,
+                background: "rgba(22,163,74,0.12)",
+                border: "1px solid rgba(22,163,74,0.4)",
+                color: "#16a34a",
+                fontSize: "0.9rem",
+              }}
+            >
+              {successMessage}
+            </div>
+          )}
+
           {/* Google OAuth — Server Action */}
           <form
             action={async () => {
@@ -130,6 +154,9 @@ async function LoginContent({
                 minLength={8}
                 maxLength={128}
               />
+            </div>
+            <div style={{ textAlign: "right", fontSize: "0.85rem", marginTop: "-4px" }}>
+              <Link href="/forgot-password">Forgot password?</Link>
             </div>
             <button type="submit" className={styles.submitBtn} id="login-submit-btn">
               Log in

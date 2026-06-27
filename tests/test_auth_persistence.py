@@ -23,6 +23,10 @@ class AuthPersistenceTests(unittest.TestCase):
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+        # Signup issues an OTP email; stub the sender so tests never hit the network.
+        send_patch = patch("api.routes.auth.send_otp_email")
+        send_patch.start()
+        self.addCleanup(send_patch.stop)
 
     def tearDown(self):
         self.engine.dispose()
@@ -53,7 +57,19 @@ class AuthPersistenceTests(unittest.TestCase):
             self.assertEqual(created.account_role, "user")
             self.assertNotEqual(created.password_hash, "Secure-password1!")
             self.assertEqual(session.query(User).count(), 1)
+            self.assertFalse(created.email_verified)  # signup starts unverified
 
+            # Login is blocked until the email is verified.
+            with self.assertRaises(HTTPException) as blocked:
+                verify_credentials(
+                    CredentialsVerify(email="jane@example.com", password="Secure-password1!"),
+                    db=session,
+                )
+            self.assertEqual(blocked.exception.status_code, 403)
+
+            # After verification, login succeeds.
+            created.email_verified = True
+            session.commit()
             verified = verify_credentials(
                 CredentialsVerify(
                     email="jane@example.com",
@@ -84,6 +100,7 @@ class AuthPersistenceTests(unittest.TestCase):
 
                 created.plan_tier = "pro"
                 created.account_role = "user"
+                created.email_verified = True  # simulate completed email verification
                 session.commit()
 
                 verified = verify_credentials(

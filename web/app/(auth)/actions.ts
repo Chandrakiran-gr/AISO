@@ -1,7 +1,15 @@
 "use server";
 
 import { signIn } from "@/auth";
-import { AuthApiError, createCredentialsUser } from "@/lib/auth-api";
+import {
+  AuthApiError,
+  createCredentialsUser,
+  verifyCredentialsUser,
+  verifyOtp,
+  resendOtp,
+  forgotPassword,
+  resetPassword,
+} from "@/lib/auth-api";
 import { redirect } from "next/navigation";
 
 function isNextRedirect(e: unknown): boolean {
@@ -45,12 +53,24 @@ export async function signInWithCredentials(
     await signIn("credentials", { email, password, redirectTo: callbackUrl });
   } catch (e: unknown) {
     if (isNextRedirect(e)) throw e;
+    // signIn failed — distinguish an unverified email from bad credentials so we
+    // can route the user to verification rather than showing a generic error.
+    let unverified = false;
+    try {
+      await verifyCredentialsUser({ email, password });
+    } catch (inner: unknown) {
+      unverified =
+        inner instanceof AuthApiError && inner.message === "email_not_verified";
+    }
+    if (unverified) {
+      redirect(`/verify?email=${encodeURIComponent(email)}`);
+    }
     redirect(authErrorUrl("/login", "invalid"));
   }
 }
 
 export async function signUpWithCredentials(
-  callbackUrl: string,
+  _callbackUrl: string,
   formData: FormData
 ) {
   const name = getFormString(formData, "name");
@@ -74,10 +94,64 @@ export async function signUpWithCredentials(
     redirect(authErrorUrl("/signup", "invalid"));
   }
 
+  // Account created but unverified — send to OTP verification instead of signing in.
+  redirect(`/verify?email=${encodeURIComponent(email)}`);
+}
+
+export async function verifyOtpAction(formData: FormData) {
+  const email = getFormString(formData, "email");
+  const code = getFormString(formData, "code");
+
   try {
-    await signIn("credentials", { email, password, redirectTo: callbackUrl });
+    await verifyOtp({ email, code });
   } catch (e: unknown) {
     if (isNextRedirect(e)) throw e;
-    redirect(authErrorUrl("/signup", "signin_failed"));
+    const reason = e instanceof AuthApiError ? e.message : "invalid_code";
+    redirect(`/verify?email=${encodeURIComponent(email)}&error=${encodeURIComponent(reason)}`);
   }
+
+  redirect("/login?verified=1");
+}
+
+export async function resendOtpAction(formData: FormData) {
+  const email = getFormString(formData, "email");
+
+  try {
+    await resendOtp({ email });
+  } catch (e: unknown) {
+    if (isNextRedirect(e)) throw e;
+    const reason = e instanceof AuthApiError ? e.message : "resend_failed";
+    redirect(`/verify?email=${encodeURIComponent(email)}&error=${encodeURIComponent(reason)}`);
+  }
+
+  redirect(`/verify?email=${encodeURIComponent(email)}&resent=1`);
+}
+
+export async function forgotPasswordAction(formData: FormData) {
+  const email = getFormString(formData, "email");
+
+  try {
+    await forgotPassword({ email });
+  } catch (e: unknown) {
+    if (isNextRedirect(e)) throw e;
+    // Never reveal failures on the reset path (no account enumeration).
+  }
+
+  redirect(`/reset-password?email=${encodeURIComponent(email)}`);
+}
+
+export async function resetPasswordAction(formData: FormData) {
+  const email = getFormString(formData, "email");
+  const code = getFormString(formData, "code");
+  const newPassword = getFormString(formData, "new_password");
+
+  try {
+    await resetPassword({ email, code, new_password: newPassword });
+  } catch (e: unknown) {
+    if (isNextRedirect(e)) throw e;
+    const reason = e instanceof AuthApiError ? e.message : "invalid_code";
+    redirect(`/reset-password?email=${encodeURIComponent(email)}&error=${encodeURIComponent(reason)}`);
+  }
+
+  redirect("/login?reset=1");
 }
