@@ -13,6 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, field_validator
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -152,6 +153,10 @@ class ResetPassword(BaseModel):
 class OkResponse(BaseModel):
     ok: bool = True
     status: Optional[str] = None
+
+
+class DeleteAccount(BaseModel):
+    confirmation: str
 
 
 @router.get("/me", response_model=EntitlementsResponse)
@@ -391,5 +396,40 @@ def reset_password(payload: ResetPassword, db: Session = Depends(get_db)) -> OkR
     if not user.email_verified:
         user.email_verified = True
         user.verified_at = datetime.now(timezone.utc)
+    db.commit()
+    return OkResponse(ok=True)
+
+
+DELETE_ACCOUNT_PHRASE = "I confirm to delete my account"
+
+
+@router.post("/delete-account", response_model=OkResponse)
+def delete_account(
+    payload: DeleteAccount,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> OkResponse:
+    """Permanently delete the current account and all related data.
+
+    Requires the exact confirmation phrase (also enforced in the UI). Deletion
+    cascades via DB foreign keys (clients -> scans/profiles/citations/actions/
+    conversations/drafts). ``scan_provenance`` is the one FK without ON DELETE
+    CASCADE, so its (Gen-2) rows are cleared first to avoid blocking the cascade.
+    """
+    if payload.confirmation.strip() != DELETE_ACCOUNT_PHRASE:
+        raise HTTPException(status_code=400, detail="confirmation_mismatch")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    db.execute(
+        text(
+            "DELETE FROM scan_provenance WHERE scan_id IN ("
+            " SELECT sr.id FROM scan_runs sr"
+            " JOIN clients c ON c.id = sr.client_id WHERE c.user_id = :uid)"
+        ),
+        {"uid": user_id},
+    )
+    db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
     db.commit()
     return OkResponse(ok=True)

@@ -11,8 +11,10 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
-from tests._pgharness import make_test_engine, reset_schema
-from api.database import EmailAuthCode, User, get_db
+from sqlalchemy import event
+
+from tests._pgharness import make_test_engine, reset_schema, using_postgres
+from api.database import Client, EmailAuthCode, User, get_db
 from api.main import app
 
 CODE = "123456"
@@ -148,6 +150,82 @@ class AuthOtpTests(unittest.TestCase):
         self._signup()  # issues one code immediately
         r = self.client.post("/api/v1/auth/resend-otp", json={"email": "new@example.com"})
         self.assertEqual(r.status_code, 429)  # within 60s cooldown
+
+
+class AccountDeletionTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = make_test_engine()
+        if not using_postgres():  # enforce FK cascade on SQLite (prod-faithful)
+            event.listen(
+                self.engine,
+                "connect",
+                lambda dbapi_con, _rec: dbapi_con.execute("PRAGMA foreign_keys=ON"),
+            )
+        reset_schema(self.engine)
+        self.Session = sessionmaker(bind=self.engine, autoflush=False)
+
+        def override_get_db():
+            db = self.Session()
+            try:
+                yield db
+            finally:
+                db.close()
+
+        app.dependency_overrides[get_db] = override_get_db
+        self.client = TestClient(app, base_url="http://localhost")
+
+    def tearDown(self):
+        app.dependency_overrides.pop(get_db, None)
+        self.engine.dispose()
+
+    def _seed(self):
+        s = self.Session()
+        try:
+            s.add(User(id="del-1", email="del@example.com", password_hash="x",
+                       provider="credentials", is_active=True, email_verified=True))
+            s.flush()
+            s.add(Client(id="c-del", user_id="del-1", name="Biz", url="https://del.example.com"))
+            s.commit()
+        finally:
+            s.close()
+
+    def _counts(self):
+        s = self.Session()
+        try:
+            return (
+                s.query(User).filter_by(id="del-1").count(),
+                s.query(Client).filter_by(user_id="del-1").count(),
+            )
+        finally:
+            s.close()
+
+    def test_wrong_phrase_does_not_delete(self):
+        self._seed()
+        r = self.client.post(
+            "/api/v1/auth/delete-account",
+            json={"confirmation": "delete my account"},
+            headers={"X-User-Id": "del-1"},
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"], "confirmation_mismatch")
+        self.assertEqual(self._counts(), (1, 1))
+
+    def test_correct_phrase_deletes_and_cascades(self):
+        self._seed()
+        r = self.client.post(
+            "/api/v1/auth/delete-account",
+            json={"confirmation": "I confirm to delete my account"},
+            headers={"X-User-Id": "del-1"},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._counts(), (0, 0))  # user + their client (cascade) gone
+
+    def test_requires_authentication(self):
+        r = self.client.post(
+            "/api/v1/auth/delete-account",
+            json={"confirmation": "I confirm to delete my account"},
+        )
+        self.assertEqual(r.status_code, 401)
 
 
 if __name__ == "__main__":
