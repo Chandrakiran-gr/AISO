@@ -49,6 +49,9 @@ class AuthOtpTests(unittest.TestCase):
         self.send = patch("api.routes.auth.send_otp_email")
         self.mock_send = self.send.start()
         self.addCleanup(self.send.stop)
+        self.reset_send = patch("api.routes.auth.send_reset_link_email")
+        self.mock_reset_send = self.reset_send.start()
+        self.addCleanup(self.reset_send.stop)
 
     def tearDown(self):
         app.dependency_overrides.pop(get_db, None)
@@ -156,17 +159,23 @@ class AuthOtpTests(unittest.TestCase):
         finally:
             s.close()
 
+    RESET_TOKEN = "reset-token-abc123xyz"
+
+    def _create_verified_user(self, email="new@example.com"):
+        self._signup(email)
+        self.client.post("/api/v1/auth/verify-otp", json={"email": email, "code": CODE})
+
     def test_forgot_then_reset_password(self):
         # forgot/reset operate on a real (verified) account, so create one first
-        self._signup()
-        self.client.post(
-            "/api/v1/auth/verify-otp", json={"email": "new@example.com", "code": CODE}
-        )
-        r = self.client.post("/api/v1/auth/forgot-password", json={"email": "new@example.com"})
+        self._create_verified_user()
+        with patch("api.auth_otp.generate_url_token", return_value=self.RESET_TOKEN):
+            r = self.client.post("/api/v1/auth/forgot-password", json={"email": "new@example.com"})
         self.assertEqual(r.status_code, 200)
+        self.mock_reset_send.assert_called_once()  # a reset LINK was emailed (not a code)
+        # reset with the link's token (no email, no code in the request)
         r = self.client.post(
             "/api/v1/auth/reset-password",
-            json={"email": "new@example.com", "code": CODE, "new_password": NEW_PW},
+            json={"token": self.RESET_TOKEN, "new_password": NEW_PW},
         )
         self.assertEqual(r.status_code, 200, r.text)
         # new password works, old does not
@@ -181,10 +190,35 @@ class AuthOtpTests(unittest.TestCase):
         )
         self.assertEqual(bad.status_code, 401)
 
+    def test_reset_token_is_single_use(self):
+        self._create_verified_user()
+        with patch("api.auth_otp.generate_url_token", return_value=self.RESET_TOKEN):
+            self.client.post("/api/v1/auth/forgot-password", json={"email": "new@example.com"})
+        first = self.client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": self.RESET_TOKEN, "new_password": NEW_PW},
+        )
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": self.RESET_TOKEN, "new_password": NEW_PW},
+        )
+        self.assertEqual(second.status_code, 400)
+        self.assertEqual(second.json()["detail"], "invalid_token")
+
+    def test_reset_rejects_unknown_token(self):
+        self._create_verified_user()
+        r = self.client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": "never-issued-token", "new_password": NEW_PW},
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"], "invalid_token")
+
     def test_forgot_password_unknown_email_is_200_and_silent(self):
         r = self.client.post("/api/v1/auth/forgot-password", json={"email": "nobody@example.com"})
         self.assertEqual(r.status_code, 200)
-        self.mock_send.assert_not_called()
+        self.mock_reset_send.assert_not_called()
 
     def test_resend_cooldown(self):
         self._signup()  # sends one code immediately

@@ -33,6 +33,11 @@ MAX_PER_HOUR = 5
 # Opaque token (not a 6-digit code), short-lived, single-use.
 SIGNIN_GRANT_TTL = timedelta(minutes=2)
 
+# Password-reset link token: opaque, single-use, emailed inside a link. Longer-lived
+# than an OTP since the user reads the email and then clicks. Consumed only when the
+# new password is submitted (never on opening the link), so link prefetchers can't burn it.
+RESET_TOKEN_TTL = timedelta(minutes=30)
+
 
 class OtpRateLimited(RuntimeError):
     """Issuance blocked by the resend cooldown or the hourly cap."""
@@ -141,8 +146,8 @@ def verify_code(db: Session, *, user: User, purpose: str, code: str) -> tuple[bo
     return False, ("locked" if row.attempts >= MAX_ATTEMPTS else "mismatch")
 
 
-def generate_signin_token() -> str:
-    """A high-entropy opaque token for the post-verification signin grant."""
+def generate_url_token() -> str:
+    """A high-entropy opaque, URL-safe token (signin grant + password-reset link)."""
     return secrets.token_urlsafe(32)
 
 
@@ -164,7 +169,7 @@ def issue_signin_grant(db: Session, *, user: User) -> str:
         .all()
     ):
         row.consumed_at = now
-    token = generate_signin_token()
+    token = generate_url_token()
     db.add(
         EmailAuthCode(
             id=str(uuid.uuid4()),
@@ -204,3 +209,71 @@ def consume_signin_grant(db: Session, *, user: User, token: str) -> bool:
         return False
     row.consumed_at = now
     return True
+
+
+def issue_reset_token(db: Session, *, user: User) -> str:
+    """Mint a single-use password-reset token; return the plaintext for the email link.
+
+    Rate-limited like ``issue_code`` (60s cooldown + hourly cap) and invalidates any
+    prior unconsumed reset tokens, so only the newest link works. Commits.
+    """
+    now = _now()
+    recent = (
+        db.query(EmailAuthCode)
+        .filter(EmailAuthCode.user_id == user.id, EmailAuthCode.purpose == PURPOSE_RESET)
+        .order_by(EmailAuthCode.created_at.desc())
+        .all()
+    )
+    hour_ago = now - timedelta(hours=1)
+    if sum(1 for c in recent if (_as_utc(c.created_at) or now) >= hour_ago) >= MAX_PER_HOUR:
+        raise OtpRateLimited("Too many reset requests. Try again later.")
+    if recent and (_as_utc(recent[0].created_at) or now) > now - RESEND_COOLDOWN:
+        raise OtpRateLimited("Please wait before requesting another reset link.")
+    for c in recent:  # invalidate prior unconsumed reset tokens
+        if c.consumed_at is None:
+            c.consumed_at = now
+
+    token = generate_url_token()
+    db.add(
+        EmailAuthCode(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            purpose=PURPOSE_RESET,
+            code_hash=hash_code(token),
+            expires_at=now + RESET_TOKEN_TTL,
+            attempts=0,
+        )
+    )
+    db.commit()
+    return token
+
+
+def consume_reset_token(db: Session, *, token: str) -> User | None:
+    """Validate + consume a password-reset token; return its user (or ``None``).
+
+    The token alone identifies the row (looked up by its hash), so the reset link
+    needs no email in the URL. Single-use and time-limited. Does not commit -- the
+    caller sets the new password and commits in the same transaction.
+    """
+    now = _now()
+    if not token:
+        return None
+    row = (
+        db.query(EmailAuthCode)
+        .filter(
+            EmailAuthCode.purpose == PURPOSE_RESET,
+            EmailAuthCode.code_hash == hash_code(token),
+            EmailAuthCode.consumed_at.is_(None),
+        )
+        .order_by(EmailAuthCode.created_at.desc())
+        .first()
+    )
+    if row is None:
+        return None
+    if (_as_utc(row.expires_at) or now) < now:
+        return None
+    user = db.query(User).filter(User.id == row.user_id).first()
+    if user is None:
+        return None
+    row.consumed_at = now
+    return user

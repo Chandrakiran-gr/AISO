@@ -155,20 +155,21 @@ export async function forgotPasswordAction(formData: FormData) {
     // Never reveal failures on the reset path (no account enumeration).
   }
 
-  redirect(`/reset-password?email=${encodeURIComponent(email)}`);
+  // Always the same confirmation — a reset link is on its way if the account exists.
+  redirect("/forgot-password?sent=1");
 }
 
 export async function resetPasswordAction(formData: FormData) {
-  const email = getFormString(formData, "email");
-  const code = getFormString(formData, "code");
+  const token = getFormString(formData, "token");
   const newPassword = getFormString(formData, "new_password");
 
   try {
-    await resetPassword({ email, code, new_password: newPassword });
+    await resetPassword({ token, new_password: newPassword });
   } catch (e: unknown) {
     if (isNextRedirect(e)) throw e;
-    const reason = e instanceof AuthApiError ? e.message : "invalid_code";
-    redirect(`/reset-password?email=${encodeURIComponent(email)}&error=${encodeURIComponent(reason)}`);
+    const reason = e instanceof AuthApiError ? e.message : "invalid_token";
+    // Keep the token in the URL so a recoverable error (weak password) can be retried.
+    redirect(`/reset-password?token=${encodeURIComponent(token)}&error=${encodeURIComponent(reason)}`);
   }
 
   redirect("/login?reset=1");

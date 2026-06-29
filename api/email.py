@@ -75,3 +75,24 @@ def _otp_html(*, heading: str, intro: str, code: str) -> str:
   <div style="font-size:32px;font-weight:700;letter-spacing:8px;background:#f4f4f5;border-radius:10px;padding:18px;text-align:center;color:#111">{code}</div>
   <p style="font-size:12px;color:#888;margin:24px 0 0">If you didn't request this, you can ignore this email.</p>
 </div>"""
+
+
+def send_reset_link_email(*, to: str, link: str) -> None:
+    """Email a password-reset link (click -> set a new password). No code to copy."""
+    send_email(
+        to=to,
+        subject="Reset your AISO password",
+        html=_reset_link_html(link=link),
+    )
+
+
+def _reset_link_html(*, link: str) -> str:
+    return f"""\
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#111">
+  <h1 style="font-size:20px;margin:0 0 12px">Reset your password</h1>
+  <p style="font-size:14px;line-height:1.5;color:#444;margin:0 0 24px">Click the button below to choose a new AISO password. This link expires in 30 minutes and can be used once.</p>
+  <a href="{link}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 24px;border-radius:10px">Reset password</a>
+  <p style="font-size:12px;color:#888;margin:24px 0 8px">Or paste this link into your browser:</p>
+  <p style="font-size:12px;color:#888;margin:0 0 24px;word-break:break-all">{link}</p>
+  <p style="font-size:12px;color:#888;margin:0">If you didn't request this, you can ignore this email and your password stays the same.</p>
+</div>"""

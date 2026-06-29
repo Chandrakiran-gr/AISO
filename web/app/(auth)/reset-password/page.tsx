@@ -11,14 +11,14 @@ const PASSWORD_POLICY =
 
 export const metadata: Metadata = {
   title: "Set a new password — AISO by Sapienic",
-  description: "Enter your reset code and choose a new AISO password.",
+  description: "Choose a new password for your AISO account.",
   robots: { index: false, follow: false },
 };
 
 export default function ResetPasswordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ email?: string; error?: string }>;
+  searchParams: Promise<{ token?: string; error?: string }>;
 }) {
   return <ResetContent searchParams={searchParams} />;
 }
@@ -26,11 +26,13 @@ export default function ResetPasswordPage({
 async function ResetContent({
   searchParams,
 }: {
-  searchParams: Promise<{ email?: string; error?: string }>;
+  searchParams: Promise<{ token?: string; error?: string }>;
 }) {
   const params = await searchParams;
-  const email = params.email ?? "";
+  const token = params.token ?? "";
   const errorMessage = getResetErrorMessage(params.error);
+  // No token (or an invalid/expired one) — the link can't be used; send them back.
+  const linkUnusable = !token || params.error === "invalid_token";
 
   return (
     <div className={styles.page}>
@@ -47,68 +49,65 @@ async function ResetContent({
             Choose a <span className="gradient-text">new password</span>.
           </h1>
           <p className={styles.leftSubtitle}>
-            Enter the 6-digit code we emailed you and pick a new password for your AISO account.
+            Pick a new password for your AISO account. You opened this from your reset email, so no code needed.
           </p>
         </div>
       </div>
 
       <div className={styles.right}>
         <div className={styles.formCard}>
-          <div className={styles.formHeader}>
-            <h2 className={styles.formTitle}>Set a new password</h2>
-            <p className={styles.formSubtitle}>
-              {email ? (
-                <>Enter the code sent to <strong>{email}</strong></>
-              ) : (
-                "Enter your reset code and a new password"
+          {linkUnusable ? (
+            <>
+              <div className={styles.formHeader}>
+                <h2 className={styles.formTitle}>This link can&apos;t be used</h2>
+                <p className={styles.formSubtitle}>
+                  Reset links expire after 30 minutes and work only once.
+                </p>
+              </div>
+              <div className={styles.authAlert} role="alert" aria-live="polite">
+                Please <Link href="/forgot-password">request a new reset link</Link>.
+              </div>
+              <p className={styles.switchText}>
+                Remembered it? <Link href="/login">Back to log in</Link>
+              </p>
+            </>
+          ) : (
+            <>
+              <div className={styles.formHeader}>
+                <h2 className={styles.formTitle}>Set a new password</h2>
+                <p className={styles.formSubtitle}>Choose a new password for your account</p>
+              </div>
+
+              {errorMessage && (
+                <div className={styles.authAlert} role="alert" aria-live="polite">{errorMessage}</div>
               )}
-            </p>
-          </div>
 
-          {errorMessage && (
-            <div className={styles.authAlert} role="alert" aria-live="polite">{errorMessage}</div>
+              <form className={styles.fields} action={resetPasswordAction}>
+                <input type="hidden" name="token" defaultValue={token} />
+                <div className={styles.fieldGroup}>
+                  <label className={styles.label} htmlFor="reset-password">New password</label>
+                  <PasswordField
+                    id="reset-password"
+                    name="new_password"
+                    placeholder="At least 8 characters"
+                    autoComplete="new-password"
+                    required
+                    minLength={8}
+                    maxLength={128}
+                    pattern={PASSWORD_PATTERN}
+                    title={PASSWORD_POLICY}
+                    describedBy="reset-password-help"
+                  />
+                  <p className={styles.passwordHelp} id="reset-password-help">{PASSWORD_POLICY}</p>
+                </div>
+                <button type="submit" className={styles.submitBtn}>Reset password →</button>
+              </form>
+
+              <p className={styles.switchText}>
+                Remembered it? <Link href="/login">Back to log in</Link>
+              </p>
+            </>
           )}
-
-          <form className={styles.fields} action={resetPasswordAction}>
-            <input type="hidden" name="email" defaultValue={email} />
-            <div className={styles.fieldGroup}>
-              <label className={styles.label} htmlFor="reset-code">Reset code</label>
-              <input
-                id="reset-code"
-                name="code"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                className="input"
-                placeholder="123456"
-                required
-                pattern="[0-9]{6}"
-                maxLength={6}
-                title="Enter the 6-digit code"
-              />
-            </div>
-            <div className={styles.fieldGroup}>
-              <label className={styles.label} htmlFor="reset-password">New password</label>
-              <PasswordField
-                id="reset-password"
-                name="new_password"
-                placeholder="At least 8 characters"
-                autoComplete="new-password"
-                required
-                minLength={8}
-                maxLength={128}
-                pattern={PASSWORD_PATTERN}
-                title={PASSWORD_POLICY}
-                describedBy="reset-password-help"
-              />
-              <p className={styles.passwordHelp} id="reset-password-help">{PASSWORD_POLICY}</p>
-            </div>
-            <button type="submit" className={styles.submitBtn}>Reset password →</button>
-          </form>
-
-          <p className={styles.switchText}>
-            Didn&apos;t get a code? <Link href="/forgot-password">Request another</Link>
-          </p>
         </div>
       </div>
     </div>
@@ -117,10 +116,9 @@ async function ResetContent({
 
 function getResetErrorMessage(error?: string): string | null {
   if (!error) return null;
+  // invalid_token is handled by the "link can't be used" state, not an inline message.
+  if (error === "invalid_token") return null;
   const messages: Record<string, string> = {
-    invalid_code: "That code is incorrect. Please check and try again.",
-    code_expired: "That code has expired. Request a new one.",
-    too_many_attempts: "Too many attempts. Request a new code and try again.",
     validation_error: "That password doesn't meet the requirements.",
   };
   return messages[error] ?? "We couldn't reset your password. Please try again.";

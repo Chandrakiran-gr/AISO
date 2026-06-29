@@ -6,6 +6,7 @@ the AISO database for OAuth and credentials accounts.
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 import re
@@ -26,15 +27,14 @@ from api.auth import (
 )
 from api.database import Client, User, get_db
 from api.entitlements import apply_account_entitlements, entitlements_for_user
-from api.email import EmailSendError, send_otp_email
+from api.email import EmailSendError, send_otp_email, send_reset_link_email
 from api.auth_otp import (
     OtpRateLimited,
-    PURPOSE_RESET,
     PURPOSE_SIGNUP,
+    consume_reset_token,
     consume_signin_grant,
-    issue_code,
+    issue_reset_token,
     issue_signin_grant,
-    verify_code,
 )
 from api.pending_signup import (
     resend_pending_code,
@@ -145,8 +145,7 @@ class ForgotPassword(BaseModel):
 
 
 class ResetPassword(BaseModel):
-    email: str
-    code: str
+    token: str
     new_password: str
 
     @field_validator("new_password")
@@ -208,6 +207,13 @@ def get_me(
 
 def _find_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
+
+
+def _reset_link(token: str) -> str:
+    """Build the password-reset link. AISO_APP_URL defaults to the prod canonical
+    domain, so prod needs no extra env; set it to http://localhost:3000 for local dev."""
+    base = os.getenv("AISO_APP_URL", "https://www.aisoglobal.com").rstrip("/")
+    return f"{base}/reset-password?token={token}"
 
 
 def _otp_failure_http(reason: str) -> HTTPException:
@@ -423,13 +429,13 @@ def resend_email_otp(payload: ResendOtp, db: Session = Depends(get_db)) -> OkRes
 
 @router.post("/forgot-password", response_model=OkResponse)
 def forgot_password(payload: ForgotPassword, db: Session = Depends(get_db)) -> OkResponse:
-    """Email a password-reset OTP. Always 200 (no account enumeration)."""
+    """Email a password-reset link. Always 200 (no account enumeration)."""
     email = normalize_email(payload.email)
     user = _find_user_by_email(db, email)
     if user and user.password_hash:  # only credentials accounts have a password to reset
         try:
-            code = issue_code(db, user=user, purpose=PURPOSE_RESET)
-            send_otp_email(to=user.email, code=code, purpose=PURPOSE_RESET)
+            token = issue_reset_token(db, user=user)
+            send_reset_link_email(to=user.email, link=_reset_link(token))
         except (OtpRateLimited, EmailSendError):
             pass  # never reveal account state or rate-limit on the reset path
     return OkResponse(ok=True)
@@ -437,14 +443,12 @@ def forgot_password(payload: ForgotPassword, db: Session = Depends(get_db)) -> O
 
 @router.post("/reset-password", response_model=OkResponse)
 def reset_password(payload: ResetPassword, db: Session = Depends(get_db)) -> OkResponse:
-    """Set a new password using the reset OTP. Proving inbox control also verifies the email."""
-    email = normalize_email(payload.email)
-    user = _find_user_by_email(db, email)
-    if not user or not user.password_hash:
-        raise HTTPException(status_code=400, detail="invalid_code")
-    ok, reason = verify_code(db, user=user, purpose=PURPOSE_RESET, code=payload.code)
-    if not ok:
-        raise _otp_failure_http(reason)
+    """Set a new password from a reset link token. Proving inbox control via the
+    single-use link also verifies the email. Consumed only here (on submit), never
+    when the link is merely opened, so link prefetchers can't burn the token."""
+    user = consume_reset_token(db, token=payload.token)
+    if user is None:
+        raise HTTPException(status_code=400, detail="invalid_token")
     user.password_hash = hash_password(payload.new_password)
     if not user.email_verified:
         user.email_verified = True
