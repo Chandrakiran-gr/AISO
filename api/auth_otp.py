@@ -20,12 +20,18 @@ from api.database import EmailAuthCode, User
 
 PURPOSE_SIGNUP = "signup_verify"
 PURPOSE_RESET = "password_reset"
-VALID_PURPOSES = {PURPOSE_SIGNUP, PURPOSE_RESET}
+PURPOSE_SIGNIN = "signin_grant"
+VALID_PURPOSES = {PURPOSE_SIGNUP, PURPOSE_RESET, PURPOSE_SIGNIN}
 
 CODE_TTL = timedelta(minutes=10)
 MAX_ATTEMPTS = 5
 RESEND_COOLDOWN = timedelta(seconds=60)
 MAX_PER_HOUR = 5
+
+# A one-time grant minted right after email verification so the freshly created
+# account can be signed in (and sent to onboarding) without re-entering a password.
+# Opaque token (not a 6-digit code), short-lived, single-use.
+SIGNIN_GRANT_TTL = timedelta(minutes=2)
 
 
 class OtpRateLimited(RuntimeError):
@@ -133,3 +139,68 @@ def verify_code(db: Session, *, user: User, purpose: str, code: str) -> tuple[bo
     row.attempts += 1
     db.commit()
     return False, ("locked" if row.attempts >= MAX_ATTEMPTS else "mismatch")
+
+
+def generate_signin_token() -> str:
+    """A high-entropy opaque token for the post-verification signin grant."""
+    return secrets.token_urlsafe(32)
+
+
+def issue_signin_grant(db: Session, *, user: User) -> str:
+    """Mint a single-use signin grant for ``user``; return the plaintext token.
+
+    Stored hashed (reusing ``email_auth_codes``) like every other code. Does not
+    commit -- the caller commits alongside the row that created the account, so the
+    grant and the user land in the same transaction. Invalidates prior grants.
+    """
+    now = _now()
+    for row in (
+        db.query(EmailAuthCode)
+        .filter(
+            EmailAuthCode.user_id == user.id,
+            EmailAuthCode.purpose == PURPOSE_SIGNIN,
+            EmailAuthCode.consumed_at.is_(None),
+        )
+        .all()
+    ):
+        row.consumed_at = now
+    token = generate_signin_token()
+    db.add(
+        EmailAuthCode(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            purpose=PURPOSE_SIGNIN,
+            code_hash=hash_code(token),
+            expires_at=now + SIGNIN_GRANT_TTL,
+            attempts=0,
+        )
+    )
+    return token
+
+
+def consume_signin_grant(db: Session, *, user: User, token: str) -> bool:
+    """Validate + consume a signin grant for ``user``. Returns whether it was valid.
+
+    Single-use and time-limited. Does not commit -- the caller commits. A wrong or
+    expired token simply returns ``False`` (no attempt counter: the token is opaque
+    and unguessable, so brute force is not a concern).
+    """
+    now = _now()
+    row = (
+        db.query(EmailAuthCode)
+        .filter(
+            EmailAuthCode.user_id == user.id,
+            EmailAuthCode.purpose == PURPOSE_SIGNIN,
+            EmailAuthCode.consumed_at.is_(None),
+        )
+        .order_by(EmailAuthCode.created_at.desc())
+        .first()
+    )
+    if row is None:
+        return False
+    if (_as_utc(row.expires_at) or now) < now:
+        return False
+    if not token or not hmac.compare_digest(hash_code(token), row.code_hash):
+        return False
+    row.consumed_at = now
+    return True

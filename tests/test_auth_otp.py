@@ -6,6 +6,7 @@ and lets us assert it was/wasn't called).
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -14,7 +15,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import event
 
 from tests._pgharness import make_test_engine, reset_schema, using_postgres
-from api.database import Client, PendingSignup, User, get_db
+from api.auth import verify_internal_request
+from api.database import Client, EmailAuthCode, PendingSignup, User, get_db
 from api.main import app
 
 CODE = "123456"
@@ -36,6 +38,9 @@ class AuthOtpTests(unittest.TestCase):
                 db.close()
 
         app.dependency_overrides[get_db] = override_get_db
+        # The signin-grant endpoint is gated to server-to-server callers; bypass that
+        # gate here so the grant tests cover grant logic, not the internal-secret check.
+        app.dependency_overrides[verify_internal_request] = lambda: None
         self.client = TestClient(app, base_url="http://localhost")
 
         gen = patch("api.auth_otp.generate_code", return_value=CODE)
@@ -47,6 +52,7 @@ class AuthOtpTests(unittest.TestCase):
 
     def tearDown(self):
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(verify_internal_request, None)
         self.engine.dispose()
 
     # helpers
@@ -185,6 +191,65 @@ class AuthOtpTests(unittest.TestCase):
         r = self.client.post("/api/v1/auth/resend-otp", json={"email": "new@example.com"})
         self.assertEqual(r.status_code, 429)  # within 60s cooldown
         self.assertEqual(r.json()["detail"], "rate_limited")
+
+    # signin grant (auto sign-in to onboarding after verification)
+    def _verify(self, email="new@example.com"):
+        return self.client.post("/api/v1/auth/verify-otp", json={"email": email, "code": CODE})
+
+    def test_verify_returns_grant_and_consume_signs_in(self):
+        self._signup()
+        token = self._verify().json().get("signin_token")
+        self.assertTrue(token)  # a one-time grant is returned on successful verify
+        c = self.client.post(
+            "/api/v1/auth/consume-signin-token",
+            json={"email": "new@example.com", "token": token},
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        self.assertEqual(c.json()["email"], "new@example.com")
+
+    def test_signin_grant_is_single_use(self):
+        self._signup()
+        token = self._verify().json()["signin_token"]
+        first = self.client.post(
+            "/api/v1/auth/consume-signin-token",
+            json={"email": "new@example.com", "token": token},
+        )
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post(
+            "/api/v1/auth/consume-signin-token",
+            json={"email": "new@example.com", "token": token},
+        )
+        self.assertEqual(second.status_code, 401)
+
+    def test_signin_grant_rejects_wrong_token(self):
+        self._signup()
+        self._verify()
+        bad = self.client.post(
+            "/api/v1/auth/consume-signin-token",
+            json={"email": "new@example.com", "token": "not-a-real-grant-token"},
+        )
+        self.assertEqual(bad.status_code, 401)
+
+    def test_signin_grant_expired_is_rejected(self):
+        self._signup()
+        token = self._verify().json()["signin_token"]
+        s = self.Session()
+        try:
+            row = (
+                s.query(EmailAuthCode)
+                .filter_by(purpose="signin_grant")
+                .order_by(EmailAuthCode.created_at.desc())
+                .first()
+            )
+            row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            s.commit()
+        finally:
+            s.close()
+        r = self.client.post(
+            "/api/v1/auth/consume-signin-token",
+            json={"email": "new@example.com", "token": token},
+        )
+        self.assertEqual(r.status_code, 401)
 
 
 class AccountDeletionTests(unittest.TestCase):

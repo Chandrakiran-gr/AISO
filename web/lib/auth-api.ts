@@ -99,7 +99,16 @@ export async function upsertOAuthUser(input: {
   return postAuth("/oauth/upsert", input);
 }
 
-type OkResult = { ok: boolean; status?: string | null };
+// Exchange a one-time post-verification grant for the user (no password). Backs the
+// token path in NextAuth's credentials authorize so a just-verified account signs in.
+export async function consumeSigninToken(input: {
+  email: string;
+  token: string;
+}): Promise<AuthUser> {
+  return postAuth("/consume-signin-token", input);
+}
+
+type OkResult = { ok: boolean; status?: string | null; signin_token?: string | null };
 
 // OTP / reset endpoints return { ok, status } rather than a user. On failure the
 // backend's machine-readable detail (e.g. "invalid_code", "email_not_verified",

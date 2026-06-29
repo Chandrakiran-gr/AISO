@@ -31,7 +31,9 @@ from api.auth_otp import (
     OtpRateLimited,
     PURPOSE_RESET,
     PURPOSE_SIGNUP,
+    consume_signin_grant,
     issue_code,
+    issue_signin_grant,
     verify_code,
 )
 from api.pending_signup import (
@@ -158,6 +160,13 @@ class ResetPassword(BaseModel):
 class OkResponse(BaseModel):
     ok: bool = True
     status: Optional[str] = None
+    # One-time grant returned by verify-otp so the client can sign in immediately.
+    signin_token: Optional[str] = None
+
+
+class ConsumeSigninToken(BaseModel):
+    email: str
+    token: str
 
 
 class DeleteAccount(BaseModel):
@@ -357,6 +366,8 @@ def verify_email_otp(payload: VerifyOtp, db: Session = Depends(get_db)) -> OkRes
     )
     apply_account_entitlements(user)
     db.add(user)
+    db.flush()  # parent before child (FK): user.id must exist before the grant row
+    token = issue_signin_grant(db, user=user)
     db.delete(pending)
     try:
         db.commit()
@@ -365,7 +376,33 @@ def verify_email_otp(payload: VerifyOtp, db: Session = Depends(get_db)) -> OkRes
         if _find_user_by_email(db, email):
             return OkResponse(ok=True, status="already_verified")
         raise HTTPException(status_code=400, detail="invalid_code")
-    return OkResponse(ok=True)
+    # Return a one-time grant so the client can sign in and go straight to onboarding.
+    return OkResponse(ok=True, signin_token=token)
+
+
+@router.post("/consume-signin-token", response_model=AuthUserResponse)
+def consume_signin_token(
+    payload: ConsumeSigninToken,
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_internal_request),
+) -> User:
+    """Exchange a one-time post-verification grant for the user (no password).
+
+    Backs NextAuth's credentials ``authorize`` token path, so a just-verified
+    account is signed in and sent straight to onboarding. The grant is single-use
+    and expires in minutes; anything invalid is a generic 401. Gated to
+    server-to-server callers (internal secret), matching ``/oauth/upsert``.
+    """
+    email = normalize_email(payload.email)
+    user = _find_user_by_email(db, email)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="invalid_grant")
+    if not consume_signin_grant(db, user=user, token=payload.token):
+        raise HTTPException(status_code=401, detail="invalid_grant")
+    apply_account_entitlements(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @router.post("/resend-otp", response_model=OkResponse)

@@ -103,14 +103,31 @@ export async function verifyOtpAction(formData: FormData) {
   const email = getFormString(formData, "email");
   const code = getFormString(formData, "code");
 
+  let signinToken: string | undefined;
   try {
-    await verifyOtp({ email, code });
+    const result = await verifyOtp({ email, code });
+    signinToken = result.signin_token ?? undefined;
   } catch (e: unknown) {
     if (isNextRedirect(e)) throw e;
     const reason = e instanceof AuthApiError ? e.message : "invalid_code";
     redirect(`/verify?email=${encodeURIComponent(email)}&error=${encodeURIComponent(reason)}`);
   }
 
+  // Verified — sign in with the one-time grant and go straight to onboarding.
+  if (signinToken) {
+    try {
+      await signIn("credentials", {
+        email,
+        signinToken,
+        redirectTo: "/onboarding",
+      });
+    } catch (e: unknown) {
+      if (isNextRedirect(e)) throw e; // success: NextAuth redirected to /onboarding
+      // Grant sign-in failed unexpectedly — fall through to manual login below.
+    }
+  }
+
+  // Fallback (no grant returned, or auto sign-in failed): verified, log in manually.
   redirect("/login?verified=1");
 }
 
