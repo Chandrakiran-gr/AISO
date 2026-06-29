@@ -2,12 +2,22 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
-import { upsertOAuthUser, verifyCredentialsUser } from "@/lib/auth-api";
+import {
+  consumeSigninToken,
+  upsertOAuthUser,
+  verifyCredentialsUser,
+} from "@/lib/auth-api";
 
 // ── Validation schemas ───────────────────────────────────────────────────────
 const loginSchema = z.object({
   email: z.string().email().max(254),
   password: z.string().min(8).max(128),
+});
+
+// Token path: a one-time grant from email verification, in place of a password.
+const grantSchema = z.object({
+  email: z.string().email().max(254),
+  signinToken: z.string().min(16).max(256),
 });
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -22,11 +32,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Credentials({
       name: "credentials",
       credentials: {
-        email:    { label: "Email",    type: "email" },
-        password: { label: "Password", type: "password" },
+        email:       { label: "Email",    type: "email" },
+        password:    { label: "Password", type: "password" },
+        signinToken: { label: "Signin token", type: "text" },
       },
       async authorize(credentials) {
-        // Validate input shape first (prevent injection in auth)
+        // Token path: just-verified account signing in without a password.
+        if (credentials?.signinToken) {
+          const grant = grantSchema.safeParse(credentials);
+          if (!grant.success) return null;
+          const user = await consumeSigninToken({
+            email: grant.data.email,
+            token: grant.data.signinToken,
+          });
+          return { id: user.id, email: user.email, name: user.name };
+        }
+
+        // Password path. Validate input shape first (prevent injection in auth).
         const parsed = loginSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
