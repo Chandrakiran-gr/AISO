@@ -51,7 +51,7 @@ async function ForgotContent({
               <div className={styles.formHeader}>
                 <h2 className={styles.formTitle}>Check your email</h2>
                 <p className={styles.formSubtitle}>
-                  If an account exists for that address, we&apos;ve emailed a link to reset your password. It expires in 30 minutes.
+                  If an account exists for that address, we&apos;ve emailed a link to reset your password. It expires in 15 minutes.
                 </p>
               </div>
               <div className={styles.authAlert} role="status" aria-live="polite">

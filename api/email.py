@@ -90,7 +90,7 @@ def _reset_link_html(*, link: str) -> str:
     return f"""\
 <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#111">
   <h1 style="font-size:20px;margin:0 0 12px">Reset your password</h1>
-  <p style="font-size:14px;line-height:1.5;color:#444;margin:0 0 24px">Click the button below to choose a new AISO password. This link expires in 30 minutes and can be used once.</p>
+  <p style="font-size:14px;line-height:1.5;color:#444;margin:0 0 24px">Click the button below to choose a new AISO password. This link expires in 15 minutes and can be used once.</p>
   <a href="{link}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 24px;border-radius:10px">Reset password</a>
   <p style="font-size:12px;color:#888;margin:24px 0 8px">Or paste this link into your browser:</p>
   <p style="font-size:12px;color:#888;margin:0 0 24px;word-break:break-all">{link}</p>
