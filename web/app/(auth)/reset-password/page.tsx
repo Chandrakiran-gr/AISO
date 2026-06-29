@@ -61,7 +61,7 @@ async function ResetContent({
               <div className={styles.formHeader}>
                 <h2 className={styles.formTitle}>This link can&apos;t be used</h2>
                 <p className={styles.formSubtitle}>
-                  Reset links expire after 30 minutes and work only once.
+                  Reset links expire after 15 minutes and work only once.
                 </p>
               </div>
               <div className={styles.authAlert} role="alert" aria-live="polite">

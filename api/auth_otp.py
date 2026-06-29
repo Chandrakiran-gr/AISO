@@ -36,7 +36,7 @@ SIGNIN_GRANT_TTL = timedelta(minutes=2)
 # Password-reset link token: opaque, single-use, emailed inside a link. Longer-lived
 # than an OTP since the user reads the email and then clicks. Consumed only when the
 # new password is submitted (never on opening the link), so link prefetchers can't burn it.
-RESET_TOKEN_TTL = timedelta(minutes=30)
+RESET_TOKEN_TTL = timedelta(minutes=15)
 
 
 class OtpRateLimited(RuntimeError):
