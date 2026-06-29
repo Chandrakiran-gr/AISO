@@ -151,8 +151,7 @@ export async function forgotPassword(input: { email: string }): Promise<OkResult
 }
 
 export async function resetPassword(input: {
-  email: string;
-  code: string;
+  token: string;
   new_password: string;
 }): Promise<OkResult> {
   return postAuthOk("/reset-password", input);
