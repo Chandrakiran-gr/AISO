@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   syntax-check:
     name: Python Syntax & Lint
@@ -47,3 +50,149 @@ jobs:
           # E402  ignored: intentional imports-after-sys.path pattern used throughout
           # E741  ignored: single-letter vars (l) in legacy code — cosmetic
           # F841  ignored: assigned-but-unused vars in legacy analysis scripts
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Phase 0 SDLC-hardening guardrails (branch: infra/ci-guardrails).
+  #
+  # These jobs are intentionally NON-REQUIRED right now: branch protection +
+  # required-status-checks on `main` are blocked on a repo-tier upgrade (free
+  # private repos can't enforce them — HTTP 403). They run and report on every
+  # PR today; at the post-tier "enforcement" step they get flipped to required
+  # in branch-protection settings (no change to this file needed).
+  #
+  # Python pin: '3.11' is the ONLY Python version declared anywhere in the repo
+  # (this workflow). Prod (Railway/NIXPACKS) does not pin Python — it is
+  # auto-detected at build time. Pin CI to prod's actual runtime once CK
+  # confirms it; keep this in lockstep with the syntax-check job above.
+  # ────────────────────────────────────────────────────────────────────────────
+
+  guardrails:
+    name: Proxy-only & BYOK-persistence static guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Proxy-only boundary — frontend reaches FastAPI only via /api/proxy
+        run: python3 scripts/ci/check_proxy_only.py
+      - name: BYOK never-persisted — static backstop
+        run: python3 scripts/ci/check_byok_static.py
+
+  frontend:
+    name: Frontend build & typecheck (web/)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Install deps
+        run: npm ci
+      - name: Lint (eslint)
+        run: npm run lint
+      - name: Typecheck (tsc --noEmit)
+        run: npx tsc --noEmit
+      - name: Build (next build)
+        run: npm run build
+
+  python-tests:
+    name: pytest phase12/13 + BYOK zero-persistence (prod-faithful Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aiso
+          POSTGRES_PASSWORD: aiso
+          POSTGRES_DB: aiso_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Setting TEST_DATABASE_URL routes tests/_pgharness onto real Postgres
+      # (FKs/JSONB/constraints enforced) instead of the SQLite default.
+      TEST_DATABASE_URL: postgresql://aiso:aiso@localhost:5432/aiso_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt -r api/requirements.txt
+          pip install pytest
+      - name: Run acceptance + guardrail suites
+        run: |
+          pytest -q \
+            tests/test_phase12_*.py \
+            tests/test_phase13_*.py \
+            tests/test_byok_zero_persistence.py
+
+  alembic-roundtrip:
+    name: Alembic upgrade+downgrade (${{ matrix.db }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - db: sqlite
+            url: sqlite:///./ci_alembic.db
+          - db: postgres
+            url: postgresql://aiso:aiso@localhost:5432/aiso_test
+    services:
+      # Present for both legs; the sqlite leg simply ignores it.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aiso
+          POSTGRES_PASSWORD: aiso
+          POSTGRES_DB: aiso_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: ${{ matrix.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt -r api/requirements.txt
+      - name: upgrade head → downgrade base → upgrade head
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+  secret-scan:
+    name: Secret scan — gitleaks (PR diffs-only, go-forward)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks needs commit history to scan the PR range
+      # A one-time full-history scan was performed at onboarding (clean). This
+      # go-forward check scans ONLY the PR's commits (gitleaks-action's default
+      # behavior on pull_request events), so historical findings don't red every
+      # PR. No GITLEAKS_LICENSE is required for a personal (non-org) repo.
+      - name: gitleaks (diffs-only)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -11,6 +11,9 @@
 clients/
 storage/
 
+# ─── Agent scratch (disposable working files; never commit) ──────────────────
+.scratch/
+
 # ─── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc

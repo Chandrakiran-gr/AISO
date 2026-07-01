@@ -115,6 +115,17 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
     "https://fonts.googleapis.com",
   ];
 
+  // connect-src — the browser talks to FastAPI ONLY via the same-origin secure
+  // proxy (/api/proxy/[...path]), so 'self' covers all backend traffic in prod.
+  // The direct backend hosts are dev-only conveniences and are dropped in prod:
+  // a production CSP must NOT list http://localhost:8000 or https://api.sapienic.com.
+  const connectSrc = [
+    "'self'",
+    ...(process.env.NODE_ENV !== "production"
+      ? ["http://localhost:8000", "https://api.sapienic.com"]
+      : []),
+  ];
+
   // CSP — strict, no unsafe-inline for scripts
   h.set(
     "Content-Security-Policy",
@@ -124,7 +135,7 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: https:",
-      "connect-src 'self' http://localhost:8000 https://api.sapienic.com",
+      `connect-src ${connectSrc.join(" ")}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
