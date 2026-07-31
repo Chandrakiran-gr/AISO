@@ -78,20 +78,6 @@ type VerticalOption = {
   example?: string | null;
 };
 
-const SELECT_FIELD_HINTS: Record<string, string> = {
-  employee_band: "Choose the company-size band that best matches the customers you want AISO to model.",
-  revenue_band: "Choose the revenue band for the customers you most want to win, not necessarily every customer you could serve.",
-  acv_band: "Choose the approximate yearly value of a typical customer relationship.",
-  engagement_size_band: "Choose the typical project, program, retainer, or coaching engagement size.",
-  price_tier_band: "Choose how customers usually perceive your product pricing.",
-  price_tier: "Choose your broad customer-facing price position.",
-  client_roster_size: "Choose the approximate number of active clients or accounts this profile represents.",
-  aiso_use_case: "Choose whether this profile represents your own business, client work, or both.",
-  deployment_model: "Choose the delivery model customers evaluate when asking AI tools about fit, risk, and adoption.",
-  buying_committee_size: "Choose the number of people commonly involved in a purchase decision.",
-  sales_cycle_length_band: "Choose the typical time from serious evaluation to purchase or contract signature.",
-};
-
 interface FormState {
   businessName: string;
   websiteUrl: string;
@@ -482,25 +468,12 @@ function pipelineObjectiveOption(id: string) {
   return PIPELINE_OBJECTIVES.find((option) => option.id === id);
 }
 
-function selectFieldHint(field: IntakeField, value: string): string | null {
-  if (field.type !== "select") return null;
-  const base = SELECT_FIELD_HINTS[field.id];
-  if (!value) return base ?? "Choose the closest option. AISO uses this to route question generation and scoring.";
-  return base ? `${base} Selected: ${value}.` : `Selected: ${value}.`;
-}
-
 function compactHelp(...parts: Array<string | null | undefined>): string {
   return parts.map((part) => part?.trim()).filter(Boolean).join(" ");
 }
 
 function optionHelp(title: string | undefined, body: string | null | undefined, example?: string | null): string {
   return compactHelp(title ? `${title}:` : null, body, example);
-}
-
-function fieldCueText(field: IntakeField, value: string): string | null {
-  const base = field.hint ?? selectFieldHint(field, value);
-  const listHelp = field.type === "list" ? "Separate items with commas or line breaks." : null;
-  return compactHelp(base, listHelp) || null;
 }
 
 function InfoCue({ id, text }: { id: string; text: string }) {
@@ -981,19 +954,9 @@ function Step1({
   const objectiveHelp = selectedObjective
     ? optionHelp(selectedObjective.label, selectedObjective.help)
     : "This changes the mix of awareness, comparison, preference, reputation, and competitor questions AISO prioritizes.";
-  function updateIntake(field: IntakeField, value: string) {
-    const intake = { ...form.intake, [field.id]: value };
-    let nextForm = { ...form, intake };
-    if (field.patch_field === "category") nextForm = { ...nextForm, industry: value };
-    if (field.patch_field === "competitors") nextForm = { ...nextForm, competitors: value };
-    if (field.patch_field.includes("geographic") || field.id.includes("radius")) {
-      nextForm = { ...nextForm, location: value };
-    }
-    set(nextForm);
-  }
   return (
     <form onSubmit={(e) => { e.preventDefault(); if (valid && status !== "loading") onNext(); }}>
-      <span className={styles.stepBadge}>Step 1 of 4 · Business basics</span>
+      <span className={styles.stepBadge}>Step 1 of 5 · Business basics</span>
       <h2 className={styles.stepTitle}>Tell AISO which business to analyze</h2>
       <p className={styles.stepSubtitle}>
         Choose a vertical and complete the required context before AISO builds the question bank.
@@ -1069,66 +1032,6 @@ function Step1({
             </select>
           </div>
         </div>
-        <section className={styles.intakePanel} aria-labelledby="ob-intake-heading">
-          <div className={styles.intakeHeader}>
-            <div>
-              <h3 id="ob-intake-heading">{schema?.label ?? "Vertical intake"}</h3>
-              <p>{schema?.description ?? "Loading the required intake fields for this vertical."}</p>
-            </div>
-            <span>{schemaStatus === "loading" ? "Loading" : `${schema?.fields.filter((field) => field.required).length ?? 0} required`}</span>
-          </div>
-          {schema && (
-            <div className={styles.intakeGrid}>
-              {schema.fields.map((field) => {
-                const value = fieldValue(form, field.id);
-                const controlId = `ob-intake-${field.id}`;
-                const cueText = fieldCueText(field, value);
-                return (
-                  <div key={field.id} className={styles.fieldGroup}>
-                    <div className={styles.labelRow}>
-                      <label className={styles.label} htmlFor={controlId}>{field.label}{field.required ? " *" : ""}</label>
-                      <span className={styles.labelTools}>
-                        {cueText && <InfoCue id={`${controlId}-tip`} text={cueText} />}
-                        {!field.required && <span className={styles.labelHint}>Optional</span>}
-                      </span>
-                    </div>
-                    {field.type === "textarea" || field.type === "list" ? (
-                      <textarea
-                        id={controlId}
-                        className={styles.contextTextarea}
-                        rows={field.type === "list" ? 3 : 4}
-                        placeholder={field.placeholder ?? ""}
-                        value={value}
-                        onChange={(e) => updateIntake(field, e.target.value)}
-                      />
-                    ) : field.type === "select" ? (
-                      <select
-                        id={controlId}
-                        className="input"
-                        value={value}
-                        onChange={(e) => updateIntake(field, e.target.value)}
-                      >
-                        <option value="">Select...</option>
-                        {field.options.map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        id={controlId}
-                        className="input"
-                        type="text"
-                        placeholder={field.placeholder ?? ""}
-                        value={value}
-                        onChange={(e) => updateIntake(field, e.target.value)}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
         {intakeIssues.length > 0 && form.businessName && form.websiteUrl && (
           <div className={styles.warningPanel}>
             <strong>Required before continuing</strong>
@@ -1139,7 +1042,7 @@ function Step1({
       <div className={styles.navRow}>
         <div />
         <button type="submit" className={styles.nextBtn} disabled={!valid || status === "loading"} id="ob-step1-next">
-          {status === "loading" ? "Saving..." : "Validate intake and read website"}
+          {status === "loading" ? "Saving..." : "Read my website"}
         </button>
       </div>
     </form>
@@ -1169,7 +1072,7 @@ function Step2({
   const readyToReview = Boolean(context?.profile_json) && !isRunning && status !== "failed";
   return (
     <div>
-      <span className={styles.stepBadge}>Step 2 of 4 · Website discovery</span>
+      <span className={styles.stepBadge}>Step 2 of 5 · Website discovery</span>
       <h2 className={styles.stepTitle}>Reading public website evidence</h2>
       <p className={styles.stepSubtitle}>
         AISO only reads public pages. It does not log in, submit forms, make bookings, or collect private customer data.
