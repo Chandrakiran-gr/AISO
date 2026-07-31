@@ -244,6 +244,10 @@ def _clean(value) -> str:
     text = re.sub(r"\s+", " ", str(value or "").strip())
     text = text.strip().strip("-•*").strip()
     text = re.sub(r"^\d+[.)]\s*", "", text)  # drop stray list numbering
+    # A real question has more than one token; a lone word (e.g. a wrapped
+    # "canvas?" fragment a model occasionally emits) is not a usable prompt.
+    if " " not in text:
+        return ""
     if len(text) > 500:
         text = text[:500].rstrip()
     return text

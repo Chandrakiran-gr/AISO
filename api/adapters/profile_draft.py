@@ -11,6 +11,7 @@ import requests
 
 from api.domain.ports import UpstreamProviderResponse
 from api.adapters.openai_chat import OpenAIChatAdapter
+from api.adapters.openrouter_chat import OpenRouterChatAdapter
 
 
 DEFAULT_PROFILE_DRAFT_MODEL = "claude-sonnet-4-20250514"
@@ -146,7 +147,14 @@ class HeuristicProfileDraftAdapter:
 
 
 def managed_profile_draft_provider():
-    """Managed (pro/custom) provider: OpenAI, falling back to heuristic if unkeyed."""
+    """Managed (pro/custom) provider for profile drafting.
+
+    Prefers OpenRouter (free/open models) when keyed, then OpenAI, then the
+    deterministic heuristic - onboarding never spends a paid first-party key.
+    """
+    openrouter = OpenRouterChatAdapter(purpose="profile drafting", max_tokens=1800)
+    if openrouter.available():
+        return openrouter
     openai = OpenAIChatAdapter(purpose="profile drafting", max_tokens=1800)
     return openai if openai.available() else HeuristicProfileDraftAdapter()
 

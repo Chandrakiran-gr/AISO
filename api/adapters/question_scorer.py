@@ -12,6 +12,7 @@ import requests
 
 from api.domain.ports import UpstreamProviderResponse
 from api.adapters.openai_chat import OpenAIChatAdapter
+from api.adapters.openrouter_chat import OpenRouterChatAdapter
 from api.domain.question_scorer import weighted_score
 
 
@@ -126,7 +127,14 @@ class HeuristicQuestionScorerAdapter:
 
 
 def managed_question_scorer_provider():
-    """Managed (pro/custom) provider: OpenAI, falling back to heuristic if unkeyed."""
+    """Managed (pro/custom) provider for question scoring.
+
+    Prefers OpenRouter (free/open models) when keyed, then OpenAI, then the
+    deterministic heuristic - onboarding never spends a paid first-party key.
+    """
+    openrouter = OpenRouterChatAdapter(purpose="question scoring", max_tokens=900)
+    if openrouter.available():
+        return openrouter
     openai = OpenAIChatAdapter(purpose="question scoring", max_tokens=900)
     return openai if openai.available() else HeuristicQuestionScorerAdapter()
 
