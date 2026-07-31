@@ -84,6 +84,20 @@ class ReviewPromptTests(unittest.TestCase):
         kinds = sorted(p.kind for p in result.prompts)
         self.assertEqual(kinds, ["branded", "category"])
 
+    def test_single_word_fragments_are_dropped(self):
+        # Models occasionally emit a wrapped fragment like "canvas?"; it is not a
+        # usable prompt and must not reach the review screen.
+        payload = (
+            '{"branded": ["Melius pricing for creative teams"], '
+            '"category": ["canvas?", "best AI creative canvas for designers"]}'
+        )
+        result = generate_review_prompts(
+            client=self.client, snapshot=_snapshot(), provider=_FakeLLM(text=payload),
+        )
+        texts = [p.text for p in result.prompts]
+        self.assertIn("best AI creative canvas for designers", texts)
+        self.assertNotIn("canvas?", texts)
+
     def test_llm_failure_falls_back_deterministically(self):
         result = generate_review_prompts(
             client=self.client, snapshot=_snapshot(),
