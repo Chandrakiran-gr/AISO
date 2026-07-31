@@ -80,6 +80,7 @@ from api.question_gen.selector import QuestionSelectionError, apply_question_sel
 from api.question_gen.realism import apply_realism_filter
 from api.question_gen.service import generate_and_persist_question_candidates
 from api.question_gen.review import generate_review_prompts
+from api.question_gen.profile_synthesis import synthesize_profile_fields
 
 router = APIRouter(tags=["onboarding"])
 SCHEMA_DIR = Path(__file__).resolve().parents[2] / "intake_schemas"
@@ -218,6 +219,22 @@ class GeneratePromptsResponse(BaseModel):
     model: str
     branded: list[ReviewPromptModel] = Field(default_factory=list)
     category: list[ReviewPromptModel] = Field(default_factory=list)
+
+
+class DraftFieldsRequest(BaseModel):
+    variation: int = Field(default=0, ge=0)  # bumped by the UI's "Regenerate"
+
+
+class DraftFieldsResponse(BaseModel):
+    ok: bool
+    onboarding_id: str
+    client_id: str
+    provider: str
+    model: str
+    description: str = ""
+    industry: str = ""
+    audiences: list[str] = Field(default_factory=list)
+    competitors: list[str] = Field(default_factory=list)
 
 
 class RealismFilterRequest(BaseModel):
@@ -910,6 +927,52 @@ async def generate_onboarding_prompts(
         model=result.model,
         branded=[_model(p) for p in result.prompts if p.kind == "branded"],
         category=[_model(p) for p in result.prompts if p.kind == "category"],
+    )
+
+
+@router.post("/onboarding/{onboarding_id}/draft-fields", response_model=DraftFieldsResponse)
+async def draft_onboarding_fields(
+    onboarding_id: str,
+    payload: DraftFieldsRequest | None = None,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    provider: UpstreamLLMProvider = Depends(get_profile_draft_provider),
+):
+    """AI-draft {description, industry, audiences, competitors} from the crawled
+    homepage text, for the user to confirm ("AI drafts, you confirm").
+
+    Stateless: the browser holds the edited values and sends the confirmed
+    profile onward, like the prompt review step. "Regenerate" bumps variation.
+    Replaces the regex slot-extraction (offerings/locations) as the source of the
+    confirmable profile.
+    """
+    payload = payload or DraftFieldsRequest()
+    client = _client_for_user(db, onboarding_id, user_id)
+    profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client.id).first()
+    crawl_artifacts = _dict_or_empty(profile.crawl_artifacts) if profile else {}
+    existing = _list_or_empty(profile.competitors) if profile else []
+
+    try:
+        fields = synthesize_profile_fields(
+            brand_name=client.name,
+            crawl_artifacts=crawl_artifacts,
+            provider=provider,
+            existing_competitors=existing,
+            variation=payload.variation,
+        )
+    except Exception as exc:  # provider/network failure -> surface as 502
+        raise HTTPException(status_code=502, detail=f"Profile drafting failed: {exc}") from exc
+
+    return DraftFieldsResponse(
+        ok=True,
+        onboarding_id=client.id,
+        client_id=client.id,
+        provider=fields.provider,
+        model=fields.model,
+        description=fields.description,
+        industry=fields.industry,
+        audiences=fields.audiences,
+        competitors=fields.competitors,
     )
 
 
