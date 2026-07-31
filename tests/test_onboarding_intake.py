@@ -160,126 +160,23 @@ class OnboardingIntakeAPITests(unittest.TestCase):
                 self.assertEqual(vertical["description"], schema["description"])
                 self.assertTrue(vertical.get("example"))
 
-    def test_all_vertical_context_floors_are_enforced(self):
-        cases = {
-            "b2b_saas": {
-                "category": "workflow automation software",
-                "industry": "Operations teams",
-                "employee_band": "51-200",
-                "revenue_band": "$10M-$50M",
-                "firmographic_geography": "United States",
-                "acv_band": "$25k-$50k",
-                "primary_persona": "Operations leader",
-                "geographic_scope_description": "United States",
-            },
-            "b2b_services": {
-                "category": "executive coaching",
-                "service_offerings": ["Founder coaching", "Leadership workshop"],
-                "industry": "Technology startups",
-                "engagement_size_band": "$25k-$100k",
-                "primary_persona": "Founder",
-                "geographic_scope_description": "United States",
-                "specialization": "Leadership coaching for technical founders",
-            },
-            "consumer_brand": {
-                "brand_archetype": "General merchandise retailer",
-                "product_line_breadth": "Household essentials, apparel, groceries",
-                "price_tier": "Mixed",
-                "distribution_channels": ["Stores", "Website", "Mobile app"],
-                "target": "Value-conscious families and small businesses",
-                "geographic_scope_description": "United States",
-            },
-            "enterprise": {
-                "category": "workforce platform",
-                "industry": "Retail and logistics",
-                "employee_band": "1001+",
-                "revenue_band": "$250M+",
-                "firmographic_geography": "North America",
-                "acv_band": "$250k-$1M",
-                "primary_persona": "Chief Operations Officer",
-                "geographic_scope_description": "Global enterprise accounts",
-                "procurement_signals": ["SOC 2", "security review"],
-                "analyst_recognition": "Industry reports and customer case studies",
-                "reference_customer_logos": "Public enterprise customer references",
-                "deployment_model": "SaaS",
-                "buying_committee_size": "6-10",
-                "sales_cycle_length_band": "6-12 months",
-            },
-            "regulated_legal": {
-                "category": "employment law",
-                "jurisdictions": ["Massachusetts", "New York"],
-                "bar_admissions": ["Massachusetts Bar", "New York Bar"],
-                "aba_model_rule_constraints": "Attorney advertising disclaimer and jurisdiction limits",
-                "prohibited_claims": "No guaranteed outcomes or legal advice without consultation",
-                "primary_persona": "Business owners",
-            },
-            "local_services": {
-                "nap": "Anchor Repair | 123 Main St, Boston, MA 02118 | (617) 555-0100",
-                "service_radius": "10 miles around Boston",
-                "service_taxonomy": ["repair", "maintenance", "installation"],
-                "hours": "Mon-Fri 9am-7pm",
-            },
-            "ecommerce": {
-                "category": "home goods",
-                "price_tier_band": "Mid-market",
-                "target_demographic": "Value-conscious families",
-                "marketplace_presence": "Website and retail marketplaces",
-                "shipping_geographic_scope": "United States",
-                "values_positioning": "Durable, affordable, sustainable",
-            },
-            "regulated_healthcare": {
-                "category": "behavioral health",
-                "jurisdictions": ["Massachusetts", "New York"],
-                "license_numbers": ["NPI 1234567890"],
-                "hipaa_constraints": "HIPAA privacy and no diagnosis without consultation",
-                "prohibited_claims": "No guaranteed outcomes or emergency advice",
-                "primary_persona": "Patients and caregivers",
-            },
-            "regulated_financial": {
-                "category": "wealth management",
-                "jurisdictions": ["United States", "Massachusetts"],
-                "finra_sec_registrations": ["SEC RIA"],
-                "prohibited_claims": "No guaranteed returns or individualized advice without consultation",
-                "primary_persona": "Retirees and business owners",
-            },
-            "marketplace": {
-                "supply_value_proposition": "Professionals get qualified demand and profile visibility",
-                "demand_value_proposition": "Customers compare vetted providers by need and location",
-                "supply_taxonomy": ["Consultants", "Home services"],
-                "demand_icp": "Small businesses and homeowners",
-                "geographic_scope_description": "United States",
-            },
-            "agency": {
-                "client_roster_size": "6-20",
-                "vertical_distribution": "Local services, ecommerce, B2B services",
-                "aiso_use_case": "Client visibility programs",
-            },
-        }
-        self.assertEqual(set(cases), VERTICAL_CODES)
+    def test_minimal_context_floor_is_category_and_objective(self):
+        # Lean floor: every vertical needs only a category + an objective. The old
+        # per-vertical firmographics/hours/etc. requirements are gone - AISO drafts
+        # them from the site and the user confirms.
+        from api.domain.onboarding import context_floor_met, missing_context_fields
+        from api.domain.ports import BusinessProfileSnapshot
 
-        for vertical, patch in cases.items():
-            with self.subTest(vertical=vertical):
-                start = self.client.post(
-                    "/api/v1/onboarding/start",
-                    json={
-                        "display_name": f"{vertical} example",
-                        "url": f"https://{vertical.replace('_', '-')}.example",
-                        "vertical": vertical,
-                        "objective": "preference",
-                    },
-                )
-                self.assertEqual(start.status_code, 201)
-                onboarding_id = start.json()["onboarding_id"]
-
-                incomplete = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
-                self.assertEqual(incomplete.status_code, 400)
-                self.assertEqual(incomplete.json()["detail"]["error"], "ContextFloorNotMet")
-
-                patched = self.client.patch(f"/api/v1/onboarding/{onboarding_id}", json=patch)
-                self.assertEqual(patched.status_code, 200)
-                submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
-                self.assertEqual(submitted.status_code, 200)
-                self.assertTrue(submitted.json()["floor_met"])
+        for vertical in ("b2b_saas", "local_services", "consumer_brand", "marketplace", "agency", "enterprise"):
+            met = BusinessProfileSnapshot(
+                client_id="c", vertical=vertical, objective="consideration", category="a category",
+            )
+            self.assertEqual(missing_context_fields(met), [], vertical)
+            self.assertTrue(context_floor_met(met), vertical)
+            self.assertIn("category", missing_context_fields(
+                BusinessProfileSnapshot(client_id="c", vertical=vertical, objective="consideration", category="")))
+            self.assertIn("objective", missing_context_fields(
+                BusinessProfileSnapshot(client_id="c", vertical=vertical, objective="", category="a category")))
 
     def test_phase_12_2_b2b_saas_required_fields_are_enforced(self):
         start = self.client.post(
@@ -329,6 +226,7 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         patched = self.client.patch(
             f"/api/v1/onboarding/{onboarding_id}",
             json={
+                "category": "general merchandise retail",
                 "brand_archetype": "General merchandise retailer",
                 "product_line_breadth": "Household essentials, apparel, groceries",
                 "price_tier": "Mixed",
@@ -354,7 +252,9 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         self.assertEqual(profile["geographic_scope"]["description"], "United States")
         self.assertEqual(profile["competitors"], ["Competitor A", "Competitor B"])
 
-    def test_local_services_competitors_and_license_are_optional_but_working_hours_required(self):
+    def test_local_services_confirms_with_category_and_objective(self):
+        # Lean floor: local services now needs only a category + objective. Hours,
+        # competitors, license, etc. are optional (AISO drafts + user confirms).
         start = self.client.post(
             "/api/v1/onboarding/start",
             json={
@@ -367,29 +267,12 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         self.assertEqual(start.status_code, 201)
         onboarding_id = start.json()["onboarding_id"]
 
-        partial = self.client.patch(
+        patched = self.client.patch(
             f"/api/v1/onboarding/{onboarding_id}",
-            json={
-                "category": "home repair service",
-                "nap": "Anchor Repair | 123 Main St, Boston, MA 02118 | (617) 555-0100",
-                "service_radius": "10 miles around Boston",
-                "service_taxonomy": ["repair", "maintenance", "installation"],
-            },
+            json={"category": "home repair service"},
         )
-        self.assertEqual(partial.status_code, 200)
+        self.assertEqual(patched.status_code, 200)
 
-        blocked = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
-        self.assertEqual(blocked.status_code, 400)
-        missing = blocked.json()["detail"]["missing_fields"]
-        self.assertIn("geographic_scope.hours", missing)
-        self.assertNotIn("competitors", missing)
-        self.assertNotIn("icp.license_cert_numbers", missing)
-
-        completed = self.client.patch(
-            f"/api/v1/onboarding/{onboarding_id}",
-            json={"hours": "Mon-Fri 9am-7pm, Sat 10am-5pm"},
-        )
-        self.assertEqual(completed.status_code, 200)
         submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
         self.assertEqual(submitted.status_code, 200)
         self.assertTrue(submitted.json()["floor_met"])

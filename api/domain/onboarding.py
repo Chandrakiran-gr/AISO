@@ -39,103 +39,13 @@ class ContextRequirement:
     min_items: int | None = None
 
 
-MINIMUM_CONTEXT_FLOOR: dict[str, tuple[ContextRequirement, ...]] = {
-    "b2b_saas": (
-        ContextRequirement("category"),
-        ContextRequirement("icp.firmographics.industry"),
-        ContextRequirement("icp.firmographics.employee_band"),
-        ContextRequirement("icp.firmographics.revenue_band"),
-        ContextRequirement("icp.firmographics.geography"),
-        ContextRequirement("icp.acv_band"),
-        ContextRequirement("personas.primary"),
-        ContextRequirement("objective"),
-        ContextRequirement("geographic_scope"),
-    ),
-    "b2b_services": (
-        ContextRequirement("icp.service_offerings"),
-        ContextRequirement("icp.firmographics"),
-        ContextRequirement("icp.engagement_size_band"),
-        ContextRequirement("personas.primary"),
-        ContextRequirement("geographic_scope"),
-        ContextRequirement("icp.specialization"),
-    ),
-    "local_services": (
-        ContextRequirement("geographic_scope.nap"),
-        ContextRequirement("geographic_scope.service_radius"),
-        ContextRequirement("icp.service_taxonomy"),
-        ContextRequirement("objective"),
-        ContextRequirement("geographic_scope.hours"),
-    ),
-    "ecommerce": (
-        ContextRequirement("category"),
-        ContextRequirement("icp.price_tier_band"),
-        ContextRequirement("icp.target_demographic"),
-        ContextRequirement("icp.marketplace_presence"),
-        ContextRequirement("geographic_scope.shipping"),
-        ContextRequirement("icp.values_positioning"),
-    ),
-    "regulated_healthcare": (
-        ContextRequirement("category"),
-        ContextRequirement("geographic_scope.jurisdictions"),
-        ContextRequirement("icp.license_numbers"),
-        ContextRequirement("icp.hipaa_constraints"),
-        ContextRequirement("icp.prohibited_claims"),
-        ContextRequirement("personas.primary"),
-    ),
-    "regulated_legal": (
-        ContextRequirement("category"),
-        ContextRequirement("geographic_scope.jurisdictions"),
-        ContextRequirement("icp.bar_admissions"),
-        ContextRequirement("icp.aba_model_rule_constraints"),
-        ContextRequirement("icp.prohibited_claims"),
-        ContextRequirement("personas.primary"),
-    ),
-    "regulated_financial": (
-        ContextRequirement("category"),
-        ContextRequirement("geographic_scope.jurisdictions"),
-        ContextRequirement("icp.finra_sec_registrations"),
-        ContextRequirement("icp.prohibited_claims"),
-        ContextRequirement("personas.primary"),
-    ),
-    "consumer_brand": (
-        ContextRequirement("icp.brand_archetype"),
-        ContextRequirement("icp.product_line_breadth"),
-        ContextRequirement("icp.price_tier"),
-        ContextRequirement("icp.distribution_channels"),
-        ContextRequirement("icp.target"),
-        ContextRequirement("geographic_scope"),
-    ),
-    "marketplace": (
-        ContextRequirement("icp.supply_value_proposition"),
-        ContextRequirement("icp.demand_value_proposition"),
-        ContextRequirement("icp.supply_taxonomy"),
-        ContextRequirement("icp.demand_icp"),
-        ContextRequirement("geographic_scope"),
-        ContextRequirement("objective"),
-    ),
-    "agency": (
-        ContextRequirement("icp.client_roster_size"),
-        ContextRequirement("icp.vertical_distribution"),
-        ContextRequirement("icp.aiso_use_case"),
-    ),
-    "enterprise": (
-        ContextRequirement("category"),
-        ContextRequirement("icp.firmographics.industry"),
-        ContextRequirement("icp.firmographics.employee_band"),
-        ContextRequirement("icp.firmographics.revenue_band"),
-        ContextRequirement("icp.firmographics.geography"),
-        ContextRequirement("icp.acv_band"),
-        ContextRequirement("personas.primary"),
-        ContextRequirement("objective"),
-        ContextRequirement("geographic_scope"),
-        ContextRequirement("icp.procurement_signals"),
-        ContextRequirement("icp.analyst_recognition"),
-        ContextRequirement("icp.reference_customer_logos"),
-        ContextRequirement("icp.deployment_model"),
-        ContextRequirement("icp.buying_committee_size"),
-        ContextRequirement("icp.sales_cycle_length_band"),
-    ),
-}
+# Lean onboarding: AISO drafts the business profile from the site and the user
+# confirms it, so the floor only needs the two fields that actually shape the
+# scan - a category and an objective. Everything else is optional/inferred.
+MINIMUM_CONTEXT_FLOOR: tuple[ContextRequirement, ...] = (
+    ContextRequirement("category"),
+    ContextRequirement("objective"),
+)
 
 PATCH_FIELD_PATHS: dict[str, tuple[str, ...]] = {
     "industry": ("icp", "firmographics", "industry"),
@@ -266,7 +176,7 @@ def merge_profile_patch(profile_data: dict[str, Any], raw_patch: dict[str, Any])
 
 def missing_context_fields(snapshot: BusinessProfileSnapshot) -> list[str]:
     profile = profile_data_from_snapshot(snapshot)
-    requirements = MINIMUM_CONTEXT_FLOOR.get(snapshot.vertical, ())
+    requirements = MINIMUM_CONTEXT_FLOOR
     missing: list[str] = []
 
     for requirement in requirements:
