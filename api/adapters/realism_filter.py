@@ -12,6 +12,7 @@ import requests
 
 from api.domain.ports import UpstreamProviderResponse
 from api.adapters.openai_chat import OpenAIChatAdapter
+from api.adapters.openrouter_chat import OpenRouterChatAdapter
 from api.domain.realism_filter import length_penalty, token_count
 
 
@@ -110,7 +111,14 @@ class HeuristicRealismFilterAdapter:
 
 
 def managed_realism_filter_provider():
-    """Managed (pro/custom) provider: OpenAI, falling back to heuristic if unkeyed."""
+    """Managed (pro/custom) provider for realism filtering.
+
+    Prefers OpenRouter (free/open models) when keyed, then OpenAI, then the
+    deterministic heuristic - onboarding never spends a paid first-party key.
+    """
+    openrouter = OpenRouterChatAdapter(purpose="realism filtering", max_tokens=300)
+    if openrouter.available():
+        return openrouter
     openai = OpenAIChatAdapter(purpose="realism filtering", max_tokens=300)
     return openai if openai.available() else HeuristicRealismFilterAdapter()
 
