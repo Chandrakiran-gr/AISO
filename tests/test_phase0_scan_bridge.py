@@ -32,6 +32,7 @@ from api.scan_bridge import (
     GROUP_TO_JOURNEY,
     ScanBridgeError,
     build_phase13_manifest_from_groups,
+    build_phase13_manifest_from_prompts,
 )
 
 
@@ -210,6 +211,110 @@ class ScanBridgeTests(unittest.TestCase):
                 profile={},
                 custom_questions=[],
             )
+
+    # ------------------------------------------------------------------
+    # Redesigned onboarding: approved-prompt manifest (bypasses slot templates)
+    # ------------------------------------------------------------------
+
+    def test_prompts_build_manifest_with_frame_mapping(self):
+        scan_id = "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1"
+        prompts = [
+            {"text": "best CRM for startups?", "journey_stage": "J1", "brand_frame": "unbranded_category"},
+            {"text": "is VectorCRM good for sales teams?", "journey_stage": "J2", "brand_frame": "brand_only"},
+            {"text": "VectorCRM vs Salesforce?", "journey_stage": "J3", "brand_frame": "branded_comparison"},
+            {"text": "is Salesforce reliable?", "journey_stage": "J5", "brand_frame": "competitor_only"},
+        ]
+        count = build_phase13_manifest_from_prompts(
+            self.db, client_id="client-1", scan_id=scan_id, prompts=prompts,
+        )
+        self.db.commit()
+
+        self.assertEqual(count, 4)
+        self.assertEqual(self.db.query(ScanManifest).filter(ScanManifest.scan_id == scan_id).count(), 4)
+        # Full brand frames collapse to the canonical U/B/C axis.
+        by_text = {q.text: q for q in self.db.query(QuestionBankQuestion).all()}
+        self.assertEqual(by_text["best CRM for startups?"].brand_frame, "U")
+        self.assertEqual(by_text["is VectorCRM good for sales teams?"].brand_frame, "B")
+        self.assertEqual(by_text["VectorCRM vs Salesforce?"].brand_frame, "B")
+        self.assertEqual(by_text["is Salesforce reliable?"].brand_frame, "C")
+        self.assertEqual(by_text["VectorCRM vs Salesforce?"].journey_stage, "J3")
+        for question in by_text.values():
+            self.assertEqual(question.source, "generated")
+
+    def test_prompts_without_frame_default_to_neutral(self):
+        scan_id = "a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2"
+        # A hand-typed prompt with no classification falls back to J2/U.
+        build_phase13_manifest_from_prompts(
+            self.db, client_id="client-1", scan_id=scan_id,
+            prompts=[{"text": "How does onboarding work?"}],
+        )
+        self.db.commit()
+        question = self.db.query(QuestionBankQuestion).one()
+        self.assertEqual((question.journey_stage, question.brand_frame), ("J2", "U"))
+
+    def test_prompts_dedupe_and_empty_rejected(self):
+        scan_id = "a3a3a3a3-a3a3-4a3a-8a3a-a3a3a3a3a3a3"
+        count = build_phase13_manifest_from_prompts(
+            self.db, client_id="client-1", scan_id=scan_id,
+            prompts=[
+                {"text": "best CRM?"},
+                {"text": "best   CRM?"},   # whitespace-normalized duplicate
+                {"text": "   "},           # empty after normalization
+            ],
+        )
+        self.db.commit()
+        self.assertEqual(count, 1)
+
+        with self.assertRaises(ScanBridgeError):
+            build_phase13_manifest_from_prompts(
+                self.db, client_id="client-1",
+                scan_id="a4a4a4a4-a4a4-4a4a-8a4a-a4a4a4a4a4a4", prompts=[],
+            )
+
+    def test_prompts_duplicate_manifest_rejected(self):
+        scan_id = "a5a5a5a5-a5a5-4a5a-8a5a-a5a5a5a5a5a5"
+        build_phase13_manifest_from_prompts(
+            self.db, client_id="client-1", scan_id=scan_id, prompts=[{"text": "only one?"}],
+        )
+        self.db.commit()
+        with self.assertRaises(ScanBridgeError):
+            build_phase13_manifest_from_prompts(
+                self.db, client_id="client-1", scan_id=scan_id, prompts=[{"text": "only one?"}],
+            )
+
+    def test_start_scan_with_prompts_bypasses_slot_template(self):
+        """An approved prompt list scans exactly those prompts and never invokes
+        the G1-G7 slot-template generator (the garbage source)."""
+        from unittest.mock import patch
+        from api.routes.pipeline import ScanCreate, start_scan
+
+        self._seed_methodology_version_set()
+        executor = _RecordingExecutor()
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(scan_executor=executor)))
+
+        approved = [
+            {"text": "best AI CRM for startups?", "journey_stage": "J1", "brand_frame": "unbranded_category"},
+            {"text": "VectorCRM pricing?", "journey_stage": "J4", "brand_frame": "brand_only"},
+            {"text": "VectorCRM vs HubSpot?", "journey_stage": "J3", "brand_frame": "branded_comparison"},
+        ]
+        with mock.patch.dict(os.environ, {"AISO_SCAN_ENGINE": "phase13"}), \
+             patch("api.routes.pipeline.build_phase13_manifest_from_groups") as slot_builder:
+            response = asyncio.run(
+                start_scan(
+                    "client-1",
+                    ScanCreate(client_id="client-1", providers=["openai", "claude"], groups=[], prompts=approved),
+                    BackgroundTasks(), request, db=self.db, user_id="user-1",
+                )
+            )
+
+        slot_builder.assert_not_called()  # slot-template generator bypassed
+        self.assertEqual(len(executor.calls), 1)
+        scan_run_id = response["id"]
+        self.assertEqual(
+            self.db.query(ScanManifest).filter(ScanManifest.scan_id == scan_run_id).count(), 3
+        )
+        texts = {q.text for q in self.db.query(QuestionBankQuestion).all()}
+        self.assertIn("VectorCRM pricing?", texts)
 
     def test_manifest_is_readable_by_scan_run_kickoff(self):
         """The bridge manifest must satisfy create_or_replay_scan_run's reader."""

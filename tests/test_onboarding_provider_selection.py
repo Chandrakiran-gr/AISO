@@ -1,7 +1,9 @@
 """Onboarding LLM provider selection by tier.
 
-Free → deterministic heuristic (no server spend); pro/custom → managed OpenAI
-(falling back to heuristic when no server key is configured).
+Free → deterministic heuristic (no server spend). Pro/custom → managed LLM:
+question (prompt) generation prefers OpenRouter (free/open models), falling back
+to OpenAI then heuristic; profile draft / scoring / realism use OpenAI, falling
+back to heuristic when no server key is configured.
 """
 
 import os
@@ -71,14 +73,28 @@ class OpenAIChatAdapterTests(unittest.TestCase):
 
 class ManagedProviderFactoryTests(unittest.TestCase):
     def test_managed_uses_openai_when_keyed(self):
+        # Profile draft / scoring / realism use OpenAI directly (unchanged).
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
             for factory in (
                 managed_profile_draft_provider,
-                managed_question_generation_provider,
                 managed_question_scorer_provider,
                 managed_realism_filter_provider,
             ):
                 self.assertEqual(factory().provider, "openai")
+
+    def test_managed_question_generation_prefers_openrouter(self):
+        # Prompt generation runs on OpenRouter (free/open models) when its key is
+        # present, so onboarding never spends a paid first-party key - even when
+        # an OpenAI key is also configured.
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "or-test", "OPENAI_API_KEY": "sk-test"}):
+            self.assertEqual(managed_question_generation_provider().provider, "openrouter")
+
+    def test_managed_question_generation_falls_back_to_openai(self):
+        # No OpenRouter key but an OpenAI key -> OpenAI.
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
+            os.environ.pop("OPENROUTER_API_KEY", None)
+            os.environ.pop("ONBOARDING_LLM_API_KEY", None)
+            self.assertEqual(managed_question_generation_provider().provider, "openai")
 
     def test_managed_falls_back_to_heuristic_when_unkeyed(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -109,8 +125,16 @@ class TierSelectionTests(unittest.TestCase):
             prov = get_profile_draft_provider(db=self.db, user_id="free-u")
         self.assertEqual(prov.provider, "local")  # free never spends server keys
 
-    def test_pro_user_gets_openai_when_keyed(self):
+    def test_pro_user_gets_openrouter_when_keyed(self):
+        # Pro users get OpenRouter for prompt generation when keyed.
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "or-test"}):
+            prov = get_question_generation_provider(db=self.db, user_id="pro-u")
+        self.assertEqual(prov.provider, "openrouter")
+
+    def test_pro_user_falls_back_to_openai_without_openrouter(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
+            os.environ.pop("OPENROUTER_API_KEY", None)
+            os.environ.pop("ONBOARDING_LLM_API_KEY", None)
             prov = get_question_generation_provider(db=self.db, user_id="pro-u")
         self.assertEqual(prov.provider, "openai")
 

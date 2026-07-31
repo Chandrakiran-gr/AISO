@@ -20,6 +20,11 @@ REALISM_FILTER_PENDING_VERSION = "realism_filter-pending-0.0.0"
 JOURNEY_STAGES = ("J1", "J2", "J3", "J4", "J5", "J6")
 BRAND_FRAMES = ("unbranded_category", "branded_comparison", "brand_only", "competitor_only")
 COMPETITOR_BRAND_FRAMES = {"branded_comparison", "competitor_only"}
+# Review-screen split: "branded" = the buyer names our brand (brand_only /
+# branded_comparison). "category" = category-level demand with no brand named
+# (unbranded_category), plus competitor-only questions where the buyer names a
+# rival rather than us.
+BRANDED_FRAMES = {"brand_only", "branded_comparison"}
 INTENT_CLASSES = ("informational", "navigational", "transactional")
 
 OBJECTIVE_STAGE_WEIGHTS: dict[str, dict[str, int]] = {
@@ -384,6 +389,11 @@ def brand_frame_distribution(candidates: list[GeneratedQuestionCandidate]) -> di
         if candidate.brand_frame in counts:
             counts[candidate.brand_frame] += 1
     return counts
+
+
+def prompt_kind(brand_frame: str) -> str:
+    """Map a brand frame to the review-screen bucket ("branded" | "category")."""
+    return "branded" if str(brand_frame or "").strip().lower() in BRANDED_FRAMES else "category"
 
 
 def question_text_hash(text: str) -> str:

@@ -31,7 +31,11 @@ from api.adapters.scan_execution import (
     ensure_scan_run_enqueued,
 )
 from api.feature_flags import is_phase13_engine
-from api.scan_bridge import ScanBridgeError, build_phase13_manifest_from_groups
+from api.scan_bridge import (
+    ScanBridgeError,
+    build_phase13_manifest_from_groups,
+    build_phase13_manifest_from_prompts,
+)
 from api.entitlements import entitlements_for_user, phase13_enabled_for_user
 from api.scan_workspace import MANUAL_GROUP, prepare_scan_workspace
 from api.scan_capabilities import VALID_SCAN_GROUPS, competitor_names_for_scan, validate_scan_group_capabilities
@@ -112,17 +116,50 @@ class BYOKKeys(BaseModel):
     gemini:     Optional[str] = None
 
 
+class ScanPrompt(BaseModel):
+    """An onboarding-review prompt the user approved for the scan.
+
+    ``journey_stage``/``brand_frame`` carry the LLM's classification through so
+    per-intent analytics stay meaningful; a hand-typed prompt may omit them and
+    falls back to neutral category exploration downstream.
+    """
+    text: str
+    journey_stage: Optional[str] = None
+    brand_frame: Optional[str] = None
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _clean_text(cls, value: Any) -> str:
+        text = " ".join(str(value or "").split())
+        if not text:
+            raise ValueError("Prompt text cannot be empty")
+        if len(text) > 500:
+            raise ValueError("Prompt text is too long (max 500 characters)")
+        return text
+
+
 class ScanCreate(BaseModel):
     client_id: str
     providers: List[str] = Field(default_factory=lambda: DEFAULT_PROVIDERS.copy())
     groups:    List[str] = Field(default_factory=lambda: DEFAULT_GROUPS.copy())
     custom_questions: List[str] = Field(default_factory=list)
+    # Approved prompt list from the onboarding "Review prompts" step. When
+    # present (pro/custom, Phase 13), the scan runs exactly these and the G1-G7
+    # slot-template generator is bypassed.
+    prompts: List[ScanPrompt] = Field(default_factory=list)
     byok_keys: Optional[BYOKKeys] = None  # BYOK: user's own API keys (never stored)
 
     @field_validator("custom_questions", mode="before")
     @classmethod
     def custom_questions_valid(cls, value: Any) -> list[str]:
         return _validate_custom_questions(value)
+
+    @field_validator("prompts")
+    @classmethod
+    def prompts_capped(cls, value: list) -> list:
+        if len(value) > 200:
+            raise ValueError("Too many prompts (max 200)")
+        return value
 
     @property
     def providers_valid(self) -> bool:
@@ -702,6 +739,7 @@ async def start_scan(
             providers=payload.providers,
             groups=payload.groups,
             custom_questions=payload.custom_questions,
+            approved_prompts=[p.model_dump() for p in payload.prompts],
             context_profile=context_profile,
             byok_submitted=bool(payload.byok_keys),
         )
@@ -748,29 +786,42 @@ async def _start_phase13_scan(
     providers: list[str],
     groups: list[str],
     custom_questions: list[str],
+    approved_prompts: Optional[list[dict]] = None,
     context_profile: Optional[dict],
     byok_submitted: bool = False,
 ) -> dict:
     """Kick off a scan on the Phase 13 engine.
 
-    Builds a question-bank manifest from the selected groups (the Phase 0
-    bridge), creates the downstream ``ScanRun`` from that manifest, and enqueues
-    the Procrastinate saga. The ``ScanRun`` is the system of record — no legacy
-    ``Scan`` row is written — and its projection drives the dashboard/poll APIs.
+    Builds a question-bank manifest, creates the downstream ``ScanRun`` from that
+    manifest, and enqueues the Procrastinate saga. The ``ScanRun`` is the system
+    of record — no legacy ``Scan`` row is written — and its projection drives the
+    dashboard/poll APIs.
+
+    When the redesigned onboarding sends an approved prompt list, the scan runs
+    exactly those (bypassing the G1-G7 slot-template generator). Otherwise it
+    falls back to the legacy group-based bridge for backward compatibility.
 
     Note: BYOK keys are not propagated to the worker-run saga in Phase 0; Phase
     13 scans use server-managed provider keys. BYOK support is tracked separately.
     """
     scan_id = str(uuid.uuid4())
     try:
-        build_phase13_manifest_from_groups(
-            db,
-            client_id=client_id,
-            scan_id=scan_id,
-            groups=groups,
-            profile=context_profile,
-            custom_questions=custom_questions,
-        )
+        if approved_prompts:
+            build_phase13_manifest_from_prompts(
+                db,
+                client_id=client_id,
+                scan_id=scan_id,
+                prompts=approved_prompts,
+            )
+        else:
+            build_phase13_manifest_from_groups(
+                db,
+                client_id=client_id,
+                scan_id=scan_id,
+                groups=groups,
+                profile=context_profile,
+                custom_questions=custom_questions,
+            )
         result = create_or_replay_scan_run(
             db,
             client_id=client_id,

@@ -79,6 +79,7 @@ from api.question_gen.scorer import apply_question_scorer
 from api.question_gen.selector import QuestionSelectionError, apply_question_selection
 from api.question_gen.realism import apply_realism_filter
 from api.question_gen.service import generate_and_persist_question_candidates
+from api.question_gen.review import generate_review_prompts
 
 router = APIRouter(tags=["onboarding"])
 SCHEMA_DIR = Path(__file__).resolve().parents[2] / "intake_schemas"
@@ -194,6 +195,29 @@ class QuestionGenerationResponse(BaseModel):
     model: str
     distribution: dict[str, int] = Field(default_factory=dict)
     brand_frame_distribution: dict[str, int] = Field(default_factory=dict)
+
+
+class ReviewPromptModel(BaseModel):
+    text: str
+    kind: str = "category"  # "branded" (brand named) | "category" (no brand)
+    journey_stage: Optional[str] = None
+    brand_frame: Optional[str] = None
+    rationale: Optional[str] = None
+
+
+class GeneratePromptsRequest(BaseModel):
+    final_count: int = Field(default=45, ge=6, le=120)
+    variation: int = Field(default=0, ge=0)  # bumped by the UI's "Regenerate"
+
+
+class GeneratePromptsResponse(BaseModel):
+    ok: bool
+    onboarding_id: str
+    client_id: str
+    provider: str
+    model: str
+    branded: list[ReviewPromptModel] = Field(default_factory=list)
+    category: list[ReviewPromptModel] = Field(default_factory=list)
 
 
 class RealismFilterRequest(BaseModel):
@@ -825,6 +849,67 @@ async def generate_onboarding_questions(
         model=run.model,
         distribution=run.distribution,
         brand_frame_distribution=run.brand_frame_distribution,
+    )
+
+
+@router.post("/onboarding/{onboarding_id}/generate-prompts", response_model=GeneratePromptsResponse)
+async def generate_onboarding_prompts(
+    onboarding_id: str,
+    payload: GeneratePromptsRequest | None = None,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    provider: UpstreamLLMProvider = Depends(get_question_generation_provider),
+):
+    """Generate the review-screen prompt set (branded / category) from the
+    confirmed profile.
+
+    Stateless by design: nothing is persisted. The browser holds the editable
+    list and sends the approved prompts to the scan endpoint (like custom
+    questions today). "Regenerate" bumps ``variation`` for a fresh set. This is
+    the LLM path that replaces the slot-template generator's garbage prompts.
+    """
+    payload = payload or GeneratePromptsRequest()
+    client = _client_for_user(db, onboarding_id, user_id)
+    profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == client.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Onboarding profile not found")
+
+    snapshot = _profile_snapshot(profile)
+    missing = missing_context_fields(snapshot)
+    if missing or not snapshot.floor_met:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "ProfileNotConfirmed", "missing_fields": missing},
+        )
+
+    try:
+        result = generate_review_prompts(
+            client=client,
+            snapshot=snapshot,
+            provider=provider,
+            final_count=payload.final_count,
+            variation=payload.variation,
+        )
+    except Exception as exc:  # provider/network failure -> surface as 502
+        raise HTTPException(status_code=502, detail=f"Prompt generation failed: {exc}") from exc
+
+    def _model(prompt) -> ReviewPromptModel:
+        return ReviewPromptModel(
+            text=prompt.text,
+            kind=prompt.kind,
+            journey_stage=prompt.journey_stage,
+            brand_frame=prompt.brand_frame,
+            rationale=prompt.rationale,
+        )
+
+    return GeneratePromptsResponse(
+        ok=True,
+        onboarding_id=profile.client_id,
+        client_id=profile.client_id,
+        provider=result.provider,
+        model=result.model,
+        branded=[_model(p) for p in result.prompts if p.kind == "branded"],
+        category=[_model(p) for p in result.prompts if p.kind == "category"],
     )
 
 
