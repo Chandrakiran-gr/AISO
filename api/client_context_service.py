@@ -9,9 +9,24 @@ import re
 import unicodedata
 
 from api.database import Client
+from api.crawler.policy import classify_page_type
 
 
 PROFILE_VERSION = "client_context.v1"
+
+# Boilerplate pages carry no real offerings/brands/locations - only legalese and
+# navigation. Extracting from them produced garbage (Terms sentences as
+# "offerings", "...whether STATUTORY, OR..." as a location). Skip them entirely.
+_SKIP_PAGE_TYPES = {"legal", "blog", "careers"}
+
+# Real 2-letter US state/territory codes, to reject legalese false positives like
+# "STATUTORY, OR" (Oregon) or "AND FUNCTIONALITY, IS" (not a state at all).
+_US_STATES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL",
+    "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT",
+    "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI",
+    "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC", "PR",
+}
 DEFAULT_SCAN_OBJECTIVE = {
     "objective": "",
     "label": "",
@@ -458,9 +473,15 @@ def _extract_location_items(text: str, source_url: str) -> tuple[list[dict[str, 
     physical: list[dict[str, Any]] = []
     service_areas: list[dict[str, Any]] = []
     visibility: list[dict[str, Any]] = []
-    city_state = re.findall(r"\b([A-Z][A-Za-z .'-]+,\s?[A-Z]{2})\b", text)
-    for location in city_state:
-        physical.append(_item(location, "physical_location", 0.72, source_url))
+    # City is 1-4 Title-case words (Boston / New York / San Francisco). This
+    # excludes all-caps legalese ("STATUTORY") and preceding lowercase words
+    # ("our office is in ..."); the state must be a real US code. Rejects the old
+    # "STATUTORY, OR" / "AND FUNCTIONALITY, IS" false positives.
+    city_state = re.findall(r"\b([A-Z][a-z]+(?:[ '-][A-Z][a-z]+){0,3}),\s?([A-Z]{2})\b", text)
+    for city, state in city_state:
+        if state not in _US_STATES:
+            continue
+        physical.append(_item(f"{city}, {state}", "physical_location", 0.72, source_url))
     for match in re.finditer(
         r"\b(\d{2,5}\s+[^.;\n,]+\b(?:Avenue|Ave|Street|St|Road|Rd|Drive|Dr|Boulevard|Blvd|Lane|Ln|Way)\b[^.;\n,]*,\s*(?:Suite\s*\d+,\s*)?[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}\s*\d{5})\b",
         text,
@@ -543,6 +564,11 @@ def build_context_profile(client: Client, evidence: dict[str, Any]) -> tuple[dic
         if not isinstance(page, dict):
             continue
         source_url = str(page.get("url") or primary_source)
+        # Skip boilerplate pages (terms/privacy/legal/blog): their text yields
+        # only garbage offerings/brands/locations, never real ones.
+        page_type = str(page.get("page_type") or classify_page_type(source_url, str(page.get("title") or "")))
+        if page_type in _SKIP_PAGE_TYPES:
+            continue
         page_text_items = [
             str(page.get("title") or ""),
             *[str(item) for item in page.get("headings", []) if item],

@@ -273,6 +273,55 @@ class ClientContextProfileTests(unittest.TestCase):
 
         self.assertNotIn("Choose the best provider", {item["name"] for item in profile["goals"]})
 
+    def test_legal_pages_and_legalese_locations_are_excluded(self):
+        """Terms/legal pages and legalese 'WORD, OR' fragments must never become
+        offerings, brands, or locations (the Melius garbage-scan regression)."""
+        client = Client(
+            id="melius-legal",
+            user_id="user-1",
+            name="Melius",
+            url="https://www.melius.com/",
+            industry="AI creative platform",
+        )
+        evidence = {
+            "pages": [
+                {
+                    "url": "https://www.melius.com/terms",
+                    "title": "Melius Terms of Service",
+                    "headings": ["2. THE SERVICE", "9. THIRD-PARTY SERVICES AND LINKS"],
+                    "text_blocks": [
+                        "THE SERVICE WILL MEET YOUR REQUIREMENTS OR EXPECTATIONS",
+                        "Gemini Omni Flash",
+                        "the service is provided as is, whether STATUTORY, OR USAGE, OR otherwise",
+                    ],
+                    "json_ld": [],
+                    "forms": [],
+                },
+                {
+                    "url": "https://www.melius.com/",
+                    "title": "Melius",
+                    "headings": ["AI creative canvas"],
+                    "text_blocks": ["Node-based multimodal content generation. Based in Boston, MA."],
+                    "json_ld": [],
+                    "forms": [],
+                },
+            ],
+            "warnings": [],
+        }
+
+        profile, _, _ = build_context_profile(client, evidence)
+        offerings = {item["name"] for item in profile["offerings"]}
+        brands = {item["name"] for item in profile["product_brands"]}
+        physical = {item["name"] for item in profile["locations"]["physical_locations"]}
+
+        # Nothing from the Terms page leaked in.
+        self.assertFalse(any("STATUTORY" in name for name in offerings | physical))
+        self.assertNotIn("Terms of Service", offerings)
+        self.assertNotIn("Melius Terms of Service", offerings)
+        self.assertFalse(any("Gemini" in name for name in brands))
+        # A real city from a content page is still captured cleanly.
+        self.assertIn("Boston, MA", physical)
+
 
 class ClientContextApiTests(unittest.TestCase):
     def setUp(self):
