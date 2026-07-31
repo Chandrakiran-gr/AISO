@@ -19,6 +19,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import NamedTuple
 
 from sqlalchemy.orm import Session
 
@@ -28,7 +29,7 @@ from api.database import (
     QuestionBankVersion,
     ScanManifest,
 )
-from api.domain.question_generation import question_text_hash
+from api.domain.question_generation import JOURNEY_STAGES, question_text_hash
 from api.question_generation import profile_to_question_rows
 from api.question_gen.question_bank import QUESTION_BANK_AVS_VERSION
 from api.scan_workspace import MANUAL_GROUP
@@ -46,6 +47,24 @@ GROUP_TO_JOURNEY: dict[str, tuple[str, str]] = {
     MANUAL_GROUP: ("J2", "U"),  # custom questions → neutral category exploration
 }
 _DEFAULT_JOURNEY = ("J2", "U")
+_VALID_STAGES = set(JOURNEY_STAGES)
+
+# The review-prompt generator tags each prompt with a full brand frame; the
+# canonical question bank stores the collapsed 'U'|'B'|'C' axis (CHECK
+# constraint). "Brand mentioned" -> B, "competitor only" -> C, else U.
+_FRAME_TO_CANONICAL: dict[str, str] = {
+    "unbranded_category": "U",
+    "brand_only": "B",
+    "branded_comparison": "B",
+    "competitor_only": "C",
+}
+
+
+class _ManifestRow(NamedTuple):
+    text: str
+    journey_stage: str
+    brand_frame: str  # canonical 'U' | 'B' | 'C'
+    source: str  # "generated" | "manual"
 
 
 class ScanBridgeError(RuntimeError):
@@ -105,9 +124,10 @@ def build_phase13_manifest_from_groups(
         if text:
             rows.append({"question": text, "group": MANUAL_GROUP})
 
-    # Deduplicate by text within this scan (a question can recur across groups).
+    # Deduplicate by text within this scan (a question can recur across groups),
+    # mapping each group to its (journey_stage, brand_frame) and source.
     seen_hashes: set[str] = set()
-    deduped: list[tuple[str, str]] = []  # (text, group)
+    manifest_rows: list[_ManifestRow] = []
     for row in rows:
         text = " ".join(str(row.get("question") or "").split())
         if not text:
@@ -116,24 +136,107 @@ def build_phase13_manifest_from_groups(
         if text_hash in seen_hashes:
             continue
         seen_hashes.add(text_hash)
-        deduped.append((text, str(row.get("group") or "")))
+        group = str(row.get("group") or "")
+        journey_stage, brand_frame = GROUP_TO_JOURNEY.get(group, _DEFAULT_JOURNEY)
+        manifest_rows.append(
+            _ManifestRow(
+                text=text,
+                journey_stage=journey_stage,
+                brand_frame=brand_frame,
+                source="manual" if group == MANUAL_GROUP else "generated",
+            )
+        )
 
-    if not deduped:
+    if not manifest_rows:
         raise ScanBridgeError("No questions generated for the selected groups")
 
+    return _write_question_bank_and_manifest(
+        db,
+        client_id=client_id,
+        scan_id=scan_id,
+        rows=manifest_rows,
+        rotation_reason="phase0_bridge_import",
+    )
+
+
+def build_phase13_manifest_from_prompts(
+    db: Session,
+    *,
+    client_id: str,
+    scan_id: str,
+    prompts: list[dict] | None,
+) -> int:
+    """Create question-bank + manifest rows from a user-approved prompt list.
+
+    This is the seam the redesigned onboarding uses: the user reviews the
+    LLM-generated natural prompts (branded / category), edits them,
+    and launches - we scan exactly what they approved. The G1-G7 slot-template
+    generator (``profile_to_question_rows``) is bypassed entirely, so the
+    regex-extracted "offerings"/"locations" that produced garbage never run.
+
+    Each ``prompt`` is ``{text, journey_stage?, brand_frame?}``. A prompt the user
+    typed by hand (no frame) falls back to neutral category exploration.
+    """
+    if db.query(ScanManifest).filter(ScanManifest.scan_id == scan_id).first():
+        raise ScanBridgeError(f"Scan manifest already exists for scan {scan_id}")
+
+    seen_hashes: set[str] = set()
+    manifest_rows: list[_ManifestRow] = []
+    for prompt in prompts or []:
+        entry = prompt if isinstance(prompt, dict) else {}
+        text = " ".join(str(entry.get("text") or "").split())
+        if not text:
+            continue
+        text_hash = question_text_hash(text)
+        if text_hash in seen_hashes:
+            continue
+        seen_hashes.add(text_hash)
+        stage = str(entry.get("journey_stage") or "").strip().upper()
+        if stage not in _VALID_STAGES:
+            stage = _DEFAULT_JOURNEY[0]
+        frame = _FRAME_TO_CANONICAL.get(
+            str(entry.get("brand_frame") or "").strip().lower(), _DEFAULT_JOURNEY[1]
+        )
+        manifest_rows.append(
+            _ManifestRow(text=text, journey_stage=stage, brand_frame=frame, source="generated")
+        )
+
+    if not manifest_rows:
+        raise ScanBridgeError("No prompts provided for the scan")
+
+    return _write_question_bank_and_manifest(
+        db,
+        client_id=client_id,
+        scan_id=scan_id,
+        rows=manifest_rows,
+        rotation_reason="onboarding_review_import",
+    )
+
+
+def _write_question_bank_and_manifest(
+    db: Session,
+    *,
+    client_id: str,
+    scan_id: str,
+    rows: list[_ManifestRow],
+    rotation_reason: str,
+) -> int:
+    """Persist a question-bank version + questions + memberships + manifest.
+
+    These four models carry only bare ``ForeignKey`` columns and no ORM
+    ``relationship()``s, so SQLAlchemy's unit of work does NOT order the parent
+    (``question_bank_version`` / ``question``) INSERTs before the child
+    (``question_bank_membership`` / ``scan_manifest``) rows that reference them
+    within a single flush. The FK constraints are enforced at statement time, so
+    we persist each parent layer before adding its children - flush the version,
+    then all questions, then the memberships + manifest. All of this stays inside
+    the caller's transaction, so a later failure still rolls back the whole
+    manifest.
+    """
     selected_at = datetime.now(timezone.utc)
-    n_total = len(deduped)
+    n_total = len(rows)
     bank_version_id = str(uuid.uuid4())
 
-    # These four models carry only bare ``ForeignKey`` columns and no ORM
-    # ``relationship()``s, so SQLAlchemy's unit of work does NOT order the parent
-    # (``question_bank_version`` / ``question``) INSERTs before the child
-    # (``question_bank_membership`` / ``scan_manifest``) rows that reference them
-    # within a single flush. The FK constraints are enforced at statement time,
-    # so we must persist each parent layer before adding its children — flush the
-    # version, then all questions, then the memberships + manifest. All of this
-    # stays inside the caller's transaction, so a later failure still rolls back
-    # the whole manifest.
     db.add(
         QuestionBankVersion(
             bank_version_id=bank_version_id,
@@ -143,15 +246,14 @@ def build_phase13_manifest_from_groups(
             n_core=n_total,  # bridge: treat all as frozen core
             n_tail=0,
             n_total=n_total,
-            rotation_reason="phase0_bridge_import",
+            rotation_reason=rotation_reason,
         )
     )
     db.flush()  # version must exist before any membership/manifest references it
 
     questions: list[QuestionBankQuestion] = []
-    for text, group in deduped:
-        journey_stage, brand_frame = GROUP_TO_JOURNEY.get(group, _DEFAULT_JOURNEY)
-        text_hash = question_text_hash(text)
+    for row in rows:
+        text_hash = question_text_hash(row.text)
         question_id = _canonical_question_id(client_id, text_hash)
         question = (
             db.query(QuestionBankQuestion)
@@ -165,13 +267,13 @@ def build_phase13_manifest_from_groups(
             question = QuestionBankQuestion(
                 question_id=question_id,
                 client_id=client_id,
-                text=text,
+                text=row.text,
                 text_hash=text_hash,
-                journey_stage=journey_stage,
-                brand_frame=brand_frame,
+                journey_stage=row.journey_stage,
+                brand_frame=row.brand_frame,
                 locality="L0",
                 persona_id=None,
-                source="manual" if group == MANUAL_GROUP else "generated",
+                source=row.source,
             )
             db.add(question)
         questions.append(question)

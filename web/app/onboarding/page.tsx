@@ -22,8 +22,11 @@ const STEPS = [
   { num: 1, label: "Business" },
   { num: 2, label: "Discover" },
   { num: 3, label: "Review" },
-  { num: 4, label: "Launch" },
+  { num: 4, label: "Prompts" },
+  { num: 5, label: "Launch" },
 ];
+
+const REVIEW_PROMPT_COUNT = 45;
 
 const SCAN_STEPS = [
   "Preparing confirmed client profile...",
@@ -117,6 +120,16 @@ const DEFAULT: FormState = {
   groups: GROUPS.map((group) => group.id),
   customQuestions: [],
 };
+
+// A single review prompt the user sees and edits before launching a scan.
+// "branded" names the brand; "category" is category-level with no brand.
+type PromptKind = "branded" | "category";
+interface ReviewPrompt {
+  text: string;
+  kind: PromptKind;
+  journey_stage?: string;
+  brand_frame?: string;
+}
 
 type IntakeField = {
   id: string;
@@ -1064,21 +1077,52 @@ async function confirmPipelineBusinessProfile(clientId: string, profile: Context
   if (!res.ok) throw new Error(await readApiError(res, `Failed to confirm business profile (${res.status})`));
 }
 
+async function generatePrompts(
+  clientId: string,
+  variation: number,
+): Promise<{ branded: ReviewPrompt[]; category: ReviewPrompt[]; model: string }> {
+  const res = await fetch(`${API}/v1/onboarding/${clientId}/generate-prompts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ final_count: REVIEW_PROMPT_COUNT, variation }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to generate prompts (${res.status})`));
+  const data = await res.json();
+  const tag = (list: ReviewPrompt[] | undefined, kind: PromptKind) =>
+    (list ?? []).map((p) => ({ ...p, kind }));
+  return {
+    branded: tag(data.branded, "branded"),
+    category: tag(data.category, "category"),
+    model: typeof data.model === "string" ? data.model : "",
+  };
+}
+
 async function createScan(
   clientId: string,
   providers: string[],
   groups: string[],
   customQuestions: string[],
+  prompts: ReviewPrompt[],
   byokKeys: Record<string, string>,
 ): Promise<string> {
+  // When the user approved a prompt list, the scan runs exactly those (Phase 13
+  // bypasses the slot-template generator). We also forward the texts as custom
+  // questions so the legacy free-tier engine runs the same approved set.
+  const approved = prompts
+    .map((p) => ({ ...p, text: p.text.replace(/\s+/g, " ").trim() }))
+    .filter((p) => p.text.length > 0);
+  const hasPrompts = approved.length > 0;
   const res = await fetch(`${API}/v1/clients/${clientId}/scans`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       client_id: clientId,
       providers,
-      groups,
-      custom_questions: customQuestions,
+      groups: hasPrompts ? [] : groups,
+      custom_questions: hasPrompts ? approved.map((p) => p.text) : customQuestions,
+      prompts: hasPrompts
+        ? approved.map((p) => ({ text: p.text, journey_stage: p.journey_stage, brand_frame: p.brand_frame }))
+        : undefined,
       byok_keys: Object.keys(byokKeys).length > 0 ? byokKeys : undefined,
     }),
   });
@@ -1776,10 +1820,132 @@ function Step3({
   );
 }
 
+function StepPrompts({
+  prompts,
+  status,
+  error,
+  model,
+  onUpdate,
+  onRemove,
+  onAdd,
+  onRegenerate,
+  onBack,
+  onNext,
+}: {
+  prompts: ReviewPrompt[];
+  status: ActionStatus;
+  error: string | null;
+  model: string;
+  onUpdate: (index: number, text: string) => void;
+  onRemove: (index: number) => void;
+  onAdd: (kind: PromptKind) => void;
+  onRegenerate: () => void;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  // Keep each prompt's index in the flat list so edit/remove target the right item.
+  const indexed = prompts.map((prompt, index) => ({ prompt, index }));
+  const category = indexed.filter((x) => x.prompt.kind === "category");
+  const branded = indexed.filter((x) => x.prompt.kind === "branded");
+  const usableCount = prompts.filter((p) => p.text.trim().length > 0).length;
+
+  if (status === "loading") {
+    return (
+      <div className={styles.scanRunning}>
+        <div className={styles.scanSpinner} />
+        <div>
+          <p className={styles.scanTitle}>Writing your prompts...</p>
+          <p className={styles.scanCopy}>
+            AISO is drafting the questions buyers ask AI assistants about your brand and category. You can edit everything next.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const renderList = (
+    rows: { prompt: ReviewPrompt; index: number }[],
+    kind: PromptKind,
+  ) => (
+    <div className={styles.fieldGroup}>
+      <div className={styles.labelRow}>
+        <label className={styles.label}>
+          {kind === "branded" ? "Branded · your brand named" : "Category · no brand named"}
+        </label>
+        <span className={styles.labelHint}>{rows.length}</span>
+      </div>
+      <div className={styles.customQuestionPanel}>
+        <p>
+          {kind === "branded"
+            ? "Questions that mention your brand by name (reviews, pricing, comparisons)."
+            : "Category-level questions with no brand named. Most buyer discovery starts here."}
+        </p>
+        {rows.length > 0 && (
+          <div className={styles.customQuestionList}>
+            {rows.map(({ prompt, index }) => (
+              <div key={index} className={styles.customQuestionRow}>
+                <textarea
+                  className={styles.customQuestionInput}
+                  value={prompt.text}
+                  placeholder={kind === "branded" ? "Add a branded question..." : "Add a category question..."}
+                  onChange={(event) => onUpdate(index, event.target.value)}
+                />
+                <button type="button" className={styles.removeMiniBtn} onClick={() => onRemove(index)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button type="button" className={styles.secondaryBtn} onClick={() => onAdd(kind)}>
+          Add {kind === "branded" ? "branded" : "category"} prompt
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <span className={styles.stepBadge}>Step 4 of 5 · Review prompts</span>
+      <h2 className={styles.stepTitle}>Review your search prompts</h2>
+      <p className={styles.stepSubtitle}>
+        These are the questions AISO will ask each AI assistant. Edit, add, or remove any of them - the scan runs exactly what you approve.
+      </p>
+
+      {status === "error" && (
+        <div className={styles.validationError} role="alert">
+          {error || "We could not generate prompts."}{" "}
+          <button type="button" className={styles.secondaryBtn} onClick={onRegenerate}>Try again</button>
+        </div>
+      )}
+
+      <div className={styles.labelRow} style={{ marginBottom: "0.75rem" }}>
+        <span className={styles.labelHint}>
+          {usableCount} prompt{usableCount === 1 ? "" : "s"} ready{model ? ` · ${model}` : ""}
+        </span>
+        <button type="button" className={styles.secondaryBtn} onClick={onRegenerate}>Regenerate all</button>
+      </div>
+
+      <div className={styles.fields}>
+        {renderList(category, "category")}
+        {renderList(branded, "branded")}
+      </div>
+
+      <div className={styles.navRow}>
+        <button type="button" className={styles.backBtn} onClick={onBack}>Back</button>
+        <button type="button" className={styles.nextBtn} onClick={onNext} disabled={usableCount === 0}>
+          Continue to launch
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Step4({
   form,
   profile,
   set,
+  promptCount,
   onBack,
   onLaunch,
   scanning,
@@ -1793,6 +1959,7 @@ function Step4({
   form: FormState;
   profile: ContextProfile;
   set: (f: FormState) => void;
+  promptCount: number;
   onBack: () => void;
   onLaunch: (customQuestions: string[]) => void;
   scanning: boolean;
@@ -1885,7 +2052,9 @@ function Step4({
   }
 
   function handleLaunchClick() {
-    if (form.groups.includes("G3") && !hasCompetitors) {
+    // The Prompts step defines the question set; skip the legacy group/custom-
+    // question validation whenever an approved prompt list exists.
+    if (promptCount === 0 && form.groups.includes("G3") && !hasCompetitors) {
       setValidationError("G3 needs at least one competitor. Add competitors in Confirm context or deselect G3.");
       return;
     }
@@ -1897,6 +2066,11 @@ function Step4({
         setValidationError(`Add API keys for selected providers: ${missing.map(providerName).join(", ")}.`);
         return;
       }
+    }
+    if (promptCount > 0) {
+      setValidationError(null);
+      onLaunch([]);
+      return;
     }
     const customValidation = validateCustomQuestions(form.customQuestions);
     if (customValidation.error) {
@@ -1927,11 +2101,17 @@ function Step4({
 
   return (
     <div>
-      <span className={styles.stepBadge}>Step 4 of 4 · Configure and launch</span>
+      <span className={styles.stepBadge}>Step 5 of 5 · Configure and launch</span>
       <h2 className={styles.stepTitle}>Choose providers and launch</h2>
       <p className={styles.stepSubtitle}>
         BYOK keys are used only for this scan request. They are not saved to the database or written to logs.
       </p>
+      {promptCount > 0 && (
+        <div className={styles.infoPanel}>
+          <strong>{promptCount} prompt{promptCount === 1 ? "" : "s"} ready</strong>
+          <span>The scan will run the prompts you reviewed. Go back to Prompts to edit them.</span>
+        </div>
+      )}
       {error && <div className={styles.validationError} role="alert">{error}</div>}
       {skipped.length > 0 && (
         <div className={styles.warningPanel}>
@@ -1953,6 +2133,8 @@ function Step4({
             ))}
           </div>
         </div>
+        {promptCount === 0 && (
+        <>
         <div className={styles.fieldGroup}>
           <div className={styles.labelRow}>
             <label className={styles.label}>Question intent groups</label>
@@ -2022,6 +2204,8 @@ function Step4({
             </button>
           </div>
         </div>
+        </>
+        )}
         <div className={styles.fieldGroup}>
           {usesManagedKeys ? (
             <p className={styles.byokTrust}>
@@ -2147,6 +2331,11 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
+  const [prompts, setPrompts] = useState<ReviewPrompt[]>([]);
+  const [promptsStatus, setPromptsStatus] = useState<ActionStatus>("idle");
+  const [promptsError, setPromptsError] = useState<string | null>(null);
+  const [promptsModel, setPromptsModel] = useState<string>("");
+  const [promptVariation, setPromptVariation] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useLayoutEffect(() => {
@@ -2405,11 +2594,53 @@ export default function OnboardingPage() {
       setWarnings(saved.warnings_json ?? warnings);
       setForm({ ...form, competitors: competitorNamesFromProfile(normalized).join(", ") });
       setStep(4);
+      void loadPrompts(clientId, 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to confirm context.");
     } finally {
       setSavingContext(false);
     }
+  }
+
+  async function loadPrompts(cid: string, variation: number) {
+    setPromptsStatus("loading");
+    setPromptsError(null);
+    try {
+      const { branded, category, model } = await generatePrompts(cid, variation);
+      setPrompts([...branded, ...category]);
+      setPromptsModel(model);
+      setPromptsStatus("idle");
+    } catch (err) {
+      setPromptsStatus("error");
+      setPromptsError(err instanceof Error ? err.message : "Unable to generate prompts.");
+    }
+  }
+
+  function handleRegeneratePrompts() {
+    if (!clientId) return;
+    const next = promptVariation + 1;
+    setPromptVariation(next);
+    void loadPrompts(clientId, next);
+  }
+
+  function updatePrompt(index: number, text: string) {
+    setPrompts((prev) => prev.map((p, i) => (i === index ? { ...p, text } : p)));
+  }
+
+  function removePrompt(index: number) {
+    setPrompts((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addPrompt(kind: PromptKind) {
+    setPrompts((prev) => [
+      ...prev,
+      {
+        text: "",
+        kind,
+        journey_stage: "J2",
+        brand_frame: kind === "branded" ? "brand_only" : "unbranded_category",
+      },
+    ]);
   }
 
   function handleManualContext() {
@@ -2440,12 +2671,20 @@ export default function OnboardingPage() {
       setError("Confirm the client context before launching the scan.");
       return;
     }
+    const approvedPrompts = prompts
+      .map((p) => ({ ...p, text: p.text.replace(/\s+/g, " ").trim() }))
+      .filter((p) => p.text.length > 0);
+    if (approvedPrompts.length === 0 && customQuestions.length === 0) {
+      setStep(4);
+      setError("Add or generate at least one prompt before launching.");
+      return;
+    }
     setKeyError(null);
     setScanning(true);
 
     try {
       const byokKeys = usesManagedKeys ? {} : getAllKeys();
-      const scanId = await createScan(clientId, form.providers, form.groups, customQuestions, byokKeys);
+      const scanId = await createScan(clientId, form.providers, form.groups, customQuestions, approvedPrompts, byokKeys);
       setForm((prev) => ({ ...prev, customQuestions: [] }));
       pollRef.current = setInterval(async () => {
         try {
@@ -2546,11 +2785,26 @@ export default function OnboardingPage() {
           />
         )}
         {step === 4 && (
+          <StepPrompts
+            prompts={prompts}
+            status={promptsStatus}
+            error={promptsError}
+            model={promptsModel}
+            onUpdate={updatePrompt}
+            onRemove={removePrompt}
+            onAdd={addPrompt}
+            onRegenerate={handleRegeneratePrompts}
+            onBack={() => setStep(3)}
+            onNext={() => setStep(5)}
+          />
+        )}
+        {step === 5 && (
           <Step4
             form={form}
             profile={profile}
             set={setForm}
-            onBack={() => setStep(3)}
+            promptCount={prompts.filter((p) => p.text.trim().length > 0).length}
+            onBack={() => setStep(4)}
             onLaunch={(customQuestions) => void handleLaunch(customQuestions)}
             scanning={scanning}
             scanIdx={scanIdx}

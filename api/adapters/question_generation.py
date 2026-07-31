@@ -11,6 +11,7 @@ import requests
 
 from api.domain.ports import UpstreamProviderResponse
 from api.adapters.openai_chat import OpenAIChatAdapter
+from api.adapters.openrouter_chat import OpenRouterChatAdapter
 from api.domain.question_generation import (
     QUESTION_GENERATION_SEED,
     context_from_runtime_payload,
@@ -129,7 +130,17 @@ class HeuristicQuestionGenerationAdapter:
 
 
 def managed_question_generation_provider():
-    """Managed (pro/custom) provider: OpenAI, falling back to heuristic if unkeyed."""
+    """Managed (pro/custom) provider for candidate generation.
+
+    Prefers OpenRouter (free/open models) when ``OPENROUTER_API_KEY`` is set -
+    the company's chosen onboarding-generation backend, so onboarding never
+    spends a paid first-party key. Falls back to OpenAI when only that key is
+    configured, then to the deterministic heuristic so an unkeyed environment
+    still produces a candidate pool.
+    """
+    openrouter = OpenRouterChatAdapter(purpose="question generation", max_tokens=12000)
+    if openrouter.available():
+        return openrouter
     openai = OpenAIChatAdapter(purpose="question generation", max_tokens=12000)
     return openai if openai.available() else HeuristicQuestionGenerationAdapter()
 
