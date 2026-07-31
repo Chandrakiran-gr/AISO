@@ -1097,6 +1097,31 @@ async function generatePrompts(
   };
 }
 
+interface DraftedFields {
+  description: string;
+  industry: string;
+  audiences: string[];
+  competitors: string[];
+}
+
+async function draftFields(clientId: string, variation = 0): Promise<DraftedFields & { provider: string; model: string }> {
+  const res = await fetch(`${API}/v1/onboarding/${clientId}/draft-fields`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ variation }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to draft business fields (${res.status})`));
+  const d = await res.json();
+  return {
+    description: typeof d.description === "string" ? d.description : "",
+    industry: typeof d.industry === "string" ? d.industry : "",
+    audiences: Array.isArray(d.audiences) ? d.audiences.map(String) : [],
+    competitors: Array.isArray(d.competitors) ? d.competitors.map(String) : [],
+    provider: typeof d.provider === "string" ? d.provider : "",
+    model: typeof d.model === "string" ? d.model : "",
+  };
+}
+
 async function createScan(
   clientId: string,
   providers: string[],
@@ -1820,6 +1845,142 @@ function Step3({
   );
 }
 
+function emptyDraftedFields(): DraftedFields {
+  return { description: "", industry: "", audiences: [], competitors: [] };
+}
+
+function StepConfirm({
+  fields,
+  status,
+  model,
+  onChangeText,
+  onChangeList,
+  onRegenerate,
+  onBack,
+  onConfirm,
+  saving,
+  error,
+}: {
+  fields: DraftedFields;
+  status: ActionStatus;
+  model: string;
+  onChangeText: (key: "description" | "industry", value: string) => void;
+  onChangeList: (key: "audiences" | "competitors", values: string[]) => void;
+  onRegenerate: () => void;
+  onBack: () => void;
+  onConfirm: () => void;
+  saving: boolean;
+  error: string | null;
+}) {
+  if (status === "loading") {
+    return (
+      <div className={styles.scanRunning}>
+        <div className={styles.scanSpinner} />
+        <div>
+          <p className={styles.scanTitle}>Reading your website...</p>
+          <p className={styles.scanCopy}>
+            AISO is figuring out what you do, who you serve, and who you compete with. You can edit all of it next.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const listEditor = (key: "audiences" | "competitors", label: string, placeholder: string) => {
+    const values = fields[key];
+    return (
+      <div className={styles.fieldGroup}>
+        <div className={styles.labelRow}>
+          <label className={styles.label}>{label}</label>
+          <span className={styles.labelHint}>{values.length}</span>
+        </div>
+        <div className={styles.customQuestionPanel}>
+          {values.length > 0 && (
+            <div className={styles.customQuestionList}>
+              {values.map((value, index) => (
+                <div key={index} className={styles.customQuestionRow}>
+                  <input
+                    className="input"
+                    value={value}
+                    placeholder={placeholder}
+                    onChange={(event) => onChangeList(key, values.map((v, i) => (i === index ? event.target.value : v)))}
+                  />
+                  <button
+                    type="button"
+                    className={styles.removeMiniBtn}
+                    onClick={() => onChangeList(key, values.filter((_, i) => i !== index))}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button type="button" className={styles.secondaryBtn} onClick={() => onChangeList(key, [...values, ""])}>
+            Add {label.toLowerCase()}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const canConfirm = fields.description.trim().length > 0 && fields.industry.trim().length > 0;
+
+  return (
+    <div>
+      <span className={styles.stepBadge}>Step 3 of 5 · Confirm your business</span>
+      <h2 className={styles.stepTitle}>Here&apos;s what we understood</h2>
+      <p className={styles.stepSubtitle}>
+        AISO read your website and drafted this. Fix anything that&apos;s off - it shapes your prompts and scan. Empty? Just fill it in.
+      </p>
+
+      {status === "error" && (
+        <div className={styles.validationError} role="alert">
+          We couldn&apos;t read your site well - fill in the fields below, or{" "}
+          <button type="button" className={styles.secondaryBtn} onClick={onRegenerate}>try again</button>.
+        </div>
+      )}
+      {error && <div className={styles.validationError} role="alert">{error}</div>}
+
+      <div className={styles.labelRow} style={{ marginBottom: "0.75rem" }}>
+        <span className={styles.labelHint}>{model ? `AI-drafted · ${model}` : "AI-drafted"}</span>
+        <button type="button" className={styles.secondaryBtn} onClick={onRegenerate}>Regenerate</button>
+      </div>
+
+      <div className={styles.fields}>
+        <div className={styles.fieldGroup}>
+          <label className={styles.label}>What you do</label>
+          <textarea
+            className={styles.customQuestionInput}
+            style={{ minHeight: "6rem", width: "100%" }}
+            value={fields.description}
+            placeholder="What your business does and who it's for..."
+            onChange={(event) => onChangeText("description", event.target.value)}
+          />
+        </div>
+        <div className={styles.fieldGroup}>
+          <label className={styles.label}>Industry</label>
+          <input
+            className="input"
+            value={fields.industry}
+            placeholder="e.g. AI search optimization"
+            onChange={(event) => onChangeText("industry", event.target.value)}
+          />
+        </div>
+        {listEditor("audiences", "Who you serve", "e.g. marketing teams")}
+        {listEditor("competitors", "Competitors", "e.g. a competitor brand")}
+      </div>
+
+      <div className={styles.navRow}>
+        <button type="button" className={styles.backBtn} onClick={onBack}>Back</button>
+        <button type="button" className={styles.nextBtn} onClick={onConfirm} disabled={saving || !canConfirm}>
+          {saving ? "Saving..." : "Looks good, generate prompts"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function StepPrompts({
   prompts,
   status,
@@ -2336,6 +2497,10 @@ export default function OnboardingPage() {
   const [promptsError, setPromptsError] = useState<string | null>(null);
   const [promptsModel, setPromptsModel] = useState<string>("");
   const [promptVariation, setPromptVariation] = useState(0);
+  const [draftedFields, setDraftedFields] = useState<DraftedFields | null>(null);
+  const [draftFieldsStatus, setDraftFieldsStatus] = useState<ActionStatus>("idle");
+  const [draftFieldsModel, setDraftFieldsModel] = useState<string>("");
+  const [draftVariation, setDraftVariation] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useLayoutEffect(() => {
@@ -2641,6 +2806,41 @@ export default function OnboardingPage() {
         brand_frame: kind === "branded" ? "brand_only" : "unbranded_category",
       },
     ]);
+  }
+
+  async function loadDraftFields(cid: string, variation: number) {
+    setDraftFieldsStatus("loading");
+    setError(null);
+    try {
+      const fields = await draftFields(cid, variation);
+      setDraftedFields({
+        description: fields.description,
+        industry: fields.industry,
+        audiences: fields.audiences,
+        competitors: fields.competitors,
+      });
+      setDraftFieldsModel(fields.model);
+      setDraftFieldsStatus("idle");
+    } catch (err) {
+      // Cold-start / thin site: don't dead-end - drop to an empty, fillable form.
+      setDraftedFields(emptyDraftedFields());
+      setDraftFieldsStatus("error");
+    }
+  }
+
+  function handleRegenerateDraft() {
+    if (!clientId) return;
+    const next = draftVariation + 1;
+    setDraftVariation(next);
+    void loadDraftFields(clientId, next);
+  }
+
+  function setDraftText(key: "description" | "industry", value: string) {
+    setDraftedFields((prev) => ({ ...(prev ?? emptyDraftedFields()), [key]: value }));
+  }
+
+  function setDraftList(key: "audiences" | "competitors", values: string[]) {
+    setDraftedFields((prev) => ({ ...(prev ?? emptyDraftedFields()), [key]: values }));
   }
 
   function handleManualContext() {
