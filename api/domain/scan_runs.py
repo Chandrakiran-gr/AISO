@@ -14,7 +14,7 @@ SCAN_EXECUTION_METHODOLOGY_VERSION = (
     "AVS-1.0.0+N-sampling-1.0.0+classifier-1.0.0+"
     "question-bank-1.0.0+pricing-1.0.0+execution-1.0.0+versioning-1.0.0"
 )
-SAMPLES_PER_CELL = 5
+SAMPLES_PER_CELL = 1  # one query per question per engine (must match api.domain.sampling)
 DEFAULT_SCAN_PROVIDERS = ("openai", "claude", "perplexity", "gemini")
 VALID_SCAN_PROVIDERS = frozenset(DEFAULT_SCAN_PROVIDERS)
 VALID_LATENCY_CLASSES = frozenset({"standard", "priority"})

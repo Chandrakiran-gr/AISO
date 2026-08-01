@@ -134,9 +134,9 @@ class Phase13ScanRunKickoffTests(unittest.TestCase):
         self.assertEqual(payload["status"], "queued")
         self.assertEqual(payload["methodology_version_set_id"], "mvs-1")
         self.assertEqual(payload["providers"], ["openai", "claude"])
-        self.assertEqual(payload["samples_per_cell"], 5)
+        self.assertEqual(payload["samples_per_cell"], 1)
         self.assertEqual(payload["question_count"], 50)
-        self.assertEqual(payload["total_calls"], 500)
+        self.assertEqual(payload["total_calls"], 100)
         self.assertEqual(payload["cost_budget_usd"], "12.3400")
         self.assertTrue(payload["scan_manifest_hash"])
 
@@ -168,7 +168,7 @@ class Phase13ScanRunKickoffTests(unittest.TestCase):
         progress_payload = progress.json()
         self.assertEqual(progress_payload["status"], "queued")
         self.assertEqual(progress_payload["stage"], "queued")
-        self.assertEqual(progress_payload["total_calls"], 500)
+        self.assertEqual(progress_payload["total_calls"], 100)
         self.assertEqual(progress_payload["completed_calls"], 0)
         self.assertEqual(progress_payload["methodology_version_set_id"], "mvs-1")
 
