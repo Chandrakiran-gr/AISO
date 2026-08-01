@@ -1126,7 +1126,6 @@ function emptyDraftedFields(): DraftedFields {
 function StepConfirm({
   fields,
   status,
-  model,
   onChangeText,
   onChangeList,
   onRegenerate,
@@ -1137,7 +1136,6 @@ function StepConfirm({
 }: {
   fields: DraftedFields;
   status: ActionStatus;
-  model: string;
   onChangeText: (key: "description" | "industry", value: string) => void;
   onChangeList: (key: "audiences" | "competitors", values: string[]) => void;
   onRegenerate: () => void;
@@ -1216,8 +1214,7 @@ function StepConfirm({
       )}
       {error && <div className={styles.validationError} role="alert">{error}</div>}
 
-      <div className={styles.labelRow} style={{ marginBottom: "0.75rem" }}>
-        <span className={styles.labelHint}>{model ? `AI-drafted · ${model}` : "AI-drafted"}</span>
+      <div className={styles.labelRow} style={{ justifyContent: "flex-end", marginBottom: "0.75rem" }}>
         <button type="button" className={styles.secondaryBtn} onClick={onRegenerate}>Regenerate</button>
       </div>
 
@@ -1259,7 +1256,6 @@ function StepPrompts({
   prompts,
   status,
   error,
-  model,
   onUpdate,
   onRemove,
   onAdd,
@@ -1270,7 +1266,6 @@ function StepPrompts({
   prompts: ReviewPrompt[];
   status: ActionStatus;
   error: string | null;
-  model: string;
   onUpdate: (index: number, text: string) => void;
   onRemove: (index: number) => void;
   onAdd: (kind: PromptKind) => void;
@@ -1356,7 +1351,7 @@ function StepPrompts({
 
       <div className={styles.labelRow} style={{ marginBottom: "0.75rem" }}>
         <span className={styles.labelHint}>
-          {usableCount} prompt{usableCount === 1 ? "" : "s"} ready{model ? ` · ${model}` : ""}
+          {usableCount} prompt{usableCount === 1 ? "" : "s"} ready
         </span>
         <button type="button" className={styles.secondaryBtn} onClick={onRegenerate}>Regenerate all</button>
       </div>
@@ -1769,11 +1764,9 @@ export default function OnboardingPage() {
   const [prompts, setPrompts] = useState<ReviewPrompt[]>([]);
   const [promptsStatus, setPromptsStatus] = useState<ActionStatus>("idle");
   const [promptsError, setPromptsError] = useState<string | null>(null);
-  const [promptsModel, setPromptsModel] = useState<string>("");
   const [promptVariation, setPromptVariation] = useState(0);
   const [draftedFields, setDraftedFields] = useState<DraftedFields | null>(null);
   const [draftFieldsStatus, setDraftFieldsStatus] = useState<ActionStatus>("idle");
-  const [draftFieldsModel, setDraftFieldsModel] = useState<string>("");
   const [draftVariation, setDraftVariation] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -2039,9 +2032,8 @@ export default function OnboardingPage() {
     setPromptsStatus("loading");
     setPromptsError(null);
     try {
-      const { branded, category, model } = await generatePrompts(cid, variation);
+      const { branded, category } = await generatePrompts(cid, variation);
       setPrompts([...branded, ...category]);
-      setPromptsModel(model);
       setPromptsStatus("idle");
     } catch (err) {
       setPromptsStatus("error");
@@ -2087,7 +2079,6 @@ export default function OnboardingPage() {
         audiences: fields.audiences,
         competitors: fields.competitors,
       });
-      setDraftFieldsModel(fields.model);
       setDraftFieldsStatus("idle");
     } catch {
       // Cold-start / thin site: don't dead-end - drop to an empty, fillable form.
@@ -2245,7 +2236,6 @@ export default function OnboardingPage() {
           <StepConfirm
             fields={draftedFields ?? emptyDraftedFields()}
             status={draftFieldsStatus}
-            model={draftFieldsModel}
             onChangeText={setDraftText}
             onChangeList={setDraftList}
             onRegenerate={handleRegenerateDraft}
@@ -2260,7 +2250,6 @@ export default function OnboardingPage() {
             prompts={prompts}
             status={promptsStatus}
             error={promptsError}
-            model={promptsModel}
             onUpdate={updatePrompt}
             onRemove={removePrompt}
             onAdd={addPrompt}
