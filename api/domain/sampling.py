@@ -12,7 +12,9 @@ from uuid import NAMESPACE_URL, uuid5
 
 
 SAMPLING_CONFIG_VERSION = "N-sampling-1.0.0"
-SAMPLES_PER_CELL = 5
+# One sample per (question x provider) cell: each question is asked each engine
+# exactly once. Total engine calls per scan = questions x providers.
+SAMPLES_PER_CELL = 1
 SAMPLING_TEMPERATURE = Decimal("0.700")
 SAMPLING_TOP_P = Decimal("1.000")
 SEED_MODULUS = 2**31

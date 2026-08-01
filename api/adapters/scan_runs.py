@@ -38,6 +38,7 @@ from api.domain.avs import (
     normalized_aliases,
 )
 from api.domain.scan_runs import (
+    SAMPLES_PER_CELL,
     ManifestEntry,
     build_scan_run_plan,
     normalize_latency_class,
@@ -139,7 +140,7 @@ def create_or_replay_scan_run(
             db,
             existing_run,
             providers=normalized_providers,
-            samples_per_cell=5,
+            samples_per_cell=SAMPLES_PER_CELL,
             question_count=_manifest_count(db, source_scan_id, client_id=client_id),
             total_calls=_progress_total_calls(db, source_scan_id),
             manifest_hash=None,

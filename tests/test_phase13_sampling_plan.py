@@ -36,7 +36,7 @@ IDEMPOTENCY_KEY = "11111111-1111-4111-8111-111111111111"
 METHODOLOGY_VERSION = "AVS-1.0.0+N-sampling-1.0.0+classifier-1.0.0"
 
 
-def test_phase_13_6_acceptance_prepares_deterministic_n5_sample_plan():
+def test_phase_13_6_acceptance_prepares_deterministic_single_sample_plan():
     engine, Session = _sessionmaker()
     session = Session()
     try:
@@ -50,10 +50,10 @@ def test_phase_13_6_acceptance_prepares_deterministic_n5_sample_plan():
         assert result.question_count == 50
         assert result.provider_count == 2
         assert result.samples_per_cell == SAMPLES_PER_CELL
-        assert result.planned_sample_count == 500
-        assert result.inserted_sample_count == 500
+        assert result.planned_sample_count == 100  # 50 questions x 2 providers x 1 sample
+        assert result.inserted_sample_count == 100
         assert replay.inserted_sample_count == 0
-        assert session.query(ExecutionSample).count() == 500
+        assert session.query(ExecutionSample).count() == 100
         assert session.query(ScanStep).filter_by(step_id="prepare_question_plan", event="succeeded").count() == 1
         assert [event.action for event in session.query(AuditEvent).all()] == [
             "scan_run.sample_plan_prepared"
@@ -112,12 +112,12 @@ def test_phase_13_6_acceptance_prepares_deterministic_n5_sample_plan():
                 provider="openai",
             )
         }
-        assert sample_indexes == {0, 1, 2, 3, 4}
+        assert sample_indexes == {0}
 
         progress = session.query(ScanProgress).one()
         assert progress.stage == "sample_plan_prepared"
-        assert progress.total_calls == 500
-        assert progress.per_provider["openai"]["planned"] == 250
+        assert progress.total_calls == 100
+        assert progress.per_provider["openai"]["planned"] == 50
         assert progress.per_provider["openai"]["last_status"] == "sample_plan_prepared"
         assert "gemini" not in progress.per_provider
     finally:
@@ -205,7 +205,7 @@ def _seed_scan_with_manifest(session) -> None:
             scan_run_id=SCAN_RUN_ID,
             status="running",
             stage="preparing_question_plan",
-            total_calls=500,
+            total_calls=100,
             completed_calls=0,
             failed_calls=0,
             per_provider={
