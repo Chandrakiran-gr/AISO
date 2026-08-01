@@ -18,7 +18,6 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
-from api.client_context_service import build_context_profile
 from api.crawler.artifacts import build_crawl_artifacts
 from api.crawler.models import (
     CrawlBusinessProfile,
@@ -112,6 +111,36 @@ def _build_description(profile: dict[str, Any]) -> str | None:
             if isinstance(item, dict) and item.get("name"):
                 return str(item["name"])
     return None
+
+
+def _baseline_crawl_profile(client: Client, workspace: OnboardingWorkspace) -> dict[str, Any]:
+    """Minimal profile scaffold for crawl artifacts and the review row.
+
+    The lean onboarding flow drafts the real business fields with an LLM
+    (``/draft-fields``) from crawled homepage/about copy, so the crawler no
+    longer runs regex slot extraction. Downstream code still indexes these keys,
+    so keep the shape but leave the slots empty.
+    """
+    return {
+        "business": {
+            "name": client.name,
+            "website_url": workspace.website_url,
+            "confidence": 0.5,
+        },
+        "categories": [],
+        "offerings": [],
+        "product_brands": [],
+        "competitors": [],
+        "locations": {
+            "physical_locations": [],
+            "service_areas": [],
+            "visibility_markets": [],
+        },
+        "goals": [],
+        "personas": [],
+        "differentiators": [],
+        "guardrails": [],
+    }
 
 
 def _important_pages(evidence: dict[str, Any]) -> list[dict[str, Any]]:
@@ -489,8 +518,8 @@ def run_crawl_job(
                     )
                 )
 
-        profile, profile_warnings, context_status = build_context_profile(client, evidence)
-        warnings = list(dict.fromkeys([*warnings, *profile_warnings]))
+        profile = _baseline_crawl_profile(client, workspace)
+        context_status = "draft"
         _persist_phase12_crawl_artifacts(
             db,
             client_id=client.id,

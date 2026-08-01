@@ -191,7 +191,10 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
         run_crawl_job(job_id, fetch_page=fetcher)
         artifact = self._artifact_for_client(client_id)
 
-        self.assertEqual(artifact["auto_extracted"]["brand_name"], "AcmeAI")
+        # brand_name now mirrors the user-confirmed client name rather than a
+        # JSON-LD guess (regex slot extraction was removed); structured-data
+        # signals below still come straight from the crawled JSON-LD.
+        self.assertEqual(artifact["auto_extracted"]["brand_name"], "Fixture Company")
         self.assertIn("AI Search Monitoring", artifact["auto_extracted"]["product_service_taxonomy"])
         self.assertEqual(artifact["auto_extracted"]["pricing_tiers"][0]["price"], "499")
         self.assertIn(f"{SEED_URL}/pricing", artifact["tier1"]["attempted_urls"])
@@ -286,7 +289,8 @@ class Phase12CrawlerAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(artifact["playwright_invocations"], 1)
         self.assertTrue(artifact["rendered_dom"])
-        self.assertEqual(artifact["auto_extracted"]["brand_name"], "VectorCRM")
+        # brand_name mirrors the user-confirmed client name (extraction removed).
+        self.assertEqual(artifact["auto_extracted"]["brand_name"], "Fixture Company")
         self.assertTrue(artifact["pages"][0]["rendered_dom"])
 
     def test_deadline_fixture_persists_partial_artifact_without_failing_job(self):

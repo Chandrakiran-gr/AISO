@@ -6,16 +6,14 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from api.auth import get_current_user_id
-from api.client_context_service import build_context_profile
-from api.database import Client, ClientContext, SessionLocal, get_db
+from api.database import Client, ClientContext, get_db
 from api.scan_capabilities import profile_competitor_names
 from api.scan_objectives import ScanObjectiveValidationError, normalize_scan_objective
-from api.website_ingestion import IngestionConfig, URLSafetyError, discover_website
 
 router = APIRouter(tags=["client-context"])
 
@@ -100,45 +98,6 @@ def _get_or_create_context(db: Session, client_id: str) -> ClientContext:
     return context
 
 
-def _save_context_failure(db: Session, context: ClientContext, warnings: list[str]) -> None:
-    context.status = "failed"
-    context.profile_json = None
-    context.evidence_json = None
-    context.warnings_json = warnings
-    context.updated_at = datetime.now(timezone.utc)
-    db.commit()
-
-
-def _run_context_discovery(client_id: str) -> None:
-    """Run website discovery outside the request/response path."""
-    db = SessionLocal()
-    try:
-        client = db.query(Client).filter(Client.id == client_id).first()
-        context = db.query(ClientContext).filter(ClientContext.client_id == client_id).first()
-        if not client or not context:
-            return
-
-        try:
-            evidence = discover_website(client.url, config=IngestionConfig())
-            profile, warnings, next_status = build_context_profile(client, evidence)
-            context.status = next_status
-            context.profile_json = profile
-            context.evidence_json = evidence
-            context.warnings_json = warnings
-            context.updated_at = datetime.now(timezone.utc)
-            db.commit()
-        except URLSafetyError as exc:
-            _save_context_failure(db, context, [str(exc)])
-        except Exception:
-            _save_context_failure(
-                db,
-                context,
-                ["Website discovery failed safely. Please confirm the client context manually."],
-            )
-    finally:
-        db.close()
-
-
 @router.get("/clients/{client_id}/context", response_model=ClientContextResponse)
 async def get_client_context(
     client_id: str,
@@ -146,7 +105,7 @@ async def get_client_context(
     user_id: str = Depends(get_current_user_id),
 ):
     """Return the current draft/confirmed context for a client."""
-    client = _ensure_client(db, client_id, user_id)
+    _ensure_client(db, client_id, user_id)
     context = db.query(ClientContext).filter(ClientContext.client_id == client_id).first()
     if not context:
         now = datetime.now(timezone.utc)
@@ -159,29 +118,6 @@ async def get_client_context(
             created_at=now,
             updated_at=now,
         )
-    return _serialize_context(context)
-
-
-@router.post(
-    "/clients/{client_id}/context/discover",
-    response_model=ClientContextResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def discover_client_context(
-    client_id: str,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    user_id: str = Depends(get_current_user_id),
-):
-    """Schedule public website discovery and return immediately for polling."""
-    client = _ensure_client(db, client_id, user_id)
-    context = _get_or_create_context(db, client_id)
-    context.status = "discovering"
-    context.warnings_json = ["Website discovery is running. AISO is reading public pages only."]
-    context.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(context)
-    background_tasks.add_task(_run_context_discovery, client_id)
     return _serialize_context(context)
 
 

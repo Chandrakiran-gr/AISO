@@ -704,8 +704,12 @@ class CrawlerAPITests(unittest.TestCase):
             context = db.query(ClientContext).filter(ClientContext.client_id == "test-client-1").first()
             self.assertGreaterEqual(len(pages), 2)
             self.assertIsNotNone(profile)
-            self.assertEqual(profile.company_name, "Example Clinic")
-            self.assertIn("Cloud migration audit", profile.services or "")
+            # The crawler no longer runs regex slot extraction: the review row is
+            # seeded from the client and its slot fields stay empty. The lean flow
+            # fills the real business fields from the LLM draft (/draft-fields).
+            self.assertEqual(profile.company_name, "Test Company")
+            self.assertFalse(profile.services)
+            self.assertFalse(profile.products)
             self.assertGreater(len(evidence), 0)
             self.assertIsNotNone(context)
             self.assertIn(context.status, {"draft", "needs_review"})

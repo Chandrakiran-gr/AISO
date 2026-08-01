@@ -34,7 +34,6 @@ from api.adapters.realism_filter import (
     heuristic_realism_filter_provider,
     managed_realism_filter_provider,
 )
-from api.adapters.prompt_registry import ensure_prompt_version
 from api.auth import get_current_user_id
 from api.database import BusinessProfile, Client, User, get_db
 from api.entitlements import uses_managed_keys_for_user
@@ -54,13 +53,6 @@ from api.domain.onboarding import (
     profile_data_from_snapshot,
 )
 from api.domain.ports import BusinessProfileSnapshot, UpstreamLLMProvider, UpstreamScanExecutor
-from api.domain.profile_draft import (
-    PROFILE_DRAFT_PROMPT_KEY,
-    PROFILE_DRAFT_PROMPT_VERSION,
-    generate_profile_draft,
-    profile_draft_artifact,
-    render_profile_draft_prompt,
-)
 from api.domain.question_generation import COMPETITOR_BRAND_FRAMES, QUESTION_GENERATION_PROMPT_VERSION
 from api.domain.question_scorer import QUESTION_SCORER_PROMPT_VERSION
 from api.domain.question_selection import (
@@ -161,16 +153,6 @@ class OnboardingSubmitResponse(BaseModel):
     floor_met: bool
     missing_fields: list[str] = Field(default_factory=list)
     onboarding_completed_at: datetime
-
-
-class ProfileDraftResponse(BusinessProfileResponse):
-    field_sources: dict[str, str] = Field(default_factory=dict)
-    field_flags: dict[str, str] = Field(default_factory=dict)
-    rationale: dict[str, str] = Field(default_factory=dict)
-    prompt_version: str
-    prompt_hash: str
-    provider: str
-    model: str
 
 
 class ConfirmProfileRequest(OnboardingPatchRequest):
@@ -393,12 +375,6 @@ def _profile_response(profile: BusinessProfile) -> BusinessProfileResponse:
     )
 
 
-def _profile_draft_meta(profile: BusinessProfile) -> dict[str, Any]:
-    artifacts = _dict_or_empty(profile.crawl_artifacts)
-    draft = artifacts.get("profile_draft") if isinstance(artifacts.get("profile_draft"), dict) else {}
-    return draft
-
-
 def _apply_profile_data(profile: BusinessProfile, data: dict[str, Any]) -> None:
     profile.vertical = data["vertical"]
     profile.objective = data["objective"]
@@ -463,29 +439,6 @@ def _profile_for_user(db: Session, onboarding_id: str, user_id: str) -> Business
     if not profile:
         raise HTTPException(status_code=404, detail="Onboarding profile not found")
     return profile
-
-
-def _profile_draft_response(
-    profile: BusinessProfile,
-    *,
-    prompt_hash: str,
-    provider: str,
-    model: str,
-) -> ProfileDraftResponse:
-    base = _profile_response(profile)
-    meta = _profile_draft_meta(profile)
-    field_sources = _dict_or_empty(meta.get("field_sources"))
-    rationale = _dict_or_empty(meta.get("rationale"))
-    return ProfileDraftResponse(
-        **base.model_dump(),
-        field_sources=field_sources,
-        field_flags=field_sources,
-        rationale={str(key): str(value) for key, value in rationale.items()},
-        prompt_version=str(meta.get("prompt_version") or PROFILE_DRAFT_PROMPT_VERSION),
-        prompt_hash=prompt_hash,
-        provider=provider,
-        model=model,
-    )
 
 
 def _onboarding_provider_for_user(db, user_id, *, managed, heuristic) -> UpstreamLLMProvider:
@@ -720,53 +673,6 @@ async def patch_onboarding(
     db.commit()
     db.refresh(profile)
     return _profile_response(profile)
-
-
-@router.post("/onboarding/{onboarding_id}/draft-profile", response_model=ProfileDraftResponse)
-async def draft_business_profile(
-    onboarding_id: str,
-    db: Session = Depends(get_db),
-    user_id: str = Depends(get_current_user_id),
-    provider: UpstreamLLMProvider = Depends(get_profile_draft_provider),
-):
-    """Generate a customer-confirmable profile draft from crawl artifacts."""
-    profile = _profile_for_user(db, onboarding_id, user_id)
-    snapshot = _profile_snapshot(profile)
-    if not snapshot.crawl_artifacts:
-        raise HTTPException(status_code=409, detail="Crawl artifacts are required before profile drafting")
-
-    prompt_text = render_profile_draft_prompt(snapshot)
-    provider_name = str(getattr(provider, "provider", "llm"))
-    model_name = str(getattr(provider, "model", "unknown"))
-    prompt_row = ensure_prompt_version(
-        db,
-        prompt_key=PROFILE_DRAFT_PROMPT_KEY,
-        version=PROFILE_DRAFT_PROMPT_VERSION,
-        prompt_text=prompt_text,
-        provider=provider_name,
-        model=model_name,
-    )
-    result = generate_profile_draft(
-        snapshot,
-        provider,
-        idempotency_key=f"profile-draft:{profile.client_id}:{prompt_row.prompt_hash}",
-    )
-    data = dict(result.profile_data)
-    artifacts = dict(_dict_or_empty(data.get("crawl_artifacts")))
-    artifacts["profile_draft"] = profile_draft_artifact(
-        result=result,
-        prompt_version_id=prompt_row.id,
-    )
-    data["crawl_artifacts"] = artifacts
-    _apply_profile_data(profile, data)
-    db.commit()
-    db.refresh(profile)
-    return _profile_draft_response(
-        profile,
-        prompt_hash=prompt_row.prompt_hash,
-        provider=result.provider_response.provider,
-        model=result.provider_response.model,
-    )
 
 
 @router.post("/onboarding/{onboarding_id}/confirm-profile", response_model=OnboardingSubmitResponse)
