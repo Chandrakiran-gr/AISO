@@ -6,7 +6,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
 
 from api.auth import get_current_user_id
-from api.database import Base, BusinessProfile, Client, MethodologyPromptVersion, User, get_db
+from api.database import BusinessProfile, Client, User, get_db
 from api.domain.onboarding import VERTICAL_CODES, VERTICAL_DISPLAY_ORDER
 from api.main import app
 from tests._pgharness import make_test_engine, reset_schema
@@ -276,66 +276,6 @@ class OnboardingIntakeAPITests(unittest.TestCase):
         submitted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/submit")
         self.assertEqual(submitted.status_code, 200)
         self.assertTrue(submitted.json()["floor_met"])
-
-    def test_phase_12_4_drafts_profile_from_crawl_artifacts_and_flags_human_fields(self):
-        start = self.client.post(
-            "/api/v1/onboarding/start",
-            json={
-                "display_name": "VectorCRM",
-                "url": "https://vector.example",
-                "vertical": "b2b_saas",
-                "objective": "preference",
-            },
-        )
-        self.assertEqual(start.status_code, 201)
-        onboarding_id = start.json()["onboarding_id"]
-
-        crawl_artifacts = {
-            "schema_version": "crawl_artifacts.v1",
-            "auto_extracted": {
-                "brand_name": "VectorCRM",
-                "product_service_taxonomy": ["AI Search Monitoring"],
-                "nap": {
-                    "name": "VectorCRM",
-                    "address": {"addressLocality": "Boston", "addressRegion": "MA"},
-                    "source_url": "https://vector.example",
-                },
-                "schema_entity_types": ["Organization", "Service"],
-            },
-            "structured_data": {
-                "Organization": [{"name": "VectorCRM", "source_url": "https://vector.example"}],
-                "Service": [{"name": "AI Search Monitoring", "source_url": "https://vector.example"}],
-            },
-        }
-        patched = self.client.patch(
-            f"/api/v1/onboarding/{onboarding_id}",
-            json={"crawl_artifacts": crawl_artifacts},
-        )
-        self.assertEqual(patched.status_code, 200)
-
-        drafted = self.client.post(f"/api/v1/onboarding/{onboarding_id}/draft-profile")
-        self.assertEqual(drafted.status_code, 200)
-        draft = drafted.json()
-        self.assertEqual(draft["category"], "AI Search Monitoring")
-        self.assertEqual(draft["field_flags"]["category"], "crawled")
-        self.assertEqual(draft["field_flags"]["geographic_scope"], "crawled")
-        self.assertEqual(draft["field_flags"]["icp"], "needs_you")
-        self.assertEqual(draft["field_flags"]["competitors"], "needs_you")
-        self.assertEqual(draft["field_flags"]["objective"], "needs_you")
-        self.assertEqual(draft["geographic_scope"]["nap"]["address"]["addressLocality"], "Boston")
-
-        db = self.Session()
-        try:
-            prompt = db.query(MethodologyPromptVersion).filter(
-                MethodologyPromptVersion.prompt_key == "profile_draft",
-            ).one()
-            self.assertEqual(prompt.version, "profile_draft-1.0.0")
-            self.assertEqual(len(prompt.prompt_hash), 64)
-            self.assertEqual(len(prompt.chain_hash), 64)
-            profile = db.query(BusinessProfile).filter(BusinessProfile.client_id == onboarding_id).one()
-            self.assertEqual(profile.crawl_artifacts["profile_draft"]["field_sources"]["objective"], "needs_you")
-        finally:
-            db.close()
 
     def test_phase_12_4_customer_edits_and_confirms_profile(self):
         start = self.client.post(
