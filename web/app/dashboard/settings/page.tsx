@@ -199,7 +199,7 @@ function DeleteAccountSection() {
     setDeleting(true);
     setError(null);
     try {
-      const res = await fetch("/api/proxy/auth/delete-account", {
+      const res = await fetch("/api/proxy/v1/auth/delete-account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirmation: phrase.trim() }),
