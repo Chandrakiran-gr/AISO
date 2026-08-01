@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 import { setKey, getKey, getAllKeys, hadKeyPreviousSession, clearKey, type Provider } from "@/lib/byok";
 import { INTENT_GROUPS } from "@/lib/intent-groups";
-import OptimizationObjectiveSelector from "@/components/OptimizationObjectiveSelector";
 import { useEntitlements } from "@/lib/useEntitlements";
 
 const PROVIDERS: { id: Provider; name: string; color: string }[] = [
@@ -77,20 +76,6 @@ type VerticalOption = {
   label: string;
   description: string;
   example?: string | null;
-};
-
-const SELECT_FIELD_HINTS: Record<string, string> = {
-  employee_band: "Choose the company-size band that best matches the customers you want AISO to model.",
-  revenue_band: "Choose the revenue band for the customers you most want to win, not necessarily every customer you could serve.",
-  acv_band: "Choose the approximate yearly value of a typical customer relationship.",
-  engagement_size_band: "Choose the typical project, program, retainer, or coaching engagement size.",
-  price_tier_band: "Choose how customers usually perceive your product pricing.",
-  price_tier: "Choose your broad customer-facing price position.",
-  client_roster_size: "Choose the approximate number of active clients or accounts this profile represents.",
-  aiso_use_case: "Choose whether this profile represents your own business, client work, or both.",
-  deployment_model: "Choose the delivery model customers evaluate when asking AI tools about fit, risk, and adoption.",
-  buying_committee_size: "Choose the number of people commonly involved in a purchase decision.",
-  sales_cycle_length_band: "Choose the typical time from serious evaluation to purchase or contract signature.",
 };
 
 interface FormState {
@@ -249,17 +234,6 @@ type ClientContextData = {
   warnings_json: string[];
 };
 
-type PipelineProfileDraft = {
-  category: string;
-  icp: Record<string, unknown>;
-  geographic_scope: Record<string, unknown>;
-  competitors: string[];
-  personas: Record<string, unknown>;
-  field_flags: Record<string, string>;
-  field_sources: Record<string, string>;
-  rationale: Record<string, string>;
-};
-
 type CrawlJobData = {
   job_id: string;
   status: string;
@@ -269,36 +243,6 @@ type CrawlJobData = {
   pages_failed: number;
   warnings: string[];
   error_message?: string | null;
-};
-
-type ReviewBusinessProfile = {
-  profile_id: string;
-  company_name: string | null;
-  description: string | null;
-  website: string | null;
-  domain: string | null;
-  industry: string | null;
-  products: string[];
-  services: string[];
-  locations: string[];
-  contacts: Record<string, unknown>;
-  social_links: string[];
-  important_pages: unknown[];
-  missing_fields: string[];
-  confidence_score: number | null;
-  profile_status: string;
-  approved_at: string | null;
-};
-
-type ReviewBundle = {
-  workspace_id: string;
-  workspace_status: string;
-  client_slug: string | null;
-  client_name: string | null;
-  profile: ReviewBusinessProfile | null;
-  pages: { url: string; title?: string | null; page_type?: string | null; status: string }[];
-  evidence: { field_name: string; field_value?: string | null; source_url: string; confidence?: number | null }[];
-  job: CrawlJobData | null;
 };
 
 type ActionStatus = "idle" | "loading" | "error";
@@ -451,23 +395,12 @@ function legacyFormFromIntake(form: FormState, schema: IntakeSchema | null): For
   };
 }
 
-function validateIntake(form: FormState, schema: IntakeSchema | null): string[] {
-  if (!form.vertical.trim()) return ["Choose your business type."];
-  if (!schema) return ["Intake schema is still loading."];
-
-  const missing: string[] = [];
-  for (const field of schema.fields) {
-    if (!field.required) continue;
-    const raw = fieldValue(form, field.id);
-    const values = field.type === "list" ? splitListValue(raw) : [raw.trim()].filter(Boolean);
-    const minItems = field.validators?.min_items;
-    if (minItems && values.length < minItems) {
-      missing.push(`${field.label} needs at least ${minItems}`);
-    } else if (!minItems && values.length === 0) {
-      missing.push(field.label);
-    }
-  }
-  return missing;
+function validateIntake(_form: FormState, schema: IntakeSchema | null): string[] {
+  if (!_form.vertical.trim()) return ["Choose your business type."];
+  if (!schema) return ["Business type details are still loading."];
+  // Intake fields are optional now: AISO drafts your business details from the
+  // site after the crawl and you confirm them, so name + URL + type is enough.
+  return [];
 }
 
 function buildIntakePatch(form: FormState, schema: IntakeSchema): Record<string, unknown> {
@@ -527,11 +460,6 @@ function objectiveSummary(scanObjective?: ScanObjective): string {
   return "No template selected";
 }
 
-function hasScanObjective(scanObjective?: ScanObjective): boolean {
-  return selectedObjectiveIds(scanObjective).length > 0
-    || (scanObjective?.custom_objective ?? scanObjective?.custom ?? "").trim().length > 0;
-}
-
 function businessTypeOption(id: string, options: VerticalOption[]) {
   return options.find((option) => option.id === id);
 }
@@ -540,25 +468,12 @@ function pipelineObjectiveOption(id: string) {
   return PIPELINE_OBJECTIVES.find((option) => option.id === id);
 }
 
-function selectFieldHint(field: IntakeField, value: string): string | null {
-  if (field.type !== "select") return null;
-  const base = SELECT_FIELD_HINTS[field.id];
-  if (!value) return base ?? "Choose the closest option. AISO uses this to route question generation and scoring.";
-  return base ? `${base} Selected: ${value}.` : `Selected: ${value}.`;
-}
-
 function compactHelp(...parts: Array<string | null | undefined>): string {
   return parts.map((part) => part?.trim()).filter(Boolean).join(" ");
 }
 
 function optionHelp(title: string | undefined, body: string | null | undefined, example?: string | null): string {
   return compactHelp(title ? `${title}:` : null, body, example);
-}
-
-function fieldCueText(field: IntakeField, value: string): string | null {
-  const base = field.hint ?? selectFieldHint(field, value);
-  const listHelp = field.type === "list" ? "Separate items with commas or line breaks." : null;
-  return compactHelp(base, listHelp) || null;
 }
 
 function InfoCue({ id, text }: { id: string; text: string }) {
@@ -589,21 +504,6 @@ function normalizedScanObjective(scanObjective?: ScanObjective): ScanObjective {
     selectedObjectiveIds(scanObjective),
     scanObjective?.custom_objective ?? scanObjective?.custom ?? "",
   );
-}
-
-function blankBuyerContext(): BuyerContext {
-  return {
-    label: "",
-    audience_type: "Target customer",
-    problem: "",
-    desired_outcome: "",
-    trigger_event: "",
-    constraints: "",
-    decision_criteria: "",
-    priority: "medium",
-    source_url: "manual_onboarding",
-    confidence: 0.9,
-  };
 }
 
 function buyerContextIsUsable(context: BuyerContext): boolean {
@@ -716,80 +616,6 @@ function normalizeContextItems(items: ContextItem[] | undefined): ContextItem[] 
 
 function normalizeGuardrails(guardrails: string[] | undefined): string[] {
   return Array.from(new Set((guardrails ?? []).map(normalizeTextValue).filter(Boolean)));
-}
-
-function itemLines(items: ContextItem[]): string {
-  return items.map((item) => item.name).join("\n");
-}
-
-function contextRows(items: ContextItem[]): number {
-  const lineCount = Math.max(1, items.length);
-  const wrappedRows = items.reduce((total, item) => total + Math.ceil(Math.max(item.name.length, 1) / 84), 0);
-  return Math.max(3, Math.min(10, lineCount + wrappedRows));
-}
-
-function linesToItems(raw: string, type: string, extra: Partial<ContextItem> = {}): ContextItem[] {
-  return raw
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((name) => manualItem(name, type, extra));
-}
-
-function sourceLabel(source?: string): string {
-  if (!source) return "No source";
-  if (source === "manual_onboarding" || source === "fallback") return "Manual entry";
-  try {
-    const url = new URL(source);
-    return url.hostname.replace(/^www\./, "");
-  } catch {
-    return source;
-  }
-}
-
-function evidenceLabels(items: ContextItem[]): string[] {
-  if (items.length === 0) return [];
-
-  const domains = Array.from(
-    new Set(
-      items
-        .map((item) => item.source_url)
-        .filter((source): source is string => Boolean(source) && source !== "manual_onboarding" && source !== "fallback")
-        .map(sourceLabel),
-    ),
-  ).slice(0, 2);
-  const manualCount = items.filter((item) => item.source_url === "manual_onboarding" || !item.source_url).length;
-  const confidenceValues = items
-    .map((item) => item.confidence)
-    .filter((confidence): confidence is number => typeof confidence === "number");
-  const averageConfidence = confidenceValues.length
-    ? Math.round((confidenceValues.reduce((total, confidence) => total + confidence, 0) / confidenceValues.length) * 100)
-    : null;
-
-  const labels: string[] = [];
-  if (domains.length > 0) labels.push(`Website evidence: ${domains.join(", ")}`);
-  if (manualCount > 0) labels.push(`${manualCount} manual entr${manualCount === 1 ? "y" : "ies"}`);
-  if (averageConfidence !== null) labels.push(`Avg confidence: ${averageConfidence}%`);
-  return labels;
-}
-
-function flagLabel(flag?: string): string {
-  if (flag === "crawled") return "Crawled";
-  if (flag === "guessed") return "Guessed";
-  if (flag === "required") return "Required";
-  return "";
-}
-
-function flagClass(flag?: string): string {
-  if (flag === "crawled") return styles.flagCrawled;
-  if (flag === "guessed") return styles.flagGuessed;
-  if (flag === "required") return styles.flagRequired;
-  return "";
-}
-
-function visibleFlag(flag: string | undefined, options: { required?: boolean; hasValue?: boolean } = {}): string | undefined {
-  if (options.required && !options.hasValue) return "required";
-  if (flag === "crawled" || flag === "guessed") return flag;
-  return undefined;
 }
 
 function contextMatchesForm(context: ClientContextData | null, form: FormState, clientId: string): boolean {
@@ -922,107 +748,6 @@ async function getCrawlJob(jobId: string): Promise<CrawlJobData> {
   return res.json();
 }
 
-async function getReviewBundle(workspaceId: string): Promise<ReviewBundle> {
-  const res = await fetch(`${API}/v1/onboarding-workspaces/${workspaceId}/review`, { cache: "no-store" });
-  if (!res.ok) throw new Error(await readApiError(res, `Failed to load review bundle (${res.status})`));
-  return res.json();
-}
-
-async function draftPipelineProfile(clientId: string): Promise<PipelineProfileDraft> {
-  const res = await fetch(`${API}/v1/onboarding/${clientId}/draft-profile`, { method: "POST" });
-  if (!res.ok) throw new Error(await readApiError(res, `Failed to draft business profile (${res.status})`));
-  return res.json();
-}
-
-function applyPipelineDraftToContext(
-  base: ContextProfile,
-  draft: PipelineProfileDraft,
-  form: FormState,
-): ContextProfile {
-  const category = draft.category?.trim();
-  const categories = category ? [manualItem(category, "category", { source_url: form.websiteUrl, confidence: 0.78 })] : base.categories;
-  const competitors = draft.competitors?.length
-    ? draft.competitors.map((name) => manualItem(name, "competitor_business", { source_url: "manual_onboarding" }))
-    : base.competitors;
-  const nap = draft.geographic_scope?.nap;
-  const napName = formatNap(nap);
-  const physicalLocations = napName
-    ? [manualItem(napName, "physical_location", { source_url: form.websiteUrl, confidence: 0.78 })]
-    : base.locations.physical_locations;
-
-  return normalizedProfile({
-    ...base,
-    categories,
-    competitors,
-    locations: {
-      ...base.locations,
-      physical_locations: physicalLocations,
-    },
-  });
-}
-
-function formatNap(value: unknown): string {
-  if (typeof value !== "object" || value === null) return "";
-  const nap = value as { name?: unknown; telephone?: unknown; address?: Record<string, unknown> };
-  const address = typeof nap.address === "object" && nap.address !== null ? nap.address : {};
-  return [
-    typeof nap.name === "string" ? nap.name : "",
-    [
-      address.streetAddress,
-      address.addressLocality,
-      address.addressRegion,
-      address.postalCode,
-    ].filter((part): part is string => typeof part === "string" && part.trim().length > 0).join(", "),
-    typeof nap.telephone === "string" ? nap.telephone : "",
-  ].filter(Boolean).join(" | ");
-}
-
-function reviewProfileToContext(review: ReviewBundle, clientId: string, form: FormState): ClientContextData {
-  const profile = review.profile;
-  const confidence = profile?.confidence_score ?? 0.72;
-  const website = profile?.website || form.websiteUrl;
-  const locations = (profile?.locations ?? []).map((name) => manualItem(name, "physical_location", {
-    confidence,
-    source_url: website,
-  }));
-  const converted: ContextProfile = normalizedProfile({
-    ...emptyProfile(form),
-    business: {
-      name: profile?.company_name || form.businessName,
-      type: "business",
-      confidence,
-      source_url: website,
-      website_url: website,
-    },
-    categories: profile?.industry ? [manualItem(profile.industry, "category", { confidence, source_url: website })] : emptyProfile(form).categories,
-    offerings: (profile?.services ?? []).map((name) => manualItem(name, "offering", {
-      confidence,
-      source_url: website,
-      bookable: true,
-    })),
-    product_brands: (profile?.products ?? []).map((name) => manualItem(name, "product_brand", {
-      confidence,
-      source_url: website,
-    })),
-    competitors: parseCompetitors(form.competitors).map((name) => manualItem(name, "competitor_business")),
-    locations: {
-      ...emptyProfile(form).locations,
-      physical_locations: locations,
-    },
-  });
-  return {
-    client_id: clientId,
-    status: review.job?.status === "failed" ? "failed" : "draft",
-    profile_json: converted,
-    evidence_json: {
-      page_count: review.pages.length || review.job?.pages_crawled || review.job?.pages_discovered || 0,
-      pages: review.pages,
-      warnings: [...(review.job?.warnings ?? []), ...(profile?.missing_fields ?? [])],
-    },
-    warnings_json: [...(review.job?.warnings ?? []), ...(profile?.missing_fields ?? [])],
-  };
-}
-
 async function editCrawlerBusinessProfile(workspaceId: string, profile: ContextProfile): Promise<void> {
   const locations = [
     ...profile.locations.physical_locations,
@@ -1094,6 +819,31 @@ async function generatePrompts(
     branded: tag(data.branded, "branded"),
     category: tag(data.category, "category"),
     model: typeof data.model === "string" ? data.model : "",
+  };
+}
+
+interface DraftedFields {
+  description: string;
+  industry: string;
+  audiences: string[];
+  competitors: string[];
+}
+
+async function draftFields(clientId: string, variation = 0): Promise<DraftedFields & { provider: string; model: string }> {
+  const res = await fetch(`${API}/v1/onboarding/${clientId}/draft-fields`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ variation }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to draft business fields (${res.status})`));
+  const d = await res.json();
+  return {
+    description: typeof d.description === "string" ? d.description : "",
+    industry: typeof d.industry === "string" ? d.industry : "",
+    audiences: Array.isArray(d.audiences) ? d.audiences.map(String) : [],
+    competitors: Array.isArray(d.competitors) ? d.competitors.map(String) : [],
+    provider: typeof d.provider === "string" ? d.provider : "",
+    model: typeof d.model === "string" ? d.model : "",
   };
 }
 
@@ -1204,19 +954,9 @@ function Step1({
   const objectiveHelp = selectedObjective
     ? optionHelp(selectedObjective.label, selectedObjective.help)
     : "This changes the mix of awareness, comparison, preference, reputation, and competitor questions AISO prioritizes.";
-  function updateIntake(field: IntakeField, value: string) {
-    const intake = { ...form.intake, [field.id]: value };
-    let nextForm = { ...form, intake };
-    if (field.patch_field === "category") nextForm = { ...nextForm, industry: value };
-    if (field.patch_field === "competitors") nextForm = { ...nextForm, competitors: value };
-    if (field.patch_field.includes("geographic") || field.id.includes("radius")) {
-      nextForm = { ...nextForm, location: value };
-    }
-    set(nextForm);
-  }
   return (
     <form onSubmit={(e) => { e.preventDefault(); if (valid && status !== "loading") onNext(); }}>
-      <span className={styles.stepBadge}>Step 1 of 4 · Business basics</span>
+      <span className={styles.stepBadge}>Step 1 of 5 · Business basics</span>
       <h2 className={styles.stepTitle}>Tell AISO which business to analyze</h2>
       <p className={styles.stepSubtitle}>
         Choose a vertical and complete the required context before AISO builds the question bank.
@@ -1292,66 +1032,6 @@ function Step1({
             </select>
           </div>
         </div>
-        <section className={styles.intakePanel} aria-labelledby="ob-intake-heading">
-          <div className={styles.intakeHeader}>
-            <div>
-              <h3 id="ob-intake-heading">{schema?.label ?? "Vertical intake"}</h3>
-              <p>{schema?.description ?? "Loading the required intake fields for this vertical."}</p>
-            </div>
-            <span>{schemaStatus === "loading" ? "Loading" : `${schema?.fields.filter((field) => field.required).length ?? 0} required`}</span>
-          </div>
-          {schema && (
-            <div className={styles.intakeGrid}>
-              {schema.fields.map((field) => {
-                const value = fieldValue(form, field.id);
-                const controlId = `ob-intake-${field.id}`;
-                const cueText = fieldCueText(field, value);
-                return (
-                  <div key={field.id} className={styles.fieldGroup}>
-                    <div className={styles.labelRow}>
-                      <label className={styles.label} htmlFor={controlId}>{field.label}{field.required ? " *" : ""}</label>
-                      <span className={styles.labelTools}>
-                        {cueText && <InfoCue id={`${controlId}-tip`} text={cueText} />}
-                        {!field.required && <span className={styles.labelHint}>Optional</span>}
-                      </span>
-                    </div>
-                    {field.type === "textarea" || field.type === "list" ? (
-                      <textarea
-                        id={controlId}
-                        className={styles.contextTextarea}
-                        rows={field.type === "list" ? 3 : 4}
-                        placeholder={field.placeholder ?? ""}
-                        value={value}
-                        onChange={(e) => updateIntake(field, e.target.value)}
-                      />
-                    ) : field.type === "select" ? (
-                      <select
-                        id={controlId}
-                        className="input"
-                        value={value}
-                        onChange={(e) => updateIntake(field, e.target.value)}
-                      >
-                        <option value="">Select...</option>
-                        {field.options.map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        id={controlId}
-                        className="input"
-                        type="text"
-                        placeholder={field.placeholder ?? ""}
-                        value={value}
-                        onChange={(e) => updateIntake(field, e.target.value)}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
         {intakeIssues.length > 0 && form.businessName && form.websiteUrl && (
           <div className={styles.warningPanel}>
             <strong>Required before continuing</strong>
@@ -1362,7 +1042,7 @@ function Step1({
       <div className={styles.navRow}>
         <div />
         <button type="submit" className={styles.nextBtn} disabled={!valid || status === "loading"} id="ob-step1-next">
-          {status === "loading" ? "Saving..." : "Validate intake and read website"}
+          {status === "loading" ? "Saving..." : "Read my website"}
         </button>
       </div>
     </form>
@@ -1392,7 +1072,7 @@ function Step2({
   const readyToReview = Boolean(context?.profile_json) && !isRunning && status !== "failed";
   return (
     <div>
-      <span className={styles.stepBadge}>Step 2 of 4 · Website discovery</span>
+      <span className={styles.stepBadge}>Step 2 of 5 · Website discovery</span>
       <h2 className={styles.stepTitle}>Reading public website evidence</h2>
       <p className={styles.stepSubtitle}>
         AISO only reads public pages. It does not log in, submit forms, make bookings, or collect private customer data.
@@ -1439,381 +1119,136 @@ function Step2({
   );
 }
 
-function ContextSection({
-  title,
-  hint,
-  items,
-  type,
-  onChange,
-  extra,
-  flag,
-  required = false,
-}: {
-  title: string;
-  hint: string;
-  items: ContextItem[];
-  type: string;
-  onChange: (items: ContextItem[]) => void;
-  extra?: Partial<ContextItem>;
-  flag?: string;
-  required?: boolean;
-}) {
-  const renderedItems = itemLines(items);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isEditingRef = useRef(false);
-  const sectionFlag = visibleFlag(flag, { required, hasValue: items.length > 0 });
-
-  useEffect(() => {
-    if (!isEditingRef.current && textareaRef.current && textareaRef.current.value !== renderedItems) {
-      textareaRef.current.value = renderedItems;
-    }
-  }, [renderedItems]);
-
-  function handleChange(value: string) {
-    onChange(linesToItems(value, type, extra));
-  }
-
-  function handleBlur(value: string) {
-    isEditingRef.current = false;
-    const normalizedItems = normalizeContextItems(linesToItems(value, type, extra));
-    if (textareaRef.current) {
-      textareaRef.current.value = itemLines(normalizedItems);
-    }
-    onChange(normalizedItems);
-  }
-
-  return (
-    <section className={styles.contextSection}>
-      <div className={styles.contextSectionHeader}>
-        <div>
-          <h3>{title}</h3>
-          <p>{hint}</p>
-        </div>
-        <div className={styles.sectionMeta}>
-          {flagLabel(sectionFlag) && <span className={`${styles.sourceFlag} ${flagClass(sectionFlag)}`}>{flagLabel(sectionFlag)}</span>}
-          <span>{items.length}</span>
-        </div>
-      </div>
-      <textarea
-        ref={textareaRef}
-        className={styles.contextTextarea}
-        defaultValue={renderedItems}
-        onFocus={() => {
-          isEditingRef.current = true;
-        }}
-        onBlur={(event) => handleBlur(event.currentTarget.value)}
-        onChange={(event) => handleChange(event.target.value)}
-        rows={contextRows(items)}
-      />
-      {items.length > 0 && (
-        <div className={styles.sourceChips}>
-          {evidenceLabels(items).map((label) => (
-            <span key={label}>{label}</span>
-          ))}
-        </div>
-      )}
-    </section>
-  );
+function emptyDraftedFields(): DraftedFields {
+  return { description: "", industry: "", audiences: [], competitors: [] };
 }
 
-function BuyerContextSection({
-  contexts,
-  onChange,
-  flag,
-}: {
-  contexts: BuyerContext[];
-  onChange: (contexts: BuyerContext[]) => void;
-  flag?: string;
-}) {
-  const safeContexts = contexts;
-  const sectionFlag = visibleFlag(flag, { hasValue: safeContexts.length > 0 });
-  function update(index: number, patch: Partial<BuyerContext>) {
-    onChange(safeContexts.map((context, i) => (i === index ? { ...context, ...patch } : context)));
-  }
-  function remove(index: number) {
-    onChange(safeContexts.filter((_, i) => i !== index));
-  }
-  return (
-    <section className={`${styles.contextSection} ${styles.fullWidthSection}`}>
-      <div className={styles.contextSectionHeader}>
-        <div>
-          <h3>Target customers <em>Optional</em></h3>
-          <p>Add this only when you want AISO to test specific buyer needs, occasions, or constraints.</p>
-        </div>
-        <div className={styles.sectionMeta}>
-          {flagLabel(sectionFlag) && <span className={`${styles.sourceFlag} ${flagClass(sectionFlag)}`}>{flagLabel(sectionFlag)}</span>}
-          <span>{safeContexts.length}</span>
-        </div>
-      </div>
-      {safeContexts.length === 0 ? (
-        <div className={styles.optionalEmptyState}>
-          <strong>No target customers added</strong>
-          <span>AISO will still scan using the website, offerings, locations, competitors, and scan objective.</span>
-        </div>
-      ) : (
-        <div className={styles.buyerContextList}>
-          {safeContexts.map((context, index) => (
-            <div key={`${context.label}-${index}`} className={styles.buyerContextCard}>
-              <div className={styles.buyerContextTop}>
-                <input
-                  className={`input ${styles.compactInput}`}
-                  value={context.label}
-                  onChange={(event) => update(index, { label: event.target.value })}
-                  placeholder="Customer type, e.g. operations leader"
-                  aria-label="Buyer label"
-                />
-                <select
-                  className={`input ${styles.compactSelect}`}
-                  value={context.priority || "medium"}
-                  onChange={(event) => update(index, { priority: event.target.value })}
-                  aria-label="Buyer context priority"
-                >
-                  <option value="high">High priority</option>
-                  <option value="medium">Medium priority</option>
-                  <option value="low">Low priority</option>
-                </select>
-                <button type="button" className={styles.removeMiniBtn} onClick={() => remove(index)}>Remove</button>
-              </div>
-              <div className={styles.buyerContextGrid}>
-                <label className={styles.buyerField}>
-                  <span>Need or problem</span>
-                  <textarea
-                    className={styles.contextTextarea}
-                    value={context.problem ?? ""}
-                    onChange={(event) => update(index, { problem: event.target.value })}
-                    placeholder="What this customer is trying to solve"
-                    rows={2}
-                  />
-                </label>
-                <label className={styles.buyerField}>
-                  <span>Desired outcome</span>
-                  <textarea
-                    className={styles.contextTextarea}
-                    value={context.desired_outcome ?? ""}
-                    onChange={(event) => update(index, { desired_outcome: event.target.value })}
-                    placeholder="What result they want"
-                    rows={2}
-                  />
-                </label>
-                <label className={styles.buyerField}>
-                  <span>Concerns or constraints</span>
-                  <textarea
-                    className={styles.contextTextarea}
-                    value={context.constraints ?? ""}
-                    onChange={(event) => update(index, { constraints: event.target.value })}
-                    placeholder="Risks, objections, budget, timing, special needs"
-                    rows={2}
-                  />
-                </label>
-                <label className={styles.buyerField}>
-                  <span>Decision criteria</span>
-                  <textarea
-                    className={styles.contextTextarea}
-                    value={context.decision_criteria ?? ""}
-                    onChange={(event) => update(index, { decision_criteria: event.target.value })}
-                    placeholder="What would make them choose"
-                    rows={2}
-                  />
-                </label>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <button
-        type="button"
-        className={styles.secondaryBtn}
-        onClick={() => onChange([...safeContexts, blankBuyerContext()])}
-      >
-        Add target customer
-      </button>
-    </section>
-  );
-}
-
-function Step3({
-  profile,
-  setProfile,
-  draftFlags,
+function StepConfirm({
+  fields,
+  status,
+  model,
+  onChangeText,
+  onChangeList,
+  onRegenerate,
   onBack,
   onConfirm,
   saving,
   error,
 }: {
-  profile: ContextProfile;
-  setProfile: (profile: ContextProfile) => void;
-  draftFlags: Record<string, string>;
+  fields: DraftedFields;
+  status: ActionStatus;
+  model: string;
+  onChangeText: (key: "description" | "industry", value: string) => void;
+  onChangeList: (key: "audiences" | "competitors", values: string[]) => void;
+  onRegenerate: () => void;
   onBack: () => void;
   onConfirm: () => void;
   saving: boolean;
   error: string | null;
 }) {
-  function update(key: keyof ContextProfile, items: ContextItem[]) {
-    setProfile({ ...profile, [key]: items });
+  if (status === "loading") {
+    return (
+      <div className={styles.scanRunning}>
+        <div className={styles.scanSpinner} />
+        <div>
+          <p className={styles.scanTitle}>Reading your website...</p>
+          <p className={styles.scanCopy}>
+            AISO is figuring out what you do, who you serve, and who you compete with. You can edit all of it next.
+          </p>
+        </div>
+      </div>
+    );
   }
-  function updateLocations(key: keyof ContextProfile["locations"], items: ContextItem[]) {
-    setProfile({ ...profile, locations: { ...profile.locations, [key]: items } });
-  }
-  function updateScanObjective(objectives: string[], custom?: string) {
-    setProfile({
-      ...profile,
-      scan_objective: scanObjectiveFromSelection(
-        objectives,
-        custom ?? profile.scan_objective?.custom_objective ?? profile.scan_objective?.custom ?? "",
-      ),
-    });
-  }
-  const scanObjective = normalizedScanObjective(profile.scan_objective ?? defaultScanObjective());
-  const selectedObjectives = selectedObjectiveIds(scanObjective);
-  const customObjective = scanObjective.custom_objective ?? scanObjective.custom ?? "";
-  const objectiveCount = selectedObjectives.length + (customObjective.trim() ? 1 : 0);
-  const objectiveFlag = visibleFlag(draftFlags.objective, { required: true, hasValue: objectiveCount > 0 });
-  function toggleScanObjective(objectiveId: string) {
-    const next = selectedObjectives.includes(objectiveId)
-      ? selectedObjectives.filter((selected) => selected !== objectiveId)
-      : [...selectedObjectives, objectiveId];
-    updateScanObjective(next);
-  }
-  const buyerContexts = profile.buyer_contexts ?? [];
+
+  const listEditor = (key: "audiences" | "competitors", label: string, placeholder: string) => {
+    const values = fields[key];
+    return (
+      <div className={styles.fieldGroup}>
+        <div className={styles.labelRow}>
+          <label className={styles.label}>{label}</label>
+          <span className={styles.labelHint}>{values.length}</span>
+        </div>
+        <div className={styles.customQuestionPanel}>
+          {values.length > 0 && (
+            <div className={styles.customQuestionList}>
+              {values.map((value, index) => (
+                <div key={index} className={styles.customQuestionRow}>
+                  <input
+                    className="input"
+                    value={value}
+                    placeholder={placeholder}
+                    onChange={(event) => onChangeList(key, values.map((v, i) => (i === index ? event.target.value : v)))}
+                  />
+                  <button
+                    type="button"
+                    className={styles.removeMiniBtn}
+                    onClick={() => onChangeList(key, values.filter((_, i) => i !== index))}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button type="button" className={styles.secondaryBtn} onClick={() => onChangeList(key, [...values, ""])}>
+            Add {label.toLowerCase()}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const canConfirm = fields.description.trim().length > 0 && fields.industry.trim().length > 0;
+
   return (
     <div>
-      <span className={styles.stepBadge}>Step 3 of 4 · Review business profile</span>
-      <h2 className={styles.stepTitle}>Review scan context before launch</h2>
+      <span className={styles.stepBadge}>Step 3 of 5 · Confirm your business</span>
+      <h2 className={styles.stepTitle}>Here&apos;s what we understood</h2>
       <p className={styles.stepSubtitle}>
-        AISO uses this profile to create the question bank. Keep the context specific, factual, and free of anything that does not apply.
+        AISO read your website and drafted this. Fix anything that&apos;s off - it shapes your prompts and scan. Empty? Just fill it in.
       </p>
-      <div className={styles.reviewGuide}>
-        <div>
-          <strong>1. Check the profile</strong>
-          <span>Each box is editable. Keep one item per line and remove anything that is not real.</span>
+
+      {status === "error" && (
+        <div className={styles.validationError} role="alert">
+          We couldn&apos;t read your site well - fill in the fields below, or{" "}
+          <button type="button" className={styles.secondaryBtn} onClick={onRegenerate}>try again</button>.
         </div>
-        <div>
-          <strong>2. Separate meanings</strong>
-          <span>Offerings, offering groups, product lines, competitors, locations, and markets are used differently.</span>
-        </div>
-        <div>
-          <strong>3. Continue when clean</strong>
-          <span>Target customers are optional. The next step chooses providers, intent groups, API keys, and launches.</span>
-        </div>
-      </div>
+      )}
       {error && <div className={styles.validationError} role="alert">{error}</div>}
-      <section className={styles.contextSection}>
-        <div className={styles.contextSectionHeader}>
-          <div>
-            <h3>What should this scan optimize for?</h3>
-            <p>This changes which buyer questions are prioritized in the final bank.</p>
-          </div>
-          <div className={styles.sectionMeta}>
-            {flagLabel(objectiveFlag) && <span className={`${styles.sourceFlag} ${flagClass(objectiveFlag)}`}>{flagLabel(objectiveFlag)}</span>}
-            <span>{objectiveCount}</span>
-          </div>
-        </div>
-        <OptimizationObjectiveSelector
-          options={SCAN_OBJECTIVES}
-          selectedObjectiveIds={selectedObjectives}
-          customObjective={customObjective}
-          onToggleObjective={toggleScanObjective}
-          onCustomObjectiveChange={(customObjective) => updateScanObjective(selectedObjectives, customObjective)}
-        />
-      </section>
-      <div className={styles.contextGrid}>
-        <BuyerContextSection
-          contexts={buyerContexts}
-          flag={draftFlags.icp}
-          onChange={(items) => setProfile({ ...profile, buyer_contexts: items })}
-        />
-        <ContextSection
-          title="Categories"
-          hint="Broad business categories or product areas, not every individual offer."
-          items={profile.categories}
-          type="category"
-          flag={draftFlags.category}
-          onChange={(items) => update("categories", items)}
-        />
-        <ContextSection
-          title="Offering groups"
-          hint="Collections such as coaching programs, software plans, product lines, service packages, or memberships."
-          items={profile.offering_groups}
-          type="offering_group"
-          extra={{ bookable: false }}
-          onChange={(items) => update("offering_groups", items)}
-        />
-        <ContextSection
-          title="Customer-facing offerings"
-          hint="Specific services, products, programs, packages, subscriptions, or plans customers can buy, book, request, or evaluate."
-          items={profile.offerings}
-          type="offering"
-          extra={{ bookable: true }}
-          required
-          onChange={(items) => update("offerings", items)}
-        />
-        <ContextSection
-          title="Product brands"
-          hint="Brands, product lines, private labels, or vendors used, sold, or carried. Not competitors."
-          items={profile.product_brands}
-          type="product_brand"
-          onChange={(items) => update("product_brands", items)}
-        />
-        <ContextSection
-          title="Competitors"
-          hint="Recommended for competitor and head-to-head insights. Leave blank to skip competitor-only coverage."
-          items={profile.competitors}
-          type="competitor_business"
-          flag={draftFlags.competitors}
-          onChange={(items) => update("competitors", items)}
-        />
-        <ContextSection
-          title="Stores, offices, or physical locations"
-          hint="Places tied to in-person availability, pickup, visits, service, or local proof."
-          items={profile.locations.physical_locations}
-          type="physical_location"
-          flag={draftFlags.geographic_scope}
-          onChange={(items) => updateLocations("physical_locations", items)}
-        />
-        <ContextSection
-          title="Coverage, delivery, or service areas"
-          hint="Areas where customers can buy, receive delivery, book service, or work with the business."
-          items={profile.locations.service_areas}
-          type="service_area"
-          flag={draftFlags.geographic_scope}
-          onChange={(items) => updateLocations("service_areas", items)}
-        />
-        <ContextSection
-          title="Markets to measure visibility in"
-          hint="Broader geographic or audience markets for awareness and comparison questions, not urgent purchase or availability prompts."
-          items={profile.locations.visibility_markets}
-          type="visibility_market"
-          extra={{ usage: "visibility_only" }}
-          flag={draftFlags.geographic_scope}
-          onChange={(items) => updateLocations("visibility_markets", items)}
-        />
-        <ContextSection
-          title="Goals"
-          hint="Customer outcomes, buying jobs, or evaluation goals AISO should test."
-          items={profile.goals}
-          type="goal"
-          onChange={(items) => update("goals", items)}
-        />
-        <ContextSection
-          title="Audience segments or use cases"
-          hint="Customer types, buyer roles, occasions, constraints, or use cases. These become customer-intent prompts."
-          items={profile.personas}
-          type="persona"
-          flag={draftFlags.personas}
-          onChange={(items) => update("personas", items)}
-        />
-        <ContextSection
-          title="Differentiators"
-          hint="Proof points, strengths, guarantees, and positioning."
-          items={profile.differentiators}
-          type="differentiator"
-          onChange={(items) => update("differentiators", items)}
-        />
+
+      <div className={styles.labelRow} style={{ marginBottom: "0.75rem" }}>
+        <span className={styles.labelHint}>{model ? `AI-drafted · ${model}` : "AI-drafted"}</span>
+        <button type="button" className={styles.secondaryBtn} onClick={onRegenerate}>Regenerate</button>
       </div>
+
+      <div className={styles.fields}>
+        <div className={styles.fieldGroup}>
+          <label className={styles.label}>What you do</label>
+          <textarea
+            className={styles.customQuestionInput}
+            style={{ minHeight: "6rem", width: "100%" }}
+            value={fields.description}
+            placeholder="What your business does and who it's for..."
+            onChange={(event) => onChangeText("description", event.target.value)}
+          />
+        </div>
+        <div className={styles.fieldGroup}>
+          <label className={styles.label}>Industry</label>
+          <input
+            className="input"
+            value={fields.industry}
+            placeholder="e.g. AI search optimization"
+            onChange={(event) => onChangeText("industry", event.target.value)}
+          />
+        </div>
+        {listEditor("audiences", "Who you serve", "e.g. marketing teams")}
+        {listEditor("competitors", "Competitors", "e.g. a competitor brand")}
+      </div>
+
       <div className={styles.navRow}>
         <button type="button" className={styles.backBtn} onClick={onBack}>Back</button>
-        <button type="button" className={styles.nextBtn} onClick={onConfirm} disabled={saving || profile.offerings.length === 0 || !hasScanObjective(scanObjective)}>
-          {saving ? "Saving profile..." : "Looks good, configure scan"}
+        <button type="button" className={styles.nextBtn} onClick={onConfirm} disabled={saving || !canConfirm}>
+          {saving ? "Saving..." : "Looks good, generate prompts"}
         </button>
       </div>
     </div>
@@ -2315,14 +1750,14 @@ export default function OnboardingPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [context, setContext] = useState<ClientContextData | null>(null);
   const [profile, setProfile] = useState<ContextProfile>(emptyProfile(DEFAULT));
-  const [draftFlags, setDraftFlags] = useState<Record<string, string>>({});
+  const [, setDraftFlags] = useState<Record<string, string>>({});
   const [verticalOptions, setVerticalOptions] = useState<VerticalOption[]>([]);
   const [verticalOptionsStatus, setVerticalOptionsStatus] = useState<ActionStatus>("loading");
   const [verticalOptionsError, setVerticalOptionsError] = useState<string | null>(null);
   const [intakeSchema, setIntakeSchema] = useState<IntakeSchema | null>(null);
   const [schemaStatus, setSchemaStatus] = useState<ActionStatus>("idle");
   const [schemaError, setSchemaError] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  const [, setWarnings] = useState<string[]>([]);
   const [basicsStatus, setBasicsStatus] = useState<ActionStatus>("idle");
   const [discovering, setDiscovering] = useState(false);
   const [savingContext, setSavingContext] = useState(false);
@@ -2336,6 +1771,10 @@ export default function OnboardingPage() {
   const [promptsError, setPromptsError] = useState<string | null>(null);
   const [promptsModel, setPromptsModel] = useState<string>("");
   const [promptVariation, setPromptVariation] = useState(0);
+  const [draftedFields, setDraftedFields] = useState<DraftedFields | null>(null);
+  const [draftFieldsStatus, setDraftFieldsStatus] = useState<ActionStatus>("idle");
+  const [draftFieldsModel, setDraftFieldsModel] = useState<string>("");
+  const [draftVariation, setDraftVariation] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useLayoutEffect(() => {
@@ -2487,32 +1926,20 @@ export default function OnboardingPage() {
         return;
       }
 
-      const review = await getReviewBundle(workspace.workspace_id);
       const discoveredContext = await getClientContext(id);
-      const nextContext = discoveredContext?.profile_json
+      const baseContext: ClientContextData = discoveredContext?.profile_json
         ? discoveredContext
-        : reviewProfileToContext(review, id, sourceForm);
-      let profileDraft: PipelineProfileDraft | null = null;
-      try {
-        profileDraft = await draftPipelineProfile(id);
-      } catch {
-        profileDraft = null;
-      }
-      const draftedProfile = profileDraft
-        ? applyPipelineDraftToContext(normalizedProfile(nextContext.profile_json ?? emptyProfile(sourceForm)), profileDraft, sourceForm)
-        : normalizedProfile(nextContext.profile_json ?? emptyProfile(sourceForm));
-      const nextEvidence = {
-        ...(nextContext.evidence_json ?? {}),
-        profile_draft: profileDraft ? { field_sources: profileDraft.field_flags } : nextContext.evidence_json?.profile_draft,
-      };
+        : { client_id: id, status: "draft", profile_json: emptyProfile(sourceForm), evidence_json: null, warnings_json: [] };
+      const baseProfile = normalizedProfile(baseContext.profile_json ?? emptyProfile(sourceForm));
+      setContext({ ...baseContext, profile_json: baseProfile });
+      setWarnings(baseContext.warnings_json ?? []);
+      setProfile(baseProfile);
+      // AI drafts the confirmable business fields (description/industry/audiences/
+      // competitors) from the crawled homepage text. The user confirms next.
+      await loadDraftFields(id, 0);
 
-      setContext({ ...nextContext, profile_json: draftedProfile, evidence_json: nextEvidence });
-      setWarnings(nextContext.warnings_json ?? []);
-      setProfile(draftedProfile);
-      setDraftFlags(profileDraft?.field_flags ?? nextContext.evidence_json?.profile_draft?.field_sources ?? {});
-
-      if (job.status === "failed" || nextContext.status === "failed") {
-        setError("AISO could not finish website discovery. Please confirm the client context manually.");
+      if (job.status === "failed" || baseContext.status === "failed") {
+        setError("AISO could not finish reading your website. You can still fill in the details on the next step.");
       }
     } catch (err) {
       setContext(null);
@@ -2564,39 +1991,45 @@ export default function OnboardingPage() {
 
   async function handleConfirmContext() {
     if (!clientId) return;
-    if (profile.offerings.length === 0) {
-      setError("Add at least one customer-facing offering before launching a scan.");
+    const fields = draftedFields;
+    if (!fields || !fields.description.trim() || !fields.industry.trim()) {
+      setError("Add what you do and your industry before continuing.");
       return;
     }
-    if (!hasScanObjective(profile.scan_objective)) {
-      setError("Choose at least one scan objective before configuring the scan.");
-      return;
-    }
-    const readyBuyerContexts = (profile.buyer_contexts ?? []).filter(buyerContextIsUsable);
     setSavingContext(true);
     setError(null);
     try {
-      const normalized = normalizedProfile({ ...profile, buyer_contexts: readyBuyerContexts });
+      const item = (name: string, type: string): ContextItem => ({ name: name.trim(), type, confidence: 1 });
+      const competitors = fields.competitors.map((c) => c.trim()).filter(Boolean);
+      const audiences = fields.audiences.map((a) => a.trim()).filter(Boolean);
+      // Build a minimal confirmed profile from the AI-drafted fields - no offerings/
+      // locations. industry -> category and audiences -> personas feed the prompts.
+      const confirmedProfile: ContextProfile = {
+        ...emptyProfile(form),
+        categories: [item(fields.industry, "category")],
+        competitors: competitors.map((c) => item(c, "competitor_business")),
+        personas: audiences.map((a) => item(a, "persona")),
+        differentiators: fields.description.trim() ? [item(fields.description, "differentiator")] : [],
+      };
       if (workspaceId && context?.status !== "confirmed") {
         try {
-          await editCrawlerBusinessProfile(workspaceId, normalized);
+          await editCrawlerBusinessProfile(workspaceId, confirmedProfile);
           await approveCrawlerBusinessProfile(workspaceId);
         } catch (err) {
           if (!isApprovedCrawlerProfileConflict(err)) throw err;
         }
         setWorkspaceId(null);
       }
-      await confirmPipelineBusinessProfile(clientId, normalized);
-      const saved = await saveClientContext(clientId, normalized, warnings);
+      await confirmPipelineBusinessProfile(clientId, confirmedProfile);
+      const saved = await saveClientContext(clientId, confirmedProfile, []);
       setContext(saved);
       if (saved.status === "confirmed") setWorkspaceId(null);
-      setProfile(normalizedProfile(saved.profile_json ?? normalized));
-      setWarnings(saved.warnings_json ?? warnings);
-      setForm({ ...form, competitors: competitorNamesFromProfile(normalized).join(", ") });
+      setProfile(normalizedProfile(saved.profile_json ?? confirmedProfile));
+      setForm({ ...form, competitors: competitors.join(", ") });
       setStep(4);
       void loadPrompts(clientId, 0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to confirm context.");
+      setError(err instanceof Error ? err.message : "Unable to save your business.");
     } finally {
       setSavingContext(false);
     }
@@ -2641,6 +2074,41 @@ export default function OnboardingPage() {
         brand_frame: kind === "branded" ? "brand_only" : "unbranded_category",
       },
     ]);
+  }
+
+  async function loadDraftFields(cid: string, variation: number) {
+    setDraftFieldsStatus("loading");
+    setError(null);
+    try {
+      const fields = await draftFields(cid, variation);
+      setDraftedFields({
+        description: fields.description,
+        industry: fields.industry,
+        audiences: fields.audiences,
+        competitors: fields.competitors,
+      });
+      setDraftFieldsModel(fields.model);
+      setDraftFieldsStatus("idle");
+    } catch {
+      // Cold-start / thin site: don't dead-end - drop to an empty, fillable form.
+      setDraftedFields(emptyDraftedFields());
+      setDraftFieldsStatus("error");
+    }
+  }
+
+  function handleRegenerateDraft() {
+    if (!clientId) return;
+    const next = draftVariation + 1;
+    setDraftVariation(next);
+    void loadDraftFields(clientId, next);
+  }
+
+  function setDraftText(key: "description" | "industry", value: string) {
+    setDraftedFields((prev) => ({ ...(prev ?? emptyDraftedFields()), [key]: value }));
+  }
+
+  function setDraftList(key: "audiences" | "competitors", values: string[]) {
+    setDraftedFields((prev) => ({ ...(prev ?? emptyDraftedFields()), [key]: values }));
   }
 
   function handleManualContext() {
@@ -2774,10 +2242,13 @@ export default function OnboardingPage() {
           />
         )}
         {step === 3 && (
-          <Step3
-            profile={profile}
-            setProfile={setProfile}
-            draftFlags={draftFlags}
+          <StepConfirm
+            fields={draftedFields ?? emptyDraftedFields()}
+            status={draftFieldsStatus}
+            model={draftFieldsModel}
+            onChangeText={setDraftText}
+            onChangeList={setDraftList}
+            onRegenerate={handleRegenerateDraft}
             onBack={() => setStep(context ? 2 : 1)}
             onConfirm={() => void handleConfirmContext()}
             saving={savingContext}
