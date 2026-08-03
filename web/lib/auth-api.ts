@@ -99,6 +99,36 @@ export async function upsertOAuthUser(input: {
   return postAuth("/oauth/upsert", input);
 }
 
+export type Entitlements = {
+  user_id: string;
+  email: string;
+  plan_tier: "free" | "pro" | "custom";
+  account_role: "user" | "admin";
+  max_clients: number;
+  uses_managed_keys: boolean;
+  business_count: number;
+  billing_model: string;
+  can_download_artifacts: boolean;
+  can_view_full_citations: boolean;
+  can_view_source_graph: boolean;
+};
+
+// Server-side read of the current user's entitlements + live business count, used
+// to gate the dashboard. ``/me`` is scoped by the X-User-Id header (the same one
+// the proxy attaches for the browser). Returns null when the backend does not
+// recognize the user (401) - e.g. a stale session for a since-deleted account.
+export async function fetchEntitlements(userId: string): Promise<Entitlements | null> {
+  const response = await fetch(`${BACKEND_URL}/api/v1/auth/me`, {
+    headers: { "X-User-Id": userId },
+    cache: "no-store",
+  });
+  if (response.status === 401) return null;
+  if (!response.ok) {
+    throw new AuthApiError("entitlements_failed", response.status, "entitlements_failed");
+  }
+  return response.json() as Promise<Entitlements>;
+}
+
 // Exchange a one-time post-verification grant for the user (no password). Backs the
 // token path in NextAuth's credentials authorize so a just-verified account signs in.
 export async function consumeSigninToken(input: {
