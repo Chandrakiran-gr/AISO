@@ -110,7 +110,7 @@ Return ONLY a JSON object, no prose and no code fence:
 - "description": 1-2 plain sentences on what {brand} does and who it is for. No marketing fluff, no legalese. <= 400 chars.
 - "industry": a short category label (e.g. "AI creative tools", "CRM software", "boutique skincare spa").
 - "audiences": 2-5 short phrases for who buys/uses it (e.g. "creative teams", "enterprise support leaders").
-- "competitors": up to 6 real competing brands. Keep these already provided: {competitor_line}. Add real ones you know; if unsure, return only the provided list. Never invent fake names.
+- "competitors": up to 6 real, well-known companies in the same category/space as {brand} (infer the space from what it does). List real brands a buyer would compare it against; if you do not know direct competitors, name the leading real brands in that category. Never invent names and never list "{brand}" itself. Keep any already provided first: {competitor_line}.
 
 Base everything on the site text and what you reliably know about {brand}. Do not include Terms-of-Service or legal boilerplate.
 """

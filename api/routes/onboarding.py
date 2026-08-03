@@ -442,16 +442,26 @@ def _profile_for_user(db: Session, onboarding_id: str, user_id: str) -> Business
 
 
 def _onboarding_provider_for_user(db, user_id, *, managed, heuristic) -> UpstreamLLMProvider:
-    """Pick the onboarding LLM provider by the requesting user's tier.
+    """Pick the onboarding LLM provider for the requesting user.
 
-    Free tier → deterministic heuristic (no server LLM spend). Pro/custom → the
-    managed (OpenAI) provider. An unknown user falls back to managed (the route
-    is authed upstream; only an existing *free* user is downgraded to heuristic).
+    Onboarding *generation* (profile draft, prompts, questions) runs on OpenRouter
+    free/open models for every tier - it is server-key text the user confirms
+    before anything runs, at ~zero cost, and is not the scan. So free tier uses
+    OpenRouter too, and only falls back to the deterministic heuristic when
+    OpenRouter is not configured - never a paid first-party key. Pro/custom get
+    the full managed chain (OpenRouter, then a first-party key).
+
+    (The scan engine still honors free -> legacy/BYOK; this gates generation only.)
     """
+    provider = managed()
     user = db.query(User).filter(User.id == user_id).first()
     if user is not None and not uses_managed_keys_for_user(user):
+        # Free tier: keep OpenRouter (free models, no spend); otherwise the
+        # deterministic heuristic. Never a paid first-party provider.
+        if getattr(provider, "provider", "") == "openrouter":
+            return provider
         return heuristic()
-    return managed()
+    return provider
 
 
 def get_profile_draft_provider(
