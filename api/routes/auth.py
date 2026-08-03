@@ -460,7 +460,7 @@ def reset_password(payload: ResetPassword, db: Session = Depends(get_db)) -> OkR
 DELETE_ACCOUNT_PHRASE = "I confirm to delete my account"
 
 
-@router.post("/delete-account", response_model=OkResponse)
+@router.post("/remove-account", response_model=OkResponse)
 def delete_account(
     payload: DeleteAccount,
     db: Session = Depends(get_db),

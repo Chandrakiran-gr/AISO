@@ -336,7 +336,7 @@ class AccountDeletionTests(unittest.TestCase):
     def test_wrong_phrase_does_not_delete(self):
         self._seed()
         r = self.client.post(
-            "/api/v1/auth/delete-account",
+            "/api/v1/auth/remove-account",
             json={"confirmation": "delete my account"},
             headers={"X-User-Id": "del-1"},
         )
@@ -347,7 +347,7 @@ class AccountDeletionTests(unittest.TestCase):
     def test_correct_phrase_deletes_and_cascades(self):
         self._seed()
         r = self.client.post(
-            "/api/v1/auth/delete-account",
+            "/api/v1/auth/remove-account",
             json={"confirmation": "I confirm to delete my account"},
             headers={"X-User-Id": "del-1"},
         )
@@ -356,7 +356,7 @@ class AccountDeletionTests(unittest.TestCase):
 
     def test_requires_authentication(self):
         r = self.client.post(
-            "/api/v1/auth/delete-account",
+            "/api/v1/auth/remove-account",
             json={"confirmation": "I confirm to delete my account"},
         )
         self.assertEqual(r.status_code, 401)
