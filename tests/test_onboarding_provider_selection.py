@@ -1,9 +1,10 @@
 """Onboarding LLM provider selection by tier.
 
-Free → deterministic heuristic (no server spend). Pro/custom → managed LLM:
-question (prompt) generation prefers OpenRouter (free/open models), falling back
-to OpenAI then heuristic; profile draft / scoring / realism use OpenAI, falling
-back to heuristic when no server key is configured.
+Onboarding *generation* runs on OpenRouter free/open models for every tier - it
+is server-key text the user confirms, at ~zero cost, and is not the scan. So free
+tier uses OpenRouter when configured, and only falls back to the deterministic
+heuristic otherwise - never a paid first-party key. Pro/custom get the full
+managed chain (OpenRouter, then a first-party key, then heuristic).
 """
 
 import os
@@ -24,7 +25,7 @@ from api.adapters.profile_draft import (
 from api.adapters.question_generation import managed_question_generation_provider
 from api.adapters.question_scorer import managed_question_scorer_provider
 from api.adapters.realism_filter import managed_realism_filter_provider
-from api.database import Base, User
+from api.database import User
 from api.routes.onboarding import (
     get_profile_draft_provider,
     get_question_generation_provider,
@@ -120,10 +121,21 @@ class TierSelectionTests(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
 
-    def test_free_user_gets_heuristic_even_with_server_key(self):
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
+    def test_free_user_gets_openrouter_when_keyed(self):
+        # Onboarding generation runs on OpenRouter free/open models for every tier
+        # (server-key text the user confirms, ~zero cost). Free tier included.
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "or-test"}):
             prov = get_profile_draft_provider(db=self.db, user_id="free-u")
-        self.assertEqual(prov.provider, "local")  # free never spends server keys
+        self.assertEqual(prov.provider, "openrouter")
+
+    def test_free_user_never_uses_paid_first_party_key(self):
+        # No OpenRouter, only a paid OpenAI key -> free tier stays on the heuristic,
+        # never a paid first-party provider.
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
+            os.environ.pop("OPENROUTER_API_KEY", None)
+            os.environ.pop("ONBOARDING_LLM_API_KEY", None)
+            prov = get_profile_draft_provider(db=self.db, user_id="free-u")
+        self.assertEqual(prov.provider, "local")  # free never spends a paid key
 
     def test_pro_user_gets_openrouter_when_keyed(self):
         # Pro users get OpenRouter for prompt generation when keyed.
