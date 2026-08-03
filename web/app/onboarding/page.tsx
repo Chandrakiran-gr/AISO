@@ -689,9 +689,10 @@ async function startPipelineOnboarding(
   });
   if (!patchRes.ok) throw new Error(await readApiError(patchRes, `Failed to save intake (${patchRes.status})`));
 
-  const submitRes = await fetch(`${API}/v1/onboarding/${onboardingId}/submit`, { method: "POST" });
-  if (!submitRes.ok) throw new Error(await readApiError(submitRes, `Minimum context floor failed (${submitRes.status})`));
-
+  // Do not complete onboarding here. The Minimum Context Floor (category) is met
+  // later at the Review step, where the AI-drafted industry becomes the category
+  // and the user confirms via /confirm-profile. Submitting now fails the floor for
+  // a brand-new business that has no category yet (it is only crawled next).
   return {
     id: started.client_id,
     name: started.client_name,
