@@ -51,6 +51,14 @@
   white-space: nowrap;
 }
 
+.methodologyNote {
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+  padding-left: 11px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
 .chartFrame {
   height: 308px;
   min-width: 0;
