@@ -418,6 +418,9 @@ def phase13_timeline_points_for_clients(
                 "status": _legacy_scan_status(run.status),
                 "created_at": run.enqueued_at,
                 "completed_at": run.finished_at,
+                # Phase 13 runs the onboarding-approved prompt manifest, not
+                # the retired G1-G7 template bank.
+                "methodology": "prompt_set",
                 "metrics": {
                     "overall_score": metrics["overall_score"],
                     "total_questions": metrics["total_questions"],

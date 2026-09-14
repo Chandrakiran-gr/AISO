@@ -73,6 +73,8 @@ type CustomQuestionsData = {
   client_id: string;
   data_status: string;
   questions: CustomQuestionResult[];
+  /** "prompt_set" when these questions are the whole scan, else "group_bank". */
+  methodology?: string;
 };
 
 function formatDate(value?: string | null): string {
@@ -340,9 +342,15 @@ export default function ScanDetailPage() {
               <div className={`${styles.detailCard} ${styles.customQuestionsCard}`}>
                 <div className={styles.exportsHeader}>
                   <div>
-                    <h2 className={styles.sectionTitle}>Custom Questions</h2>
+                    <h2 className={styles.sectionTitle}>
+                      {customQuestions.methodology === "prompt_set"
+                        ? "Scan Prompts"
+                        : "Custom Questions"}
+                    </h2>
                     <p className={styles.exportsSub}>
-                      These were client-authored questions added only for this scan. They do not affect benchmark scores.
+                      {customQuestions.methodology === "prompt_set"
+                        ? "Every prompt this scan ran. All of them count toward your visibility score."
+                        : "Questions added on top of the standard set for this scan. They count toward your visibility score."}
                     </p>
                   </div>
                   <span className={styles.exportsPlanBadge}>

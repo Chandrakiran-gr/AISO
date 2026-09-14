@@ -31,6 +31,8 @@ type TimelinePoint = {
   created_at: string;
   completed_at?: string | null;
   metrics: TimelineMetrics;
+  /** "group_bank" (retired G1-G7 bank) or "prompt_set" (approved onboarding prompts). */
+  methodology?: string;
 };
 
 type ProgressState = {
@@ -61,6 +63,7 @@ function toTrendPoint(point: TimelinePoint, value: number): TrendPoint {
     scanId: point.scan_id,
     label: formatAxisDate(point.completed_at ?? point.created_at),
     value,
+    methodology: point.methodology ?? "group_bank",
   };
 }
 
@@ -244,6 +247,7 @@ export default function ProgressPage() {
                 data={completionRateData}
                 valueSuffix="%"
                 stroke="var(--accent-violet)"
+                markMethodologyBreak={false}
                 onPointClick={openScan}
               />
             </div>

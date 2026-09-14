@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -116,12 +115,14 @@ class PipelineMetricsTests(unittest.TestCase):
             you = next(item for item in metrics.competitors if item.is_you)
             bella = next(item for item in metrics.competitors if item.name == "Bella Boutique Spa")
 
+            # openai now scores over G2 + MANUAL together: 1 mention / 54
+            # questions, against Bella's 2 + 50 / 54.
             self.assertEqual(you.provider_scores["perplexity"], 75.0)
-            self.assertEqual(you.provider_scores["openai"], 25.0)
+            self.assertEqual(you.provider_scores["openai"], 1.85)
             self.assertEqual(bella.provider_scores["perplexity"], 0.0)
-            self.assertEqual(bella.provider_scores["openai"], 50.0)
-            self.assertEqual(metrics.total_questions, 16)
-            self.assertFalse(any(item.id == "MANUAL" for item in metrics.group_metrics))
+            self.assertEqual(bella.provider_scores["openai"], 96.3)
+            self.assertEqual(metrics.total_questions, 66)
+            self.assertTrue(any(item.id == "MANUAL" for item in metrics.group_metrics))
         finally:
             session.close()
 
@@ -185,7 +186,8 @@ class PipelineMetricsTests(unittest.TestCase):
         finally:
             session.close()
 
-    def test_db_gap_report_excludes_manual_rows(self):
+    def test_db_gap_report_counts_manual_rows(self):
+        """The approved prompt set lands in MANUAL and has to reach the report."""
         session = self.Session()
         try:
             user = User(id="user-1", email="founder@example.com")
@@ -258,9 +260,8 @@ class PipelineMetricsTests(unittest.TestCase):
 
             report = _db_backed_gap_report(session, client, scan)
 
-            self.assertEqual(report["summary"]["total_provider_question_results"], 2)
-            self.assertFalse(any(item["group"] == "MANUAL" for item in report["coverage"]))
-            self.assertFalse(any(item["group"] == "MANUAL" for item in report["query_results"]))
+            self.assertEqual(report["summary"]["total_provider_question_results"], 12)
+            self.assertTrue(any(item["group"] == "MANUAL" for item in report["coverage"]))
         finally:
             session.close()
 
@@ -372,8 +373,13 @@ class PipelineMetricsTests(unittest.TestCase):
 
             self.assertEqual([point.scan_id for point in points], ["scan-old", "scan-new"])
             self.assertEqual(points[0].metrics.overall_score, 40.0)
-            self.assertEqual(points[1].metrics.overall_score, 70.0)
-            self.assertEqual(points[1].metrics.gap_count, 3)
+            self.assertEqual(points[1].metrics.overall_score, 35.0)
+            self.assertEqual(points[1].metrics.gap_count, 13)
+            # Both scans mix G-groups with MANUAL, so neither is a pure
+            # prompt-set scan and the timeline draws no methodology break.
+            self.assertEqual(
+                [point.methodology for point in points], ["group_bank", "group_bank"]
+            )
             self.assertEqual(points[1].metrics.action_count, 2)
             self.assertEqual(points[1].metrics.completed_action_count, 1)
             self.assertEqual(points[1].metrics.action_completion_rate, 50.0)

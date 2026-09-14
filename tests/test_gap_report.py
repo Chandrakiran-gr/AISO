@@ -42,7 +42,7 @@ class GapReportTests(unittest.TestCase):
                 "response_openai": "Bella Boutique Spa and Glowbar are visible options.",
             },
             {
-                "question": "Client-authored question that should not affect templated gaps?",
+                "question": "Client-authored question that also counts toward gaps?",
                 "group": "MANUAL",
                 "response_perplexity": "Bella Boutique Spa appears here.",
                 "response_openai": "Glowbar Chestnut Hill appears here.",
@@ -61,11 +61,13 @@ class GapReportTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(report["summary"]["total_provider_question_results"], 4)
+        # The MANUAL row adds two more provider-question results, and PemSpa is
+        # absent from both, so it lands wholly on the missed side.
+        self.assertEqual(report["summary"]["total_provider_question_results"], 6)
         self.assertEqual(report["summary"]["appeared_count"], 1)
-        self.assertEqual(report["summary"]["missed_count"], 3)
+        self.assertEqual(report["summary"]["missed_count"], 5)
         self.assertTrue(any(not item["appeared"] for item in report["query_results"]))
-        self.assertFalse(any(item["group"] == "MANUAL" for item in report["query_results"]))
+        self.assertTrue(any(item["group"] == "MANUAL" for item in report["query_results"]))
         self.assertTrue(any(item["domain"] == "yelp.com" for item in report["source_opportunities"]))
         self.assertTrue(any(item["name"] == "Glowbar Chestnut Hill" for item in report["competitor_gaps"]))
         self.assertTrue(report["priority_fixes"])

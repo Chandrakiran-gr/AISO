@@ -252,6 +252,9 @@ class CustomQuestionsResponse(BaseModel):
     client_id: str
     data_status: str
     questions: List[CustomQuestionResult] = Field(default_factory=list)
+    # "prompt_set" when these questions are the whole scan, "group_bank" when
+    # they were added on top of the retired G1-G7 set. Drives the UI heading.
+    methodology: str = "group_bank"
 
 
 class SourceProfileResponse(BaseModel):
@@ -349,6 +352,9 @@ class ScanMetricsTimelinePoint(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
     metrics: TimelineMetrics
+    # "group_bank" (retired G1-G7 template bank) or "prompt_set" (onboarding
+    # approved prompts). Scores are not comparable across the two.
+    methodology: str = "group_bank"
 
 
 GROUP_LABELS = {
@@ -937,11 +943,52 @@ def _safe_json_dict(value: Optional[str]) -> Dict[str, int]:
 
 
 def _scan_result_rows(db: Session, client_id: str, scan_id: str) -> List[ScanResult]:
-    result_rows = db.query(ScanResult).filter(
+    """Every result row for a scan, including the approved prompt set.
+
+    These rows were once filtered to drop the MANUAL group, so that a handful
+    of ad-hoc questions could not skew the G1-G7 benchmark. The onboarding
+    prompt list now *is* the question set and lands in MANUAL, so that filter
+    left real scans with nothing left to score.
+    """
+    return db.query(ScanResult).filter(
         ScanResult.scan_id == scan_id,
         ScanResult.client_id == client_id,
     ).all()
-    return [row for row in result_rows if not _is_manual_group(row.group)]
+
+
+def _latest_scan_with_results(
+    db: Session,
+    client_id: str,
+) -> tuple[Optional[Scan], List[ScanResult]]:
+    """Newest scan that still has rows once filtered, plus those rows.
+
+    Selection and filtering have to share one predicate. While they disagreed,
+    a scan whose rows were all dropped downstream still won the selection, so
+    the caller 404'd instead of falling back to the last scan it could score -
+    which hid every earlier scan from the dashboard.
+    """
+    scans = db.query(Scan).filter(
+        Scan.client_id == client_id,
+    ).order_by(Scan.created_at.desc()).all()
+    for candidate in scans:
+        rows = _scan_result_rows(db, client_id, candidate.id)
+        if rows:
+            return candidate, rows
+    return None, []
+
+
+def _scan_methodology(result_rows: List[ScanResult]) -> str:
+    """Which question methodology produced these rows.
+
+    Scans built from the onboarding-approved prompt list carry only MANUAL
+    rows; the retired G1-G7 template bank carries group-tagged rows. The two
+    measure different question sets - the old bank included a direct-brand
+    group that always scored near 100% - so their scores are not comparable
+    and the timeline marks where the change happened.
+    """
+    if result_rows and all(_is_manual_group(row.group) for row in result_rows):
+        return "prompt_set"
+    return "group_bank"
 
 
 def _build_metrics_response(client: Client, scan: Scan, result_rows: List[ScanResult]) -> MetricsResponse:
@@ -1100,6 +1147,7 @@ def _timeline_point_for_scan(
         status=scan.status,
         created_at=scan.created_at,
         completed_at=scan.completed_at,
+        methodology=_scan_methodology(result_rows),
         metrics=TimelineMetrics(
             overall_score=_weighted_score(mention_count, total_questions),
             total_questions=total_questions,
@@ -1207,8 +1255,6 @@ def _db_backed_gap_report(db: Session, client: Client, scan: Scan) -> dict[str, 
         ScanCitation.scan_id == scan.id,
         ScanCitation.client_id == client.id,
     ).all()
-    results = [row for row in results if not _is_manual_group(row.group)]
-    citations = [row for row in citations if not _is_manual_group(row.group)]
 
     total_results = sum(int(row.total_questions or 0) for row in results)
     appeared_count = sum(int(row.mention_count or 0) for row in results)
@@ -1488,25 +1534,11 @@ async def get_client_metrics(
             Scan.id == scan_id,
             Scan.client_id == client_id,
         ).first()
+        result_rows = _scan_result_rows(db, client_id, scan.id) if scan else []
     else:
-        scan = None
-        scans = db.query(Scan).filter(
-            Scan.client_id == client_id,
-        ).order_by(Scan.created_at.desc()).all()
-        for candidate in scans:
-            has_results = db.query(ScanResult.id).filter(
-                ScanResult.scan_id == candidate.id,
-                ScanResult.client_id == client_id,
-            ).first()
-            if has_results:
-                scan = candidate
-                break
+        scan, result_rows = _latest_scan_with_results(db, client_id)
 
-    if not scan:
-        raise HTTPException(status_code=404, detail="No scan metrics found")
-
-    result_rows = _scan_result_rows(db, client_id, scan.id)
-    if not result_rows:
+    if not scan or not result_rows:
         raise HTTPException(status_code=404, detail="No scan metrics found")
 
     return _build_metrics_response(client, scan, result_rows)
@@ -1580,18 +1612,7 @@ async def get_client_gap_report(
             Scan.client_id == client_id,
         ).first()
     else:
-        scan = None
-        scans = db.query(Scan).filter(
-            Scan.client_id == client_id,
-        ).order_by(Scan.created_at.desc()).all()
-        for candidate in scans:
-            has_results = db.query(ScanResult.id).filter(
-                ScanResult.scan_id == candidate.id,
-                ScanResult.client_id == client_id,
-            ).first()
-            if has_results:
-                scan = candidate
-                break
+        scan, _ = _latest_scan_with_results(db, client_id)
 
     if not scan:
         raise HTTPException(status_code=404, detail="No completed scan results found")
@@ -1855,7 +1876,13 @@ async def list_scan_custom_questions(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ):
-    """Return scan-specific custom question results without mixing them into benchmarks."""
+    """Return the MANUAL-group question results for a scan.
+
+    These used to be excluded from every score, so the endpoint existed to show
+    them somewhere. They now count like any other question, and for scans built
+    from the onboarding prompt list they *are* the question set - so the
+    response reports which case it is rather than leaving the UI to guess.
+    """
     client = db.query(Client).filter(
         Client.id == client_id,
         Client.user_id == user_id,
@@ -1948,6 +1975,7 @@ async def list_scan_custom_questions(
         "client_id": client_id,
         "data_status": data_status if question_map else "empty",
         "questions": list(question_map.values()),
+        "methodology": _scan_methodology(_scan_result_rows(db, client_id, scan_id)),
     }
 
 

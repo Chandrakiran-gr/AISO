@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,7 +16,24 @@ export type TrendPoint = {
   scanId: string;
   label: string;
   value: number;
+  /** Which question set produced the score. Values are not comparable across a change. */
+  methodology: string;
 };
+
+/**
+ * First point measured by a different question set than the point before it.
+ *
+ * The retired G1-G7 bank included a direct-brand group that scored near 100%
+ * by construction, so a switch to the onboarding prompt set drops the score
+ * without visibility having moved. The chart marks that seam rather than
+ * drawing it as a trend.
+ */
+function methodologyBreak(data: TrendPoint[]): TrendPoint | null {
+  for (let i = 1; i < data.length; i += 1) {
+    if (data[i].methodology !== data[i - 1].methodology) return data[i];
+  }
+  return null;
+}
 
 function payloadFromChartEvent(state: unknown): TrendPoint | null {
   const activePayload = (state as { activePayload?: { payload?: TrendPoint }[] } | null)?.activePayload;
@@ -29,6 +47,7 @@ export default function ProgressTrendChart({
   valueSuffix = "",
   stroke = "var(--accent-teal)",
   variant = "default",
+  markMethodologyBreak = true,
   onPointClick,
 }: {
   title: string;
@@ -37,8 +56,12 @@ export default function ProgressTrendChart({
   valueSuffix?: string;
   stroke?: string;
   variant?: "default" | "primary";
+  /** Off for series that are not derived from the scan's question set. */
+  markMethodologyBreak?: boolean;
   onPointClick: (scanId: string) => void;
 }) {
+  const breakPoint = markMethodologyBreak ? methodologyBreak(data) : null;
+
   return (
     <section className={`${styles.card} ${variant === "primary" ? styles.primary : ""}`} aria-label={title}>
       <div className={styles.header}>
@@ -85,6 +108,21 @@ export default function ProgressTrendChart({
                 color: "var(--text-primary)",
               }}
             />
+            {breakPoint && (
+              <ReferenceLine
+                x={breakPoint.label}
+                stroke="var(--text-muted)"
+                strokeDasharray="3 5"
+                strokeWidth={1}
+                label={{
+                  value: "New prompt set",
+                  position: "insideTopRight",
+                  fill: "var(--text-muted)",
+                  fontSize: 11,
+                  fontWeight: 800,
+                }}
+              />
+            )}
             <Line
               type="monotone"
               dataKey="value"
@@ -96,6 +134,13 @@ export default function ProgressTrendChart({
           </LineChart>
         </ResponsiveContainer>
       </div>
+      {breakPoint && (
+        <p className={styles.methodologyNote}>
+          Scans before {breakPoint.label} measured a different set of questions,
+          including brand-name prompts that almost always matched. Scores either
+          side of this line are not directly comparable.
+        </p>
+      )}
     </section>
   );
 }
